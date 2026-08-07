@@ -1,0 +1,82 @@
+{
+  "spike": "S2",
+  "machineNote": "Windows; MSBuild SDK 10.0.302 via DotNetSdkFolder; Roslyn 5.6.0",
+  "solution": "C:\\Code\\Skymly\\Observables\\Observables\\Observables.slnx",
+  "packageVersions": {
+    "Microsoft.CodeAnalysis.CSharp.Workspaces": "5.6.0",
+    "Microsoft.CodeAnalysis.Workspaces.MSBuild": "5.6.0",
+    "Microsoft.Build.Locator": "1.9.1",
+    "Microsoft.VisualStudio.SolutionPersistence": "transitive via Workspaces.MSBuild 5.6.0"
+  },
+  "load": {
+    "coldCleanBinObj_sdk10": {
+      "elapsedMs": 15090,
+      "peakWorkingSetMiB": 125.6,
+      "projectCount": 190,
+      "workspaceFailed": 28
+    },
+    "warmAfterCold_sdk10": {
+      "elapsedMs": 14199,
+      "peakWorkingSetMiB": 127.1,
+      "projectCount": 190,
+      "documentCount": 1509,
+      "workspaceFailed": 28
+    },
+    "earlierHotWithObj_sdk8_note": {
+      "elapsedMs": 18954,
+      "peakWorkingSetMiB": 249.4,
+      "documentCount": 2512,
+      "note": "Early run before SDK-folder registration; higher WS/docs from existing generated artifacts"
+    },
+    "failureCategories": [
+      "shproj not associated with a language (expected)",
+      "NuGet audit high severity on build/_build.csproj",
+      "missing GeneratedMSBuildEditorConfig under obj for some package projects",
+      "project reference without matching metadata reference (analyzer/generator hosts)"
+    ]
+  },
+  "compile_sdk10": {
+    "sampleSize": 40,
+    "projectCount": 190,
+    "p50Ms": 3,
+    "p95Ms": 143,
+    "fullElapsedMs": 2989,
+    "peakWorkingSetMiB": 244.8
+  },
+  "lruFixedSequence_sdk10": {
+    "cap10": { "sequenceMs": 687, "evictions": 101, "peakWorkingSetMiB": 273.1 },
+    "cap25": { "sequenceMs": 13, "evictions": 76, "peakWorkingSetMiB": 267.0 },
+    "cap50": { "sequenceMs": 12, "evictions": 51, "peakWorkingSetMiB": 267.0 },
+    "unlimited": { "sequenceMs": 14, "evictions": 0, "peakWorkingSetMiB": 267.8 }
+  },
+  "findRefs_sdk10": {
+    "symbolNote": "widest public source type among probed candidates",
+    "currentProject": { "ms": 5, "locations": 2 },
+    "dependencyClosure": { "ms": 2, "locations": 2 },
+    "entireSolution": { "ms": 2, "locations": 32 },
+    "entireUnderLru": {
+      "cap10": { "ms": 2, "evictions": 50, "locations": 32 },
+      "cap50": { "ms": 3, "evictions": 10, "locations": 32 },
+      "unlimited": { "ms": 2, "evictions": 0, "locations": 32 }
+    }
+  },
+  "slnfFixture": {
+    "note": "Sample.slnf LibA+App self-parse + OpenProjectAsync; tests pass (~2s wall in xUnit)"
+  },
+  "recommendations": {
+    "slnx": "supported via Roslyn 5.6.0 stable (SolutionPersistence transitive)",
+    "slnxAlternateSelfParse": "not measured; primary OpenSolutionAsync succeeded",
+    "slnf": "v0 self-parse + OpenProjectAsync",
+    "lruDefault": 50,
+    "lruRange": "25..unlimited (avoid <=10)",
+    "findRefsDefaultScope": "DependencyClosure; EntireSolution opt-in",
+    "softBudgetsMs": {
+      "workspace_open": "non-blocking (wall ~15-20s)",
+      "get_compilation": 5000,
+      "find_refs_scoped": 5000,
+      "find_refs_entire": 20000,
+      "diagnostics_batch": 15000,
+      "diagnostics_batch_note": "extrapolated from compile/LRU sequences; not a dedicated multi-project diagnostics batch measurement"
+    }
+  }
+}

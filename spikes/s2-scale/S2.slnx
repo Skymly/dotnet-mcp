@@ -1,0 +1,18 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/fixtures/">
+    <Project Path="fixtures/MultiTfm/MultiTfm.csproj" />
+    <Project Path="fixtures/SampleFilter/LibA/LibA.csproj" />
+    <Project Path="fixtures/SampleFilter/LibB/LibB.csproj" />
+    <Project Path="fixtures/SampleFilter/App/App.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/S2.Core/S2.Core.csproj" />
+    <Project Path="src/S2.Bench/S2.Bench.csproj" />
+    <Project Path="src/S2.Tests/S2.Tests.csproj" />
+  </Folder>
+</Solution>
