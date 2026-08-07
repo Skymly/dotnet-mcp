@@ -1,0 +1,17 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/fixtures/">
+    <Project Path="fixtures/CollisionA/CollisionA.csproj" />
+    <Project Path="fixtures/CollisionB/CollisionB.csproj" />
+    <Project Path="fixtures/CollisionHost/CollisionHost.csproj" />
+    <Project Path="fixtures/CustomGenerator/CustomGenerator.csproj" />
+    <Project Path="fixtures/SampleApp/SampleApp.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/S1.Verification/S1.Verification.csproj" />
+  </Folder>
+</Solution>
