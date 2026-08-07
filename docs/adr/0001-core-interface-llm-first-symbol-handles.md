@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-02，见文末 Amendment 1）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正。以「决策」小节的现行内容为准。
+Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S1）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正；S1 实证细化了 FilePath 启发式与 Adhoc/反射取舍。以「决策」小节的现行内容为准。
 
 ## 上下文
 
@@ -67,7 +67,7 @@ partial 类型逐成员归因，字典键须含签名以区分重载。
 - 原稿的「虚拟路径解析为辅」**不成立**：`GeneratedFiles/{GeneratorAssemblyName}` 是编译器 CLI 落盘格式，不是 workspace `Document.FilePath` 的契约；且官方文档明示 hint 只是 hint，编译器可加前后缀，**HintName 跨生成器不保证唯一**，故「按 HintName 关联回生成器」不可靠。
 - 唯一全公开路径：`project.AnalyzerReferences` → `AnalyzerReference.GetGenerators(language)`（public）→ `GeneratorExtensions.GetGeneratorType()`（public）→ 自建 `CSharpGeneratorDriver` → `GetRunResult()`（public，逐生成器 `GeneratedSources` 含 HintName/SyntaxTree/诊断）。
 - **陷阱**：`Project.GetCompilationAsync()` 已包含 workspace 自己跑出的生成树，直接在其上再跑 driver 会造成重复定义。必须先剔除生成树得到 base compilation 再跑，且需与 workspace 的生成文档对账。
-- 该路线的可行性、`Document.FilePath` 实际格式、以及「反射 internal Identity + 守护测试」的取舍，由 **Spike S1** 在 spec 前定论。
+- 该路线的可行性已由 **Spike S1** 确认（见 Amendment 2）；`Document.FilePath` 在 MSBuildWorkspace 下常编码生成器身份但是启发式而非契约；反射 internal Identity 可选作加速并须守护测试。
 
 ## 后果
 
@@ -109,3 +109,19 @@ DotNetMcp.FSharp      — P3，FCS 栈（ILanguageAdapter 第二适配器）
 | B4 | 归因单枚举含 `MetadataGenerated`，为 COM/dynamic 预留 | **建模错误**：混同「元数据声明」「动态调用点」「生成器产物」；`dynamic` 非符号性质。改两轴 | 见 §2 |
 | B5 | Core 是读侧唯一入口，XAML 层是其调用者 | **形状错误**：LLM 优先的字符串 DTO 面不适合进程内类型遍历，XAML 绑定解析会被迫 N+1。改 Core 内外两层 | 见 §3 |
 | B6 | 模块分解为 Host / Tools / Core / Workspace / Xaml / FSharp 六项 | Tools 过不了删除测试（与 Core 近 1:1 透传）；分页归属重复声明。合并为 Server | 见「模块分解」 |
+
+---
+
+## Amendment 2（2026-08-07）：Spike S1 对 §6 / F1 的实证细化
+
+证据：`spikes/s1-generator-attribution/`（Roslyn 5.6.0，9/9 验证测试通过）。**不推翻** §6「公开归因须自建 driver」与 F1「HintName 非跨生成器唯一 / Identity 仍 internal」。
+
+| # | 原表述 | S1 观测 | 对实现的影响 |
+|---|--------|---------|--------------|
+| S1-F1 | `GeneratedFiles/{GeneratorAssemblyName}` 不是 workspace `Document.FilePath` 契约 | **部分细化**：MSBuildWorkspace 下 FilePath *当前*形如 `obj/.../generated/{Assembly}/{TypeFullName}/{HintName}`（Windows `\`）；AdhocWorkspace 则为无 `obj` 前缀的 `{Assembly}\{Type}\{HintName}`。布局**经常**编码生成器身份，但跨 workspace 不一致，仍**不是**可依赖契约 | 允许作启发式加速；真相仍以 driver 内容对账或反射 Identity 为准 |
+| S1-F2 | 须剔除生成树再跑 driver | **确认**：生成文档树与 `compilation.SyntaxTrees` 引用相等；`RemoveSyntaxTrees` 可得干净 base；SampleApp 上 driver 与 workspace 文档 **10/10 内容对账** | ADR-0002 的 `GetCompilationWithoutGeneratedTreesAsync` / `GetGeneratorRunResultAsync` 形状成立 |
+| S1-F3 | HintName 关联不可靠 | **确认**：两生成器同 HintName 时 driver/workspace 均保留双份；仅 HintName 无法区分 | 归因键必须含生成器身份 |
+| S1-F4 | AdhocWorkspace 生成行为待验 | **可用**：Adhoc + `AnalyzerReferences` 会跑生成器，`GetSourceGeneratedDocumentsAsync` 有结果 | 单测可用 Adhoc；保留纯 driver 后备 |
+| S1-F5 | 反射 Identity 取舍未决 | **可行但私有**：`Identity` 非公开；可读 Assembly/Type/Version；须守护测试 | 主路径用公开 driver；反射可选加速，文档化私有 API 风险 |
+
+决策不变：主路径 = strip + 自建 driver + 内容对账；FilePath / 反射为辅助。细节与耗时见 spike `CONCLUSIONS.md`。
