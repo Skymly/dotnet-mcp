@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-02，见文末 Amendment 1）** —— 拉取式方向不变，但接口签名、新鲜度语义、快照一致性与解决方案格式支持均被修正。以「决策」小节的现行内容为准。
+Accepted（2026-08-02），**Amended（2026-08-02，见 Amendment 1；2026-08-07，见 Amendment 2 / Spike S2）** —— 拉取式方向不变，但接口签名、新鲜度语义、快照一致性与解决方案格式支持均被修正。以「决策」小节的现行内容为准。
 
 ## 上下文
 
@@ -59,12 +59,12 @@ public interface IWorkspaceSession : IDisposable
 
 4. **生成器归因（配合 ADR-0001 §6）**：`GetCompilationAsync` 返回的 compilation 已含 workspace 运行的生成树；自建 driver 必须用 `GetCompilationWithoutGeneratedTreesAsync`，否则生成类型重复定义。两套生成结果需对账（HintName 非跨生成器唯一，见 ADR-0001）。归因结果按 `(projectId, epoch)` 缓存。技术路线由 Spike S1 定论。
 
-5. **解决方案格式支持（修正）**：
+5. **解决方案格式支持（修正，Spike S2 定论）**：
    - `.sln`：支持。
-   - `.slnx`：需 **Roslyn 5.0+**（PR #77326；4.12 明确不支持）并依赖 `Microsoft.VisualStudio.SolutionPersistence`。**这是硬约束**——性能基准方案（Observables，145 项目）本身是 `.slnx`。由 Spike S2 验证 preview 依赖的可接受性。
-   - `.slnf`：公开 API **不支持**（issue #73105）。要支持须自行解析过滤器并逐项目加载；v0 明确记为不支持。
+   - `.slnx`：需 **Roslyn 5.0+**（PR #77326；4.12 明确不支持）并依赖 `Microsoft.VisualStudio.SolutionPersistence`（现为 `Microsoft.CodeAnalysis.Workspaces.MSBuild` 的传递依赖）。**Spike S2** 在 Roslyn **5.6.0 稳定包**下对 `Observables.slnx`（190 ProjectId）验证 `OpenSolutionAsync` 成功——**v0 以稳定 5.x 支持 `.slnx`，不再依赖 preview**。
+   - `.slnf`：公开 API **不支持**（issue #73105）。**v0 采用自解析**（读 filter JSON 的项目清单 + 逐个 `OpenProjectAsync`）；不声称 workspace 原生支持。
 
-6. **引用查找作用域**：`SymbolFinder.FindReferencesAsync(symbol, solution)` 不限定 `documents` 时扫描全解决方案。150 项目对上默认 50 项目的 Compilation LRU 会抖动（每次全局查找触发重编译风暴）。故默认作用域为项目/依赖闭包，全解决方案需显式 opt-in 并提示成本；LRU 上限可配。具体阈值由 Spike S2 实测确定。
+6. **引用查找作用域与 Compilation LRU（Spike S2 定论）**：`SymbolFinder.FindReferencesAsync(symbol, solution)` 不限定 `documents` 时扫描全解决方案。默认作用域为**项目依赖闭包**；全解决方案需显式 opt-in（窄作用域可能漏源位置，S2 样本已见）。Compilation LRU **默认上限 50**（可配；推荐区间 25–无上限；**避免 ≤10**，S2 固定查询序列下 cap=10 出现明显重编译抖动）。
 
 7. **测试接缝**：内部工厂接口，生产返回 MSBuildWorkspace 实现，测试返回 AdhocWorkspace fixture 实现。注意 AdhocWorkspace 下源生成器行为需在 S1 一并验证。
 
@@ -76,7 +76,7 @@ public interface IWorkspaceSession : IDisposable
 - 首次加载耗时（150 项目量级）无法通过本层消除，其对外形态必须由 ADR-0003 处理（MCP 客户端 60s 超时）。
 - 无事件订阅生命周期，无「忘记退订」误用面。
 - 会话对象引入了「必须释放」的轻度约束（`using`），换取一致性；不引入引用计数复杂度。
-- `.slnx` 依赖 Roslyn 5.0 preview 是 v0 的既定风险；`.slnf` v0 不支持。
+- `.slnx` 由 Roslyn 5.x 稳定包支持（S2 验证 5.6.0）；`.slnf` v0 自解析支持。
 - 持久化索引（方案 D）未被预先兼容，v1.x 若要引入需重新评估接口——判定可接受。
 
 ## 相关决策
@@ -98,3 +98,18 @@ public interface IWorkspaceSession : IDisposable
 | B3 | 「读时校验 `.sln`/`.csproj` mtime，读到即正确」；FSW 仅作可选的快速失效标记 | **过度声明**：检测不到 `.cs` 源文件编辑（最常见场景），且 MSBuildWorkspace 不自动感知文本变更。FSW 升为必需机制，并补充「变更文本如何回填 workspace」语义 | MSBuildWorkspace 行为；见 §3 |
 | B6 | 未考虑引用查找与 LRU 的相互作用 | **遗漏**：全解决方案引用查找需大量 Compilation，与 LRU 50/150 抖动。已补默认作用域策略 | roslyn `SymbolFinder_FindReferences_Current.cs`、issue #34562 |
 | — | 未提及长耗时加载在 MCP 下的可行性 | **严重遗漏**：客户端普遍 60s 硬超时。移交 ADR-0003 | 见 ADR-0003 |
+
+---
+
+## Amendment 2（2026-08-07）：Spike S2 实测回填
+
+证据：[`spikes/s2-scale/CONCLUSIONS.md`](../../spikes/s2-scale/CONCLUSIONS.md)、[`spikes/s2-scale/data/summary.json`](../../spikes/s2-scale/data/summary.json)。
+
+| 主题 | 结论 |
+|------|------|
+| `.slnx` + Roslyn 5.6.0 | `OpenSolutionAsync(Observables.slnx)` 成功；190 ProjectId；~17–19 s 墙钟；峰值 WorkingSet ~128–250 MiB（视 obj/生成物） |
+| preview | **不再需要**；钉稳定 5.x |
+| `.slnf` | 自解析 + `OpenProjectAsync` 可行 → **v0 支持（自解析）** |
+| LRU | 默认 **50**；≤10 抖动；25/50/无限在固定序列上接近 |
+| 引用作用域 | 默认依赖闭包；全解决方案 opt-in；全量单符号查找仍 ≪ 60 s |
+| 多 TFM | Name 形如 `Foo(net8.0)`；同 csproj 多 ProjectId，列表工具按多行展示 |
