@@ -1,0 +1,2 @@
+stdio transport: dotnet S3.Server.dll
+{"outcome":"error","elapsedMs":60012,"timeoutMs":60000,"sleepSeconds":90,"exceptionType":"System.Threading.Tasks.TaskCanceledException","message":"A task was canceled."}

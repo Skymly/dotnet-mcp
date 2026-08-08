@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "s3-long-running": {
+      "command": "dotnet",
+      "args": [
+        "PATH/TO/S3.Server.dll"
+      ]
+    }
+  }
+}
