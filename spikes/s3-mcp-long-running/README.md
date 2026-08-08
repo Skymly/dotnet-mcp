@@ -22,7 +22,7 @@ dotnet run --project src/S3.Harness -- all
 $dll = "src/S3.Server/bin/Debug/net8.0/S3.Server.dll"
 dotnet build src/S3.Server
 dotnet run --project src/S3.Harness -- stdio list $dll
-dotnet run --project src/S3.Harness -- stdio timeout-60 $dll      # ~60s
+dotnet run --project src/S3.Harness -- stdio timeout-60 $dll      # ~60s；输出见 data/
 dotnet run --project src/S3.Harness -- stdio progress-60 $dll     # ~60s
 dotnet run --project src/S3.Harness -- stdio manual $dll
 dotnet run --project src/S3.Harness -- stdio tasks $dll
@@ -48,6 +48,6 @@ claude -p --strict-mcp-config --mcp-config clients/claude-code.mcp.json `
 | `src/S3.Harness` | in-process 场景 + stdio 探针 |
 | `src/S3.Tests` | 协议接缝测试 |
 | `clients/` | Claude Code / 通用 stdio 配置样例 |
-| `data/logs/` | 探针原始输出 |
+| `data/` | 探针原始 JSON/文本结果 |
 
 结论文档见 [CONCLUSIONS.md](CONCLUSIONS.md)。

@@ -1,0 +1,6 @@
+claude=2.1.224 (Claude Code)
+dotnet=10.0.302
+mcp=ModelContextProtocol 2.1.0
+tasks=ModelContextProtocol.Extensions.Tasks 2.1.0
+date=2026-08-08T10:31:12+08:00
+note=Claude Code interactive MCP smoke failed: Not logged in

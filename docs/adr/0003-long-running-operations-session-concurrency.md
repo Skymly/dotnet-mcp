@@ -86,7 +86,7 @@ ADR-0001/0002 原稿均未处理一个产品级阻断问题：**加载 ~150 项�
 - SEP-1539（超时协调，提案中）、SEP-2575（移除 ping）、SEP-2663（Tasks 扩展，Final）
 - csharp-sdk：`McpServerOptions.InitializationTimeout`、`McpSessionHandler.cs`（fire-and-forget 分发、`_handlingRequests`、取消通知处理）、`TokenProgress.cs`、`ModelContextProtocol.Extensions.Tasks`
 - 客户端行为：Claude Desktop / TypeScript SDK 60s 硬超时；TS SDK `resetTimeoutOnProgress` 默认 false（历史缺陷见 #245）
-- Spike 实测：`spikes/s3-mcp-long-running/CONCLUSIONS.md` + `data/logs/timeout-60.json` / `progress-60.json` / `server-caps.txt`
+- Spike 实测：`spikes/s3-mcp-long-running/CONCLUSIONS.md` + `data/timeout-60.json` / `progress-60.json` / `server-caps.txt`
 
 ## 相关决策
 

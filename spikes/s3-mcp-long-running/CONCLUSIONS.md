@@ -1,6 +1,6 @@
 # Spike S3 结论：MCP 长耗时与客户端超时
 
-验证环境：Windows、.NET SDK **10.0.302**、C# MCP SDK **ModelContextProtocol 2.1.0** + **Extensions.Tasks 2.1.0**、Claude Code CLI **2.1.224**（本机未登录，未能跑通交互式工具调用；stdio/协议层由 C# 客户端探针代替）。原始日志：[`data/logs/`](data/logs/)。测试：`dotnet test` **9/9** 通过；`S3.Harness all` 全绿。
+验证环境：Windows、.NET SDK **10.0.302**、C# MCP SDK **ModelContextProtocol 2.1.0** + **Extensions.Tasks 2.1.0**、Claude Code CLI **2.1.224**（本机未登录，未能跑通交互式工具调用；stdio/协议层由 C# 客户端探针代替）。原始日志：[`data/`](data/)。测试：`dotnet test` **9/9** 通过；`S3.Harness all` 全绿。
 
 ## 总览推荐
 
@@ -19,7 +19,7 @@
 
 | 客户端 / 探针 | 版本 | 观测 |
 |---------------|------|------|
-| C# MCP Client via **stdio**（本 spike 主探针） | MCP 2.1.0 | `sleep_long(90)` + 60s `CancellationToken` → **`TaskCanceledException` @ ~60012 ms**（[`timeout-60.json`](data/logs/timeout-60.json)） |
+| C# MCP Client via **stdio**（本 spike 主探针） | MCP 2.1.0 | `sleep_long(90)` + 60s `CancellationToken` → **`TaskCanceledException` @ ~60012 ms**（[`timeout-60.json`](data/timeout-60.json)） |
 | C# in-process harness | 同上 | 短超时（~400ms）同样取消客户端等待 |
 | Claude Code CLI | **2.1.224** | 支持 `--mcp-config` / `MCP_TIMEOUT`；本机 `claude -p` 因 **未登录** 未能完成工具调用。按 ADR/产品文档：默认仍应按 **60s** 规划；`MCP_TIMEOUT`（ms）可延长。 |
 | Claude Desktop | （未在本机实测） | 沿用 ADR-0003：硬编码 ~60s，配置 timeout 常被忽略 |
@@ -31,13 +31,13 @@
 
 **否（默认路径）。**
 
-- stdio 探针：`sleep_with_progress(90)` 在 60s 内收到 **59** 次 progress，仍在 **~60018 ms** 被取消（[`progress-60.json`](data/logs/progress-60.json)）。
+- stdio 探针：`sleep_with_progress(90)` 在 60s 内收到 **59** 次 progress，仍在 **~60018 ms** 被取消（[`progress-60.json`](data/progress-60.json)）。
 - TS SDK：`resetTimeoutOnProgress` **默认 false**；仅当客户端显式开启（且正确注入 `progressToken`）时进度才重置计时器。不可假设 Cursor/Desktop 开启。
 - 结论与 ADR-0003 一致：**架构上不依赖进度规避超时**；进度仅用于 UI/可观测性。
 
 ### Q3 — Tasks 扩展端到端
 
-- 服务器 `.WithTasks(new InMemoryMcpTaskStore())` 后协商协议 **`2026-07-28`**，capabilities.extensions 含 **`io.modelcontextprotocol/tasks`**（[`server-caps.txt`](data/logs/server-caps.txt)）。
+- 服务器 `.WithTasks(new InMemoryMcpTaskStore())` 后协商协议 **`2026-07-28`**，capabilities.extensions 含 **`io.modelcontextprotocol/tasks`**（[`server-caps.txt`](data/server-caps.txt)）。
 - C# 客户端 `CallToolAsTaskAsync` → 立即 `CreateTaskResult` → `tasks/get` 轮询 → `CompletedTaskResult`（in-process + stdio 均通过）。
 - `tasks/cancel` → `CancelledTaskResult`，并触发工具侧取消（测试覆盖）。
 - **要求**：客户端协议 ≥ 2026-07-28 **且** opt-in。旧客户端 / 未 opt-in 时走同步 `tools/call`，仍受 60s 约束。

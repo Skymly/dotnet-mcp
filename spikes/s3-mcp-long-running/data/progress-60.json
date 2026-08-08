@@ -1,0 +1,2 @@
+stdio transport: dotnet S3.Server.dll
+{"outcome":"error","elapsedMs":60018,"timeoutMs":60000,"sleepSeconds":90,"progressReports":59,"exceptionType":"System.Threading.Tasks.TaskCanceledException","message":"A task was canceled.","note":"C# client cancels via CancellationToken; progress does not extend this CTS. TS SDK defaults resetTimeoutOnProgress=false."}
