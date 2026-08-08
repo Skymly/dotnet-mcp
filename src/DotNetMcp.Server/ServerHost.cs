@@ -7,9 +7,14 @@ namespace DotNetMcp.Server;
 
 public static class ServerHost
 {
-    public static void AddDotNetMcp(IServiceCollection services, TrustedRoots trustedRoots)
+    public static void AddDotNetMcp(
+        IServiceCollection services,
+        TrustedRoots trustedRoots,
+        ISolutionLoader? solutionLoader = null)
     {
         services.AddSingleton(trustedRoots);
+        services.AddSingleton<ISolutionLoader>(solutionLoader ?? new MsBuildSolutionLoader());
+        services.AddSingleton<WorkspaceHost>();
         services.AddSingleton<WorkspaceTools>();
     }
 

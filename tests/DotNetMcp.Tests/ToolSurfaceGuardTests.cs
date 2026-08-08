@@ -10,7 +10,9 @@ public class ToolSurfaceGuardTests
     /// </summary>
     private static readonly string[] AllowedToolNames =
     [
-        "workspace_open"
+        "workspace_list_projects",
+        "workspace_open",
+        "workspace_status"
     ];
 
     private static readonly string[] ForbiddenNameFragments =
