@@ -1,0 +1,10 @@
+{
+    "mcpServers":  {
+                       "s3-long-running":  {
+                                               "args":  [
+                                                            "C:\\Code\\Skymly\\DotNetMCP\\dotnet-mcp\\spikes\\s3-mcp-long-running\\src\\S3.Server\\bin\\Debug\\net8.0\\S3.Server.dll"
+                                                        ],
+                                               "command":  "dotnet"
+                                           }
+                   }
+}

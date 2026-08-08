@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "s3-long-running": {
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "src/S3.Server/S3.Server.csproj",
+        "--no-build"
+      ]
+    }
+  }
+}

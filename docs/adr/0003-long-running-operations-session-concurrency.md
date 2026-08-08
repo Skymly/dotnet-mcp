@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-07，Spike S2 回填 §3 软预算推荐值）**
+Accepted（2026-08-02），**Amended（2026-08-07，Spike S2 回填 §3 软预算推荐值）**，**Amended（2026-08-08，Spike S3 回填客户端超时/Tasks/手工模式实测）**
 
 ## 上下文
 
@@ -26,9 +26,13 @@ ADR-0001/0002 原稿均未处理一个产品级阻断问题：**加载 ~150 项�
 
 选择手工模式为基线而非直接依赖 Tasks 扩展，理由：手工模式在**所有**客户端可用（含仅支持旧协议版本者），而 Tasks 需要新协议版本 + 客户端 opt-in。
 
+**Spike S3 锁定的返回形状**（见 `spikes/s3-mcp-long-running/CONCLUSIONS.md` Q4）：`phase` / 进度计数 / `estimatedRemainingMs` / `suggestedAction`。loading 文案须明确「去调 status，不要重试 open」。S2 观测 ~15–20s 加载虽常低于 60s，**仍不得**改为阻塞 `tools/call`——60s 是常见硬顶且无余量。
+
 ### 2. Tasks 扩展作为增强（客户端支持时）
 
 启用 `.WithTasks(...)`：当客户端声明支持 `io.modelcontextprotocol/tasks` 时，长耗时工具自动转为后台任务 + `tasks/get` 轮询，取消经 `tasks/cancel` 传播到 `CancellationToken`。基线的手工状态模型与之并存、不冲突。
+
+**Spike S3**：C# SDK 2.1.0 下服务器可协商协议 **2026-07-28** 并广告 `io.modelcontextprotocol/tasks`；`CallToolAsTaskAsync` + `tasks/get` / `tasks/cancel` 端到端通过。未 opt-in 的客户端仍走同步调用并受 60s 约束 → Tasks **不能**取代 §1 基线。
 
 ### 3. 每个工具都有时间预算，超预算返回部分结果
 
@@ -44,7 +48,7 @@ ADR-0001/0002 原稿均未处理一个产品级阻断问题：**加载 ~150 项�
 | 全解决方案 Find References | **20 s** | opt-in；截断 + 游标 |
 | 批量诊断（多项目） | **15 s** | 部分结果 + 游标 |
 
-Tasks/客户端真实超时矩阵仍由 **Spike S3** 实测；本表只定 v0 默认取值。
+**Spike S3 客户端矩阵摘要**（详情见 `spikes/s3-mcp-long-running/CONCLUSIONS.md` Q8）：stdio C# 探针复现 **60s** 取消（90s sleep → ~60012ms `TaskCanceledException`）；进度报告不能延长该超时（59 次 progress 仍 60s 死）；Claude Code 2.1.224 已记录版本（交互式/`MCP_TIMEOUT` 需登录环境复测）；Desktop/TS 系默认仍按 60s + 进度非 keepalive 规划。软预算默认值保持本表（S2），S3 确认「部分结果 + nextCursor」续页形状可用。
 
 ### 4. 单一活动工作区（v0）
 
@@ -60,9 +64,13 @@ Tasks/客户端真实超时矩阵仍由 **Spike S3** 实测；本表只定 v0 �
 
 所有工具签名接收 `CancellationToken` 并逐层传递给 Roslyn 与 I/O；协作式取消，不做强杀。取消后不发送该请求的响应（符合规范）。
 
+**Spike S3**：显式 `notifications/cancelled`（带正确 `RequestId`）与 `tasks/cancel` **可靠**触发工具 token。C# 客户端仅取消 `CallToolAsync` 的 `CancellationToken` 时，SDK 以 fire-and-forget 发送 cancelled，**存在竞态**——产品路径勿假设「CTS 取消 ⇒ 服务端一定收到」。
+
 ### 7. 进度通知
 
 仍然发送（`IProgress<ProgressNotificationValue>`）用于 UI 反馈与可观测性，但**架构上不依赖它规避超时**。
+
+**Spike S3 复证**：60s 窗口内持续 progress 仍超时；TS SDK `resetTimeoutOnProgress` 默认 false。
 
 ## 后果
 
@@ -70,14 +78,15 @@ Tasks/客户端真实超时矩阵仍由 **Spike S3** 实测；本表只定 v0 �
 - 所有列表型工具必须实现部分结果 + 游标（与 ADR-0001 分页机制统一）。
 - 需要一个"就绪度"概念贯穿工具层：未就绪时的错误必须可操作（告诉 AI 去轮询而不是重试）。
 - 文档需声明客户端兼容矩阵（哪些客户端可享 Tasks 扩展、哪些走手工轮询）。
-- 由 **Spike S3** 实测：Tasks 扩展端到端行为、各客户端超时观测值；软预算默认值已由 **Spike S2** 回填（§3 表），S3 可按客户端矩阵微调。
+- **Spike S3** 已实测并回填：Tasks 端到端、stdio 60s 超时、进度非 keepalive、手工模式形状、并发重叠、取消可靠性差异；软预算默认值仍以 **Spike S2** §3 表为准。
 
 ## 证据
 
 - MCP 规范：progress（informational）、cancellation（`notifications/cancelled`）、stdio 传输单通道
 - SEP-1539（超时协调，提案中）、SEP-2575（移除 ping）、SEP-2663（Tasks 扩展，Final）
 - csharp-sdk：`McpServerOptions.InitializationTimeout`、`McpSessionHandler.cs`（fire-and-forget 分发、`_handlingRequests`、取消通知处理）、`TokenProgress.cs`、`ModelContextProtocol.Extensions.Tasks`
-- 客户端行为：Claude Desktop / TypeScript SDK 60s 硬超时，TS SDK 进度不重置计时器（#245）
+- 客户端行为：Claude Desktop / TypeScript SDK 60s 硬超时；TS SDK `resetTimeoutOnProgress` 默认 false（历史缺陷见 #245）
+- Spike 实测：`spikes/s3-mcp-long-running/CONCLUSIONS.md` + `data/logs/timeout-60.json` / `progress-60.json` / `server-caps.txt`
 
 ## 相关决策
 

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/S3.Core/S3.Core.csproj" />
+    <Project Path="src/S3.Harness/S3.Harness.csproj" />
+    <Project Path="src/S3.Server/S3.Server.csproj" />
+    <Project Path="src/S3.Tests/S3.Tests.csproj" />
+  </Folder>
+</Solution>
