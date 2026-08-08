@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DotNetMcp.Server/DotNetMcp.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DotNetMcp.Tests/DotNetMcp.Tests.csproj" />
+  </Folder>
+</Solution>
