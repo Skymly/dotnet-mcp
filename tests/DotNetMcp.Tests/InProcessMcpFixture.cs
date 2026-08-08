@@ -18,13 +18,15 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
     private readonly CancellationTokenSource _serverCts = new();
     private readonly Task _serverTask;
 
-    public InProcessMcpFixture(TrustedRoots? trustedRoots = null)
+    public InProcessMcpFixture(
+        TrustedRoots? trustedRoots = null,
+        ISolutionLoader? solutionLoader = null)
     {
         Pipe clientToServer = new(), serverToClient = new();
         var roots = trustedRoots ?? TrustedRoots.Create([Directory.GetCurrentDirectory()]);
 
         var services = new ServiceCollection();
-        ServerHost.AddDotNetMcp(services, roots);
+        ServerHost.AddDotNetMcp(services, roots, solutionLoader);
         services.AddMcpServer()
             .WithStreamServerTransport(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream())
             .WithToolsFromAssembly(typeof(ServerHost).Assembly);
@@ -65,6 +67,13 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
         }
 
         await _server.DisposeAsync();
+
+        var host = _services.GetService<WorkspaceHost>();
+        if (host is not null)
+        {
+            await host.DisposeAsync();
+        }
+
         await _services.DisposeAsync();
         _serverCts.Dispose();
     }

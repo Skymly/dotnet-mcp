@@ -73,14 +73,17 @@ public class PathPolicySeamTests
 
         try
         {
-            await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateMultiTfm());
             var result = await fx.Client.CallToolAsync(
                 "workspace_open",
                 new Dictionary<string, object?> { ["path"] = solution });
 
             Assert.True(result.IsError is not true);
             var body = InProcessMcpFixture.Deserialize<WorkspaceOpenResultDto>(result);
-            Assert.Equal("accepted", body.Phase);
+            Assert.Equal("loading", body.Phase);
+            Assert.Contains("workspace_status", body.SuggestedAction!, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
