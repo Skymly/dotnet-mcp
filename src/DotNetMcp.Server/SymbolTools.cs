@@ -138,6 +138,48 @@ public sealed class SymbolTools
         return OkResult(ToMembersDto(success!));
     }
 
+    [McpServerTool(Name = "symbol_find_references"), Description(
+        "Find references to a SymbolHandle. Default scope is the defining project's dependency closure; " +
+        "pass entireSolution=true to search the whole solution. Soft time budget may truncate with nextCursor " +
+        "(do not restart from scratch). Cursors bind to the workspace epoch.")]
+    public async Task<CallToolResult> SymbolFindReferences(
+        [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
+        string handle,
+        [Description("When true, search the entire solution; default false uses dependency closure.")]
+        bool entireSolution = false,
+        [Description("Page size (default 50, max 100).")]
+        int? limit = null,
+        [Description("Opaque nextCursor from a previous symbol_find_references page.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _symbols
+            .FindReferencesAsync(
+                session!.Solution,
+                handle,
+                session.Epoch,
+                entireSolution,
+                limit,
+                cursor,
+                softBudget: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(ToFindReferencesDto(success!));
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)
@@ -182,6 +224,23 @@ public sealed class SymbolTools
         {
             Handle = i.Handle,
             Summary = ToSummaryDto(i.Summary)
+        }).ToArray(),
+        Truncated = page.Truncated,
+        NextCursor = page.NextCursor,
+        Message = page.Message
+    };
+
+    private static SymbolFindReferencesResultDto ToFindReferencesDto(PagedResult<ReferenceLocationItem> page) => new()
+    {
+        Items = page.Items.Select(i => new ReferenceLocationItemDto
+        {
+            DeclarationAvailability = i.DeclarationAvailability,
+            Origin = i.Origin,
+            FilePath = i.FilePath,
+            Start = i.Start,
+            Length = i.Length,
+            ProjectId = i.ProjectId,
+            Kind = i.Kind
         }).ToArray(),
         Truncated = page.Truncated,
         NextCursor = page.NextCursor,

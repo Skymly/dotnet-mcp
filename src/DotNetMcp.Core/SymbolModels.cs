@@ -21,6 +21,21 @@ public sealed record SymbolDefinitionSuccess(IReadOnlyList<SymbolLocation> Locat
 
 public sealed record MemberListItem(string Handle, SymbolSummary Summary);
 
+public sealed record ReferenceLocationItem(
+    string DeclarationAvailability,
+    string? Origin,
+    string? FilePath,
+    int? Start,
+    int? Length,
+    string ProjectId,
+    string Kind);
+
+public static class ReferenceLocationKind
+{
+    public const string Definition = "Definition";
+    public const string Reference = "Reference";
+}
+
 public sealed record PagedResult<T>(
     IReadOnlyList<T> Items,
     bool Truncated,

@@ -33,6 +33,9 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         string projectFilePath = @"C:\fake\SampleLib.csproj") =>
         new(delay, () => CreateSymbolsLoaded(projectFilePath));
 
+    public static FakeSolutionLoader ImmediateWithFindRefsGraph(string root = @"C:\fake") =>
+        new(TimeSpan.Zero, () => CreateFindRefsGraphLoaded(root));
+
     public async Task<LoadedSolution> OpenAsync(
         string path,
         IProgress<LoadProgress>? progress = null,
@@ -136,6 +139,128 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         if (!workspace.TryApplyChanges(solution))
         {
             throw new InvalidOperationException("Failed to apply AdhocWorkspace symbol fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    /// <summary>
+    /// LibA defines Marker (multiple local refs). LibB and Outsider reference LibA and use Marker.
+    /// Dependency closure of LibA is LibA only (no outgoing project refs); consumers need entireSolution.
+    /// </summary>
+    public static LoadedSolution CreateFindRefsGraphLoaded(string root = @"C:\fake")
+    {
+        var workspace = new AdhocWorkspace();
+        var libAId = ProjectId.CreateNewId();
+        var libBId = ProjectId.CreateNewId();
+        var outsiderId = ProjectId.CreateNewId();
+        var libADoc = DocumentId.CreateNewId(libAId);
+        var libADoc2 = DocumentId.CreateNewId(libAId);
+        var libBDoc = DocumentId.CreateNewId(libBId);
+        var outsiderDoc = DocumentId.CreateNewId(outsiderId);
+
+        var mscorlib = MetadataReference.CreateFromFile(typeof(object).Assembly.Location);
+        var solution = workspace.CurrentSolution;
+
+        solution = solution.AddProject(ProjectInfo.Create(
+            libAId,
+            VersionStamp.Create(),
+            "LibA",
+            "LibA",
+            LanguageNames.CSharp,
+            filePath: Path.Combine(root, "LibA", "LibA.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            libBId,
+            VersionStamp.Create(),
+            "LibB",
+            "LibB",
+            LanguageNames.CSharp,
+            filePath: Path.Combine(root, "LibB", "LibB.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            outsiderId,
+            VersionStamp.Create(),
+            "Outsider",
+            "Outsider",
+            LanguageNames.CSharp,
+            filePath: Path.Combine(root, "Outsider", "Outsider.csproj")));
+
+        const string markerSource = """
+            namespace LibA;
+
+            public class Marker
+            {
+                public static int Value => 1;
+                public static int Twice => Value + Value;
+            }
+            """;
+
+        const string moreUses = """
+            namespace LibA;
+
+            public static class LocalUses
+            {
+                public static int Read() => Marker.Value;
+            }
+            """;
+
+        const string libBSource = """
+            namespace LibB;
+            using LibA;
+
+            public static class Consumer
+            {
+                public static int Use() => Marker.Value;
+            }
+            """;
+
+        const string outsiderSource = """
+            namespace Outsider;
+            using LibA;
+
+            public static class OutsideConsumer
+            {
+                public static int Use() => Marker.Value;
+            }
+            """;
+
+        solution = solution.AddDocument(
+            libADoc,
+            "Marker.cs",
+            SourceText.From(markerSource),
+            filePath: Path.Combine(root, "LibA", "Marker.cs"));
+        solution = solution.AddDocument(
+            libADoc2,
+            "LocalUses.cs",
+            SourceText.From(moreUses),
+            filePath: Path.Combine(root, "LibA", "LocalUses.cs"));
+        solution = solution.AddDocument(
+            libBDoc,
+            "Consumer.cs",
+            SourceText.From(libBSource),
+            filePath: Path.Combine(root, "LibB", "Consumer.cs"));
+        solution = solution.AddDocument(
+            outsiderDoc,
+            "OutsideConsumer.cs",
+            SourceText.From(outsiderSource),
+            filePath: Path.Combine(root, "Outsider", "OutsideConsumer.cs"));
+
+        solution = solution.AddProjectReference(libBId, new ProjectReference(libAId));
+        solution = solution.AddProjectReference(outsiderId, new ProjectReference(libAId));
+
+        solution = solution.WithProjectCompilationOptions(
+            libAId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.WithProjectCompilationOptions(
+            libBId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.WithProjectCompilationOptions(
+            outsiderId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        solution = solution.AddMetadataReference(libAId, mscorlib);
+        solution = solution.AddMetadataReference(libBId, mscorlib);
+        solution = solution.AddMetadataReference(outsiderId, mscorlib);
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace find-refs fixture.");
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
