@@ -25,6 +25,14 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader DelayedMultiTfm(TimeSpan delay, string projectFilePath = @"C:\fake\Widget.csproj") =>
         new(delay, () => CreateMultiTfmLoaded(projectFilePath));
 
+    public static FakeSolutionLoader ImmediateWithSymbols(string projectFilePath = @"C:\fake\SampleLib.csproj") =>
+        new(TimeSpan.Zero, () => CreateSymbolsLoaded(projectFilePath));
+
+    public static FakeSolutionLoader DelayedWithSymbols(
+        TimeSpan delay,
+        string projectFilePath = @"C:\fake\SampleLib.csproj") =>
+        new(delay, () => CreateSymbolsLoaded(projectFilePath));
+
     public async Task<LoadedSolution> OpenAsync(
         string path,
         IProgress<LoadProgress>? progress = null,
@@ -54,6 +62,48 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         if (!workspace.TryApplyChanges(solution))
         {
             throw new InvalidOperationException("Failed to apply AdhocWorkspace changes.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    public static LoadedSolution CreateSymbolsLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "SampleLib",
+            "SampleLib",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        const string source = """
+            namespace SampleLib;
+
+            public class Calculator
+            {
+                public int Add(int a, int b) => a + b;
+                public double Add(double a, double b) => a + b;
+            }
+            """;
+
+        solution = solution.AddDocument(docId, "Calculator.cs", SourceText.From(source));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        // Reference mscorlib/runtime so GetCompilationAsync yields usable symbols.
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace symbol fixture.");
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);

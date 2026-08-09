@@ -18,6 +18,9 @@ public static class PolicyErrorCodes
     public const string PathOutsideTrustedRoots = "PathOutsideTrustedRoots";
     public const string WorkspaceNotReady = "WorkspaceNotReady";
     public const string InvalidWorkspacePath = "InvalidWorkspacePath";
+    public const string InvalidSymbolHandle = "InvalidSymbolHandle";
+    public const string SymbolNotFound = "SymbolNotFound";
+    public const string SymbolAmbiguous = "SymbolAmbiguous";
 }
 
 public sealed record PolicyErrorDto
@@ -54,6 +57,22 @@ public sealed record ProjectSummaryDto
 public sealed record WorkspaceListProjectsResultDto
 {
     public required IReadOnlyList<ProjectSummaryDto> Projects { get; init; }
+}
+
+public sealed record SymbolSummaryDto
+{
+    public required string Kind { get; init; }
+    public required string DisplayName { get; init; }
+    public string? ContainingSymbol { get; init; }
+    public required string Accessibility { get; init; }
+    public required string ProjectId { get; init; }
+    public required string Language { get; init; }
+}
+
+public sealed record SymbolResolveResultDto
+{
+    public required string Handle { get; init; }
+    public required SymbolSummaryDto Summary { get; init; }
 }
 
 /// <summary>Backward-compatible alias used by older tests / call sites. </summary>

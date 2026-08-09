@@ -10,6 +10,8 @@ public class ToolSurfaceGuardTests
     /// </summary>
     private static readonly string[] AllowedToolNames =
     [
+        "symbol_resolve",
+        "symbol_summary",
         "workspace_list_projects",
         "workspace_open",
         "workspace_status"
