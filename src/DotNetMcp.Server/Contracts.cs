@@ -21,6 +21,8 @@ public static class PolicyErrorCodes
     public const string InvalidSymbolHandle = "InvalidSymbolHandle";
     public const string SymbolNotFound = "SymbolNotFound";
     public const string SymbolAmbiguous = "SymbolAmbiguous";
+    public const string StaleCursor = "StaleCursor";
+    public const string DefinitionNotFound = "DefinitionNotFound";
 }
 
 public sealed record PolicyErrorDto
@@ -73,6 +75,34 @@ public sealed record SymbolResolveResultDto
 {
     public required string Handle { get; init; }
     public required SymbolSummaryDto Summary { get; init; }
+}
+
+public sealed record SymbolLocationDto
+{
+    public required string DeclarationAvailability { get; init; }
+    public string? Origin { get; init; }
+    public string? FilePath { get; init; }
+    public int? Start { get; init; }
+    public int? Length { get; init; }
+}
+
+public sealed record SymbolDefinitionResultDto
+{
+    public required IReadOnlyList<SymbolLocationDto> Locations { get; init; }
+}
+
+public sealed record MemberListItemDto
+{
+    public required string Handle { get; init; }
+    public required SymbolSummaryDto Summary { get; init; }
+}
+
+public sealed record SymbolMembersResultDto
+{
+    public required IReadOnlyList<MemberListItemDto> Items { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public required string Message { get; init; }
 }
 
 /// <summary>Backward-compatible alias used by older tests / call sites. </summary>
