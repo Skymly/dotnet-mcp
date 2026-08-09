@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/DotNetMcp.Core/DotNetMcp.Core.csproj" />
     <Project Path="src/DotNetMcp.Server/DotNetMcp.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
