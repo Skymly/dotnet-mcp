@@ -71,7 +71,8 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     {
         var workspace = new AdhocWorkspace();
         var projectId = ProjectId.CreateNewId();
-        var docId = DocumentId.CreateNewId(projectId);
+        var handwrittenId = DocumentId.CreateNewId(projectId);
+        var generatedId = DocumentId.CreateNewId(projectId);
 
         var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
             projectId,
@@ -81,17 +82,48 @@ public sealed class FakeSolutionLoader : ISolutionLoader
             LanguageNames.CSharp,
             filePath: projectFilePath));
 
-        const string source = """
+        // Enough members for pagination (limit=2) plus overloads.
+        const string handwritten = """
             namespace SampleLib;
 
-            public class Calculator
+            public partial class Calculator
             {
+                public int Mode { get; set; }
+                public string Name { get; set; } = "calc";
                 public int Add(int a, int b) => a + b;
                 public double Add(double a, double b) => a + b;
+                public int Subtract(int a, int b) => a - b;
+                public int Multiply(int a, int b) => a * b;
+                public int Divide(int a, int b) => a / b;
+                public void Clear() { Mode = 0; }
+                public void Reset() { Name = "calc"; Mode = 0; }
             }
             """;
 
-        solution = solution.AddDocument(docId, "Calculator.cs", SourceText.From(source));
+        // Path ends with .g.cs so origin can be labeled SourceGenerated without a real SourceGeneratedDocument.
+        const string generated = """
+            namespace SampleLib;
+
+            public partial class Calculator
+            {
+                public int GeneratedAnswer => 42;
+            }
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var handwrittenPath = Path.Combine(projectDir, "Calculator.cs");
+        var generatedPath = Path.Combine(projectDir, "Generated", "FakeGen", "Calculator.Generated.g.cs");
+
+        solution = solution.AddDocument(
+            handwrittenId,
+            "Calculator.cs",
+            SourceText.From(handwritten),
+            filePath: handwrittenPath);
+        solution = solution.AddDocument(
+            generatedId,
+            "Calculator.Generated.g.cs",
+            SourceText.From(generated),
+            filePath: generatedPath);
         solution = solution.WithProjectCompilationOptions(
             projectId,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));

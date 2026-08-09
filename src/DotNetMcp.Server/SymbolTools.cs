@@ -74,6 +74,70 @@ public sealed class SymbolTools
         return OkResult(ToDto(success!));
     }
 
+    [McpServerTool(Name = "symbol_goto_definition"), Description(
+        "Navigate a SymbolHandle to its definition locations (file/span). Includes handwritten and " +
+        "source-generated trees; Origin is Handwritten or SourceGenerated when in source.")]
+    public async Task<CallToolResult> SymbolGotoDefinition(
+        [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
+        string handle,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _symbols
+            .GetDefinitionAsync(session!.Solution, handle, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(ToDefinitionDto(success!));
+    }
+
+    [McpServerTool(Name = "symbol_members"), Description(
+        "List members of a type SymbolHandle with forced pagination. Cursors bind to the workspace " +
+        "epoch and become stale when the workspace generation advances.")]
+    public async Task<CallToolResult> SymbolMembers(
+        [Description("Type SymbolHandle from symbol_resolve.")]
+        string handle,
+        [Description("Page size (default 50, max 100).")]
+        int? limit = null,
+        [Description("Opaque nextCursor from a previous symbol_members page.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _symbols
+            .GetMembersAsync(
+                session!.Solution,
+                handle,
+                session.Epoch,
+                limit,
+                cursor,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(ToMembersDto(success!));
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)
@@ -97,15 +161,41 @@ public sealed class SymbolTools
     private static SymbolResolveResultDto ToDto(SymbolResolveSuccess success) => new()
     {
         Handle = success.Handle,
-        Summary = new SymbolSummaryDto
+        Summary = ToSummaryDto(success.Summary)
+    };
+
+    private static SymbolDefinitionResultDto ToDefinitionDto(SymbolDefinitionSuccess success) => new()
+    {
+        Locations = success.Locations.Select(l => new SymbolLocationDto
         {
-            Kind = success.Summary.Kind,
-            DisplayName = success.Summary.DisplayName,
-            ContainingSymbol = success.Summary.ContainingSymbol,
-            Accessibility = success.Summary.Accessibility,
-            ProjectId = success.Summary.ProjectId,
-            Language = success.Summary.Language
-        }
+            DeclarationAvailability = l.DeclarationAvailability,
+            Origin = l.Origin,
+            FilePath = l.FilePath,
+            Start = l.Start,
+            Length = l.Length
+        }).ToArray()
+    };
+
+    private static SymbolMembersResultDto ToMembersDto(PagedResult<MemberListItem> page) => new()
+    {
+        Items = page.Items.Select(i => new MemberListItemDto
+        {
+            Handle = i.Handle,
+            Summary = ToSummaryDto(i.Summary)
+        }).ToArray(),
+        Truncated = page.Truncated,
+        NextCursor = page.NextCursor,
+        Message = page.Message
+    };
+
+    private static SymbolSummaryDto ToSummaryDto(SymbolSummary summary) => new()
+    {
+        Kind = summary.Kind,
+        DisplayName = summary.DisplayName,
+        ContainingSymbol = summary.ContainingSymbol,
+        Accessibility = summary.Accessibility,
+        ProjectId = summary.ProjectId,
+        Language = summary.Language
     };
 
     private static PolicyErrorDto ToPolicyError(SymbolQueryError error) => new()
