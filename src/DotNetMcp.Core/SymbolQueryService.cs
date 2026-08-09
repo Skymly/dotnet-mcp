@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
 using Microsoft.CodeAnalysis;
 
 namespace DotNetMcp.Core;
@@ -7,6 +9,8 @@ public sealed class SymbolQueryService
     public const string CSharpLanguage = "csharp";
     public const int DefaultMemberPageLimit = 50;
     public const int MaxMemberPageLimit = 100;
+    public static readonly TimeSpan DependencyClosureSoftBudget = TimeSpan.FromSeconds(5);
+    public static readonly TimeSpan EntireSolutionSoftBudget = TimeSpan.FromSeconds(20);
 
     public async Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
         Solution solution,
@@ -184,6 +188,255 @@ public sealed class SymbolQueryService
                 : "Member page complete.";
 
         return (new PagedResult<MemberListItem>(items, truncated, nextCursor, message), null);
+    }
+
+    public async Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> FindReferencesAsync(
+        Solution solution,
+        string handle,
+        long epoch,
+        bool entireSolution = false,
+        int? limit = null,
+        string? cursor = null,
+        TimeSpan? softBudget = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (project, symbol, error) = await TryResolveHandleAsync(solution, handle, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        var pageLimit = ClampLimit(limit);
+        var budget = softBudget ?? (entireSolution ? EntireSolutionSoftBudget : DependencyClosureSoftBudget);
+        var docIndex = 0;
+        var locOffset = 0;
+
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            if (!FindRefsPageCursor.TryDecode(
+                    cursor,
+                    out var cursorEpoch,
+                    out var cursorEntireSolution,
+                    out docIndex,
+                    out locOffset,
+                    out var cursorError))
+            {
+                return (null, new StaleCursorError(
+                    cursorError ?? "Cursor is invalid.",
+                    "Call symbol_find_references again without a cursor to start a fresh page."));
+            }
+
+            if (cursorEpoch != epoch)
+            {
+                return (null, new StaleCursorError(
+                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
+                    "Call symbol_find_references again without a cursor; do not retry with the stale cursor."));
+            }
+
+            if (cursorEntireSolution != entireSolution)
+            {
+                return (null, new StaleCursorError(
+                    "Cursor scope does not match the entireSolution parameter for this request.",
+                    "Call symbol_find_references again without a cursor; do not retry with the stale cursor."));
+            }
+        }
+
+        var scope = entireSolution
+            ? FindRefsScopeKind.EntireSolution
+            : FindRefsScopeKind.DependencyClosure;
+        var documents = FindRefsScopes.DocumentsForScope(solution, project!, scope)
+            .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
+            .ThenBy(d => d.Name, StringComparer.Ordinal)
+            .ThenBy(d => d.Id.Id)
+            .ToList();
+
+        if (docIndex > documents.Count || (docIndex == documents.Count && locOffset > 0))
+        {
+            return (null, new StaleCursorError(
+                "Cursor document index is past the end of the scoped document list.",
+                "Call symbol_find_references again without a cursor to start a fresh page."));
+        }
+
+        var page = new List<ReferenceLocationItem>();
+        var stopwatch = Stopwatch.StartNew();
+        var truncatedByBudget = false;
+        var nextDocIndex = documents.Count;
+        var nextLocOffset = 0;
+        var exhausted = true;
+
+        for (var i = docIndex; i < documents.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Soft budget: stop before the next document once we already have results.
+            if (page.Count > 0 && stopwatch.Elapsed >= budget)
+            {
+                truncatedByBudget = true;
+                exhausted = false;
+                nextDocIndex = i;
+                nextLocOffset = 0;
+                break;
+            }
+
+            var doc = documents[i];
+            IEnumerable<Microsoft.CodeAnalysis.FindSymbols.ReferencedSymbol> referenced;
+            using (var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                var remaining = budget - stopwatch.Elapsed;
+                if (remaining > TimeSpan.Zero)
+                {
+                    budgetCts.CancelAfter(remaining);
+                }
+
+                try
+                {
+                    referenced = await FindRefsScopes
+                        .FindReferencesInDocumentsAsync(
+                            symbol!,
+                            solution,
+                            ImmutableHashSet.Create(doc),
+                            budgetCts.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Soft budget cancelled mid-document; next page gets a fresh budget from this doc.
+                    truncatedByBudget = true;
+                    exhausted = false;
+                    nextDocIndex = i;
+                    nextLocOffset = 0;
+                    break;
+                }
+            }
+
+            var hits = FlattenReferenceHitsForDocument(solution, doc, referenced)
+                .OrderBy(h => h.FilePath ?? string.Empty, StringComparer.Ordinal)
+                .ThenBy(h => h.Start ?? -1)
+                .ThenBy(h => h.Length ?? -1)
+                .ThenBy(h => h.Kind, StringComparer.Ordinal)
+                .ToList();
+
+            var startLoc = i == docIndex ? locOffset : 0;
+            if (startLoc > hits.Count)
+            {
+                return (null, new StaleCursorError(
+                    "Cursor location offset is past the end of hits for a document.",
+                    "Call symbol_find_references again without a cursor to start a fresh page."));
+            }
+
+            for (var loc = startLoc; loc < hits.Count; loc++)
+            {
+                if (page.Count >= pageLimit)
+                {
+                    exhausted = false;
+                    nextDocIndex = i;
+                    nextLocOffset = loc;
+                    break;
+                }
+
+                page.Add(hits[loc]);
+            }
+
+            if (!exhausted)
+            {
+                break;
+            }
+        }
+
+        var truncated = !exhausted;
+        string? nextCursor = truncated
+            ? FindRefsPageCursor.Encode(epoch, entireSolution, nextDocIndex, nextLocOffset)
+            : null;
+
+        var message = truncated
+            ? truncatedByBudget
+                ? $"Soft budget reached after {page.Count} item(s). Pass nextCursor to continue; do not retry from scratch."
+                : "Results truncated; pass nextCursor to symbol_find_references to continue (do not restart from the first page)."
+            : page.Count == 0
+                ? "No references found in the selected scope."
+                : "Reference page complete.";
+
+        return (new PagedResult<ReferenceLocationItem>(page, truncated, nextCursor, message), null);
+    }
+
+    private static IEnumerable<ReferenceLocationItem> FlattenReferenceHitsForDocument(
+        Solution solution,
+        Document document,
+        IEnumerable<Microsoft.CodeAnalysis.FindSymbols.ReferencedSymbol> referencedSymbols)
+    {
+        foreach (var referenced in referencedSymbols)
+        {
+            foreach (var defLocation in referenced.Definition.Locations)
+            {
+                if (!IsLocationInDocument(solution, defLocation, document))
+                {
+                    continue;
+                }
+
+                var item = ToReferenceLocationItem(
+                    solution,
+                    document,
+                    defLocation,
+                    ReferenceLocationKind.Definition);
+                if (item is not null)
+                {
+                    yield return item;
+                }
+            }
+
+            foreach (var referenceLocation in referenced.Locations)
+            {
+                if (referenceLocation.Document.Id != document.Id)
+                {
+                    continue;
+                }
+
+                var item = ToReferenceLocationItem(
+                    solution,
+                    document,
+                    referenceLocation.Location,
+                    ReferenceLocationKind.Reference);
+                if (item is not null)
+                {
+                    yield return item;
+                }
+            }
+        }
+    }
+
+    private static bool IsLocationInDocument(Solution solution, Location location, Document document)
+    {
+        if (!location.IsInSource || location.SourceTree is null)
+        {
+            return false;
+        }
+
+        var doc = solution.GetDocument(location.SourceTree);
+        return doc is not null && doc.Id == document.Id;
+    }
+
+    private static ReferenceLocationItem? ToReferenceLocationItem(
+        Solution solution,
+        Document document,
+        Location location,
+        string kind)
+    {
+        var mapped = ToSymbolLocation(solution, location);
+        if (mapped.DeclarationAvailability == DeclarationAvailability.None &&
+            mapped.FilePath is null)
+        {
+            return null;
+        }
+
+        return new ReferenceLocationItem(
+            mapped.DeclarationAvailability,
+            mapped.Origin,
+            mapped.FilePath,
+            mapped.Start,
+            mapped.Length,
+            document.Project.Id.Id.ToString("D"),
+            kind);
     }
 
     private async Task<(Project? Project, ISymbol? Symbol, SymbolQueryError? Error)> TryResolveHandleAsync(

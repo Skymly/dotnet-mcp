@@ -105,7 +105,26 @@ public sealed record SymbolMembersResultDto
     public required string Message { get; init; }
 }
 
-/// <summary>Backward-compatible alias used by older tests / call sites. </summary>
+public sealed record ReferenceLocationItemDto
+{
+    public required string DeclarationAvailability { get; init; }
+    public string? Origin { get; init; }
+    public string? FilePath { get; init; }
+    public int? Start { get; init; }
+    public int? Length { get; init; }
+    public required string ProjectId { get; init; }
+    public required string Kind { get; init; }
+}
+
+public sealed record SymbolFindReferencesResultDto
+{
+    public required IReadOnlyList<ReferenceLocationItemDto> Items { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public required string Message { get; init; }
+}
+
+/// <summary> Backward-compatible alias used by older tests / call sites. </summary>
 public sealed record WorkspaceOpenResultDto
 {
     public required string Phase { get; init; }
