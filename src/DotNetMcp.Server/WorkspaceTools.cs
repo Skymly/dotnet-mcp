@@ -113,6 +113,30 @@ public sealed class WorkspaceTools
         return OkResult(result);
     }
 
+    [McpServerTool(Name = "workspace_check_drift"), Description(
+        "Compare tracked workspace documents to on-disk content (fallback when FileSystemWatcher misses a change). " +
+        "Also detects project/solution file mtime changes. Repairs source-file content mismatches and advances the " +
+        "workspace epoch; project/solution drifts require workspace_open. Fails with WorkspaceNotReady while loading.")]
+    public CallToolResult WorkspaceCheckDrift(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var status = _workspaceHost.GetStatus();
+        if (status.Phase != "ready")
+        {
+            return ErrorResult(new PolicyErrorDto
+            {
+                Error = PolicyErrorCodes.WorkspaceNotReady,
+                Message =
+                    $"Workspace is not ready (phase={status.Phase}). Drift check cannot run until load completes.",
+                SuggestedAction =
+                    "Call workspace_status to poll until phase is ready; do not retry workspace_open while loading."
+            });
+        }
+
+        return OkResult(_workspaceHost.CheckDrift());
+    }
+
     private static CallToolResult OkResult<T>(T payload) => new()
     {
         Content =

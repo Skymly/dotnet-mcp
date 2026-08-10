@@ -10,10 +10,12 @@ public static class ServerHost
     public static void AddDotNetMcp(
         IServiceCollection services,
         TrustedRoots trustedRoots,
-        ISolutionLoader? solutionLoader = null)
+        ISolutionLoader? solutionLoader = null,
+        WorkspaceHostOptions? workspaceHostOptions = null)
     {
         services.AddSingleton(trustedRoots);
         services.AddSingleton<ISolutionLoader>(solutionLoader ?? new MsBuildSolutionLoader());
+        services.AddSingleton(workspaceHostOptions ?? WorkspaceHostOptions.Default);
         services.AddSingleton<WorkspaceHost>();
         services.AddSingleton<DotNetMcp.Core.SymbolQueryService>();
         services.AddSingleton<DotNetMcp.Core.DiagnosticQueryService>();
