@@ -1,6 +1,7 @@
 using DotNetMcp.Server;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Tests;
@@ -43,6 +44,15 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         TimeSpan delay,
         string projectFilePath = @"C:\fake\BrokenLib.csproj") =>
         new(delay, () => CreateDiagnosticsLoaded(projectFilePath));
+
+    public static FakeSolutionLoader ImmediateWithGenerators(
+        string projectFilePath = @"C:\fake\GeneratorHost.csproj") =>
+        new(TimeSpan.Zero, () => CreateGeneratorsLoaded(projectFilePath));
+
+    public static FakeSolutionLoader DelayedWithGenerators(
+        TimeSpan delay,
+        string projectFilePath = @"C:\fake\GeneratorHost.csproj") =>
+        new(delay, () => CreateGeneratorsLoaded(projectFilePath));
 
     public async Task<LoadedSolution> OpenAsync(
         string path,
@@ -150,6 +160,75 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    /// <summary>
+    /// Adhoc project with CustomGenerator attached via AnalyzerFileReference (public GetGenerators path).
+    /// </summary>
+    public static LoadedSolution CreateGeneratorsLoaded(string projectFilePath = @"C:\fake\GeneratorHost.csproj")
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "GeneratorHost",
+            "GeneratorHost",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        const string source = """
+            namespace GeneratorHost;
+
+            public static class Host
+            {
+                public static string Name => "host";
+            }
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var filePath = Path.Combine(projectDir, "Host.cs");
+
+        solution = solution.AddDocument(
+            docId,
+            "Host.cs",
+            SourceText.From(source),
+            filePath: filePath);
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+
+        var generatorAssemblyPath = typeof(CustomGenerator.MarkerGenerator).Assembly.Location;
+        solution = solution.AddAnalyzerReference(
+            projectId,
+            new AnalyzerFileReference(generatorAssemblyPath, TestAnalyzerAssemblyLoader.Instance));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace generators fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    /// <summary>
+    /// Minimal public <see cref="IAnalyzerAssemblyLoader"/> for Adhoc fixtures (Roslyn's concrete loader is non-public).
+    /// </summary>
+    private sealed class TestAnalyzerAssemblyLoader : IAnalyzerAssemblyLoader
+    {
+        public static TestAnalyzerAssemblyLoader Instance { get; } = new();
+
+        public void AddDependencyLocation(string fullPath)
+        {
+        }
+
+        public System.Reflection.Assembly LoadFromPath(string fullPath) =>
+            System.Reflection.Assembly.LoadFrom(fullPath);
     }
 
     /// <summary>

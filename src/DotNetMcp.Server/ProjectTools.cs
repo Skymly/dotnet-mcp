@@ -11,11 +11,16 @@ public sealed class ProjectTools
 {
     private readonly WorkspaceHost _workspaceHost;
     private readonly DiagnosticQueryService _diagnostics;
+    private readonly GeneratorQueryService _generators;
 
-    public ProjectTools(WorkspaceHost workspaceHost, DiagnosticQueryService diagnostics)
+    public ProjectTools(
+        WorkspaceHost workspaceHost,
+        DiagnosticQueryService diagnostics,
+        GeneratorQueryService generators)
     {
         _workspaceHost = workspaceHost;
         _diagnostics = diagnostics;
+        _generators = generators;
     }
 
     [McpServerTool(Name = "project_diagnostics"), Description(
@@ -55,6 +60,48 @@ public sealed class ProjectTools
         }
 
         return OkResult(ToDto(success!));
+    }
+
+    [McpServerTool(Name = "project_list_generators"), Description(
+        "List source generators registered on a project (assembly name, type full name, version) " +
+        "via AnalyzerReferences.GetGenerators — not FilePath heuristics. " +
+        "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
+        "Results are cached per (projectId, workspace epoch).")]
+    public async Task<CallToolResult> ProjectListGenerators(
+        [Description("Roslyn projectId GUID string from workspace_list_projects.")]
+        string projectId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _generators
+            .ListGeneratorsAsync(
+                session!.Solution,
+                projectId,
+                session.Epoch,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(new ProjectListGeneratorsResultDto
+        {
+            Generators = success!.Select(g => new GeneratorIdentityDto
+            {
+                AssemblyName = g.AssemblyName,
+                TypeFullName = g.TypeFullName,
+                Version = g.Version
+            }).ToArray(),
+            Epoch = session.Epoch
+        });
     }
 
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
