@@ -19,6 +19,7 @@ public class ToolSurfaceGuardTests
         "symbol_members",
         "symbol_resolve",
         "symbol_summary",
+        "workspace_check_drift",
         "workspace_list_projects",
         "workspace_open",
         "workspace_status"

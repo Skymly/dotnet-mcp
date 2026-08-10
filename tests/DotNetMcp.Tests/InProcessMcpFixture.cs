@@ -20,19 +20,21 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
 
     public InProcessMcpFixture(
         TrustedRoots? trustedRoots = null,
-        ISolutionLoader? solutionLoader = null)
+        ISolutionLoader? solutionLoader = null,
+        WorkspaceHostOptions? workspaceHostOptions = null)
     {
         Pipe clientToServer = new(), serverToClient = new();
         var roots = trustedRoots ?? TrustedRoots.Create([Directory.GetCurrentDirectory()]);
 
         var services = new ServiceCollection();
-        ServerHost.AddDotNetMcp(services, roots, solutionLoader);
+        ServerHost.AddDotNetMcp(services, roots, solutionLoader, workspaceHostOptions);
         services.AddMcpServer()
             .WithStreamServerTransport(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream())
             .WithToolsFromAssembly(typeof(ServerHost).Assembly);
 
         _services = services.BuildServiceProvider();
         _server = _services.GetRequiredService<McpServer>();
+        WorkspaceHost = _services.GetRequiredService<WorkspaceHost>();
         _serverTask = _server.RunAsync(_serverCts.Token);
 
         Client = McpClient.CreateAsync(
@@ -42,6 +44,8 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
     }
 
     public McpClient Client { get; }
+
+    public WorkspaceHost WorkspaceHost { get; }
 
     public static string TextOf(CallToolResult result)
     {

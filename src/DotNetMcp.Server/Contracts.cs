@@ -192,6 +192,20 @@ public sealed record SymbolAttributionResultDto
     public required IReadOnlyDictionary<string, SymbolAttributionDto> Members { get; init; }
 }
 
+public sealed record DriftItemDto
+{
+    public required string Path { get; init; }
+    public required string Kind { get; init; }
+    public bool Repaired { get; init; }
+}
+
+public sealed record WorkspaceCheckDriftResultDto
+{
+    public required long Epoch { get; init; }
+    public required IReadOnlyList<DriftItemDto> Drifted { get; init; }
+    public required string SuggestedAction { get; init; }
+}
+
 /// <summary> Backward-compatible alias used by older tests / call sites. </summary>
 public sealed record WorkspaceOpenResultDto
 {

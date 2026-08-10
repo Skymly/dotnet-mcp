@@ -29,6 +29,12 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader ImmediateWithSymbols(string projectFilePath = @"C:\fake\SampleLib.csproj") =>
         new(TimeSpan.Zero, () => CreateSymbolsLoaded(projectFilePath));
 
+    /// <summary>
+    /// Writes handwritten source to disk under <paramref name="projectDir"/> so FSW/drift tests can mutate files.
+    /// </summary>
+    public static FakeSolutionLoader ImmediateWithSymbolsOnDisk(string projectDir) =>
+        new(TimeSpan.Zero, () => CreateSymbolsLoadedOnDisk(projectDir));
+
     public static FakeSolutionLoader DelayedWithSymbols(
         TimeSpan delay,
         string projectFilePath = @"C:\fake\SampleLib.csproj") =>
@@ -160,6 +166,48 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    public static LoadedSolution CreateSymbolsLoadedOnDisk(string projectDir)
+    {
+        Directory.CreateDirectory(projectDir);
+        var projectFilePath = Path.Combine(projectDir, "SampleLib.csproj");
+        File.WriteAllText(projectFilePath, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+
+        const string handwritten = """
+            namespace SampleLib;
+
+            public partial class Calculator
+            {
+                public int Mode { get; set; }
+                public string Name { get; set; } = "calc";
+                public int Add(int a, int b) => a + b;
+                public double Add(double a, double b) => a + b;
+                public int Subtract(int a, int b) => a - b;
+                public int Multiply(int a, int b) => a * b;
+                public int Divide(int a, int b) => a / b;
+                public void Clear() { Mode = 0; }
+                public void Reset() { Name = "calc"; Mode = 0; }
+            }
+            """;
+
+        const string generated = """
+            namespace SampleLib;
+
+            public partial class Calculator
+            {
+                public int GeneratedAnswer => 42;
+            }
+            """;
+
+        var handwrittenPath = Path.Combine(projectDir, "Calculator.cs");
+        var generatedDir = Path.Combine(projectDir, "Generated", "FakeGen");
+        Directory.CreateDirectory(generatedDir);
+        var generatedPath = Path.Combine(generatedDir, "Calculator.Generated.g.cs");
+        File.WriteAllText(handwrittenPath, handwritten);
+        File.WriteAllText(generatedPath, generated);
+
+        return CreateSymbolsLoaded(projectFilePath);
     }
 
     /// <summary>

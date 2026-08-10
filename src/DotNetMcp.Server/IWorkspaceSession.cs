@@ -14,17 +14,17 @@ public interface IWorkspaceSession : IDisposable
 
 public sealed class WorkspaceSession : IWorkspaceSession
 {
-    private readonly LoadedSolution _loaded;
     private bool _disposed;
 
     public WorkspaceSession(LoadedSolution loaded, long epoch)
     {
-        _loaded = loaded;
+        // Freeze snapshot at request start so FSW updates cannot cross a mid-request boundary (ADR-0002).
+        Solution = loaded.Solution;
         Epoch = epoch;
     }
 
     public long Epoch { get; }
-    public Solution Solution => _loaded.Solution;
+    public Solution Solution { get; }
 
     public IReadOnlyList<ProjectSummaryDto> ListProjects() =>
         ProjectSummary.FromSolution(Solution);

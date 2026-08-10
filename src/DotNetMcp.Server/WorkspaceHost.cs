@@ -1,19 +1,26 @@
 using System.Diagnostics;
+using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Server;
 
 /// <summary>
 /// Single active workspace coordinator (ADR-0003 §1/§4): open returns immediately; status polls.
+/// Freshness via internal FSW + debounce + epoch (ADR-0002 §3).
 /// </summary>
 public sealed class WorkspaceHost : IAsyncDisposable
 {
     private readonly ISolutionLoader _loader;
+    private readonly WorkspaceHostOptions _options;
+    private readonly IWorkspaceFileWatcher _watcher;
+    private readonly bool _ownsWatcher;
     private readonly SemaphoreSlim _loadMutex = new(1, 1);
     private readonly object _gate = new();
+    private readonly object _debounceGate = new();
 
     private CancellationTokenSource? _loadCts;
     private Task? _loadTask;
     private LoadedSolution? _loaded;
+    private string? _openedPath;
     private long _epoch;
     private string _phase = "idle";
     private int _completedUnits;
@@ -23,9 +30,36 @@ public sealed class WorkspaceHost : IAsyncDisposable
     private readonly Stopwatch _elapsed = new();
     private long _estimatedRemainingMs;
 
-    public WorkspaceHost(ISolutionLoader loader)
+    private readonly HashSet<string> _pendingPaths = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _debounceCts;
+
+    public WorkspaceHost(ISolutionLoader loader, WorkspaceHostOptions options)
     {
         _loader = loader;
+        _options = options;
+        if (_options.FileWatcher is not null)
+        {
+            _watcher = _options.FileWatcher;
+            _ownsWatcher = false;
+        }
+        else
+        {
+            _watcher = new FileSystemWorkspaceWatcher();
+            _ownsWatcher = true;
+        }
+    }
+
+    public WriteSuppression WriteSuppression => _options.WriteSuppression;
+
+    public long CurrentEpoch
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _epoch;
+            }
+        }
     }
 
     public WorkspaceStatusDto BeginOpen(string path)
@@ -33,9 +67,11 @@ public sealed class WorkspaceHost : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         CancelInFlightUnlocked();
+        StopWatcher();
 
         lock (_gate)
         {
+            _openedPath = Path.GetFullPath(path);
             _phase = "loading";
             _completedUnits = 0;
             _totalUnits = 1;
@@ -47,7 +83,8 @@ public sealed class WorkspaceHost : IAsyncDisposable
         }
 
         var cts = _loadCts!;
-        _loadTask = Task.Run(() => RunLoadAsync(path, cts.Token));
+        var openedPath = _openedPath!;
+        _loadTask = Task.Run(() => RunLoadAsync(openedPath, cts.Token));
 
         return GetStatus();
     }
@@ -72,6 +109,243 @@ public sealed class WorkspaceHost : IAsyncDisposable
 
             session = new WorkspaceSession(_loaded, _epoch);
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Drift fallback (ADR-0002): compare disk vs workspace; repair source mismatches; bump epoch when repaired.
+    /// Disk I/O runs outside <c>_gate</c>; mutations are serialized under the gate.
+    /// </summary>
+    public WorkspaceCheckDriftResultDto CheckDrift()
+    {
+        LoadedSolution loaded;
+        string? openedPath;
+        lock (_gate)
+        {
+            if (_phase != "ready" || _loaded is null)
+            {
+                return new WorkspaceCheckDriftResultDto
+                {
+                    Epoch = _epoch,
+                    Drifted = [],
+                    SuggestedAction =
+                        "Call workspace_status until phase is ready, then retry workspace_check_drift."
+                };
+            }
+
+            loaded = _loaded;
+            openedPath = _openedPath;
+        }
+
+        var extras = loaded.TrackedProjectFilePaths
+            .Concat(openedPath is null ? [] : [openedPath])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var detected = loaded.DetectDrift(extras);
+
+        var repairTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var drift in detected)
+        {
+            if (drift.Kind == "ContentMismatch"
+                && LoadedSolution.IsSourceFile(drift.Path)
+                && File.Exists(drift.Path))
+            {
+                repairTexts[Path.GetFullPath(drift.Path)] = File.ReadAllText(drift.Path);
+            }
+        }
+
+        IReadOnlyList<DocumentDrift> drifts;
+        long epoch;
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_loaded, loaded) || _phase != "ready")
+            {
+                return new WorkspaceCheckDriftResultDto
+                {
+                    Epoch = _epoch,
+                    Drifted = detected.Select(ToDto).ToArray(),
+                    SuggestedAction =
+                        "Workspace changed during drift check; call workspace_check_drift again."
+                };
+            }
+
+            drifts = loaded.RepairSourceDrifts(detected, repairTexts);
+            if (drifts.Any(static d => d.Repaired))
+            {
+                _epoch++;
+            }
+
+            epoch = _epoch;
+        }
+
+        var projectDrift = drifts.Any(d =>
+            !d.Repaired && (d.Kind is "ProjectFileChanged" || LoadedSolution.IsProjectOrSolutionFile(d.Path)));
+
+        var suggested = drifts.Count == 0
+            ? "Workspace matches disk for tracked documents."
+            : drifts.Any(static d => d.Repaired) && !projectDrift
+                ? "Source drifts were repaired and the workspace epoch advanced; retry queries without stale cursors."
+                : projectDrift
+                    ? "Project or solution files drifted; call workspace_open on the same path to fully reload."
+                    : "Inspect drifted paths; source mismatches that could not be repaired may need workspace_open.";
+
+        return new WorkspaceCheckDriftResultDto
+        {
+            Epoch = epoch,
+            Drifted = drifts.Select(ToDto).ToArray(),
+            SuggestedAction = suggested
+        };
+    }
+
+    /// <summary>
+    /// Applies a batch of changed paths (debounce flush / tests). Disk reads happen outside the gate.
+    /// </summary>
+    public void ApplyChangedPaths(IEnumerable<string> paths)
+    {
+        var filtered = paths
+            .Where(static p => !string.IsNullOrWhiteSpace(p))
+            .Select(Path.GetFullPath)
+            .Where(p => LoadedSolution.IsWatchedFile(p))
+            .Where(p => !_options.WriteSuppression.IsSuppressed(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (filtered.Length == 0)
+        {
+            return;
+        }
+
+        var needsReload = filtered.Any(LoadedSolution.IsProjectOrSolutionFile);
+        if (needsReload)
+        {
+            string? reopen;
+            lock (_gate)
+            {
+                reopen = _openedPath;
+            }
+
+            if (reopen is not null)
+            {
+                BeginOpen(reopen);
+            }
+
+            return;
+        }
+
+        var diskTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in filtered)
+        {
+            if (File.Exists(path))
+            {
+                diskTexts[path] = File.ReadAllText(path);
+            }
+        }
+
+        lock (_gate)
+        {
+            if (_phase != "ready" || _loaded is null)
+            {
+                return;
+            }
+
+            var changed = false;
+            foreach (var (path, text) in diskTexts)
+            {
+                if (_loaded.TryUpdateDocumentFromText(path, SourceText.From(text)))
+                {
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                _epoch++;
+            }
+        }
+    }
+
+    private static DriftItemDto ToDto(DocumentDrift d) => new()
+    {
+        Path = d.Path,
+        Kind = d.Kind,
+        Repaired = d.Repaired
+    };
+
+    private void OnWatcherPathsChanged(IReadOnlyList<string> paths)
+    {
+        string[]? syncBatch = null;
+
+        lock (_debounceGate)
+        {
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    continue;
+                }
+
+                if (!LoadedSolution.IsWatchedFile(path))
+                {
+                    continue;
+                }
+
+                if (_options.WriteSuppression.IsSuppressed(path))
+                {
+                    continue;
+                }
+
+                _pendingPaths.Add(Path.GetFullPath(path));
+            }
+
+            if (_pendingPaths.Count == 0)
+            {
+                return;
+            }
+
+            // Zero debounce: apply synchronously for deterministic tests.
+            if (_options.Debounce <= TimeSpan.Zero)
+            {
+                syncBatch = _pendingPaths.ToArray();
+                _pendingPaths.Clear();
+            }
+            else
+            {
+                _debounceCts?.Cancel();
+                _debounceCts?.Dispose();
+                _debounceCts = new CancellationTokenSource();
+                var token = _debounceCts.Token;
+                var delay = _options.Debounce;
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(delay, token).ConfigureAwait(false);
+
+                        string[] batch;
+                        lock (_debounceGate)
+                        {
+                            batch = _pendingPaths.ToArray();
+                            _pendingPaths.Clear();
+                        }
+
+                        if (batch.Length > 0)
+                        {
+                            ApplyChangedPaths(batch);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // superseded by a newer debounce window
+                    }
+                }, CancellationToken.None);
+            }
+        }
+
+        if (syncBatch is { Length: > 0 })
+        {
+            ApplyChangedPaths(syncBatch);
         }
     }
 
@@ -132,7 +406,13 @@ public sealed class WorkspaceHost : IAsyncDisposable
                 _elapsed.Stop();
                 _estimatedRemainingMs = 0;
                 _error = null;
+                if (_openedPath is not null)
+                {
+                    loaded.RecordProjectFileSnapshots([_openedPath]);
+                }
             }
+
+            StartWatcherForLoaded(loaded);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -156,6 +436,67 @@ public sealed class WorkspaceHost : IAsyncDisposable
         finally
         {
             _loadMutex.Release();
+        }
+    }
+
+    private void StartWatcherForLoaded(LoadedSolution loaded)
+    {
+        var roots = loaded.TrackedDocumentPaths
+            .Select(static p => Path.GetDirectoryName(p))
+            .Where(static d => !string.IsNullOrWhiteSpace(d))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(Directory.Exists)
+            .ToArray();
+
+        // Also watch the opened solution's directory.
+        lock (_gate)
+        {
+            if (_openedPath is not null)
+            {
+                var openDir = Path.GetDirectoryName(_openedPath);
+                if (!string.IsNullOrWhiteSpace(openDir) && Directory.Exists(openDir))
+                {
+                    roots = roots
+                        .Append(openDir)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                }
+            }
+        }
+
+        if (roots.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _watcher.Start(roots, OnWatcherPathsChanged);
+        }
+        catch
+        {
+            // Watcher failures must not take down the ready workspace; check-drift remains as fallback.
+        }
+    }
+
+    private void StopWatcher()
+    {
+        try
+        {
+            _watcher.Stop();
+        }
+        catch
+        {
+            // ignore
+        }
+
+        lock (_debounceGate)
+        {
+            _debounceCts?.Cancel();
+            _debounceCts?.Dispose();
+            _debounceCts = null;
+            _pendingPaths.Clear();
         }
     }
 
@@ -226,6 +567,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         CancelInFlightUnlocked();
+        StopWatcher();
 
         if (_loadTask is { } task)
         {
@@ -250,6 +592,11 @@ public sealed class WorkspaceHost : IAsyncDisposable
         if (loaded is not null)
         {
             await loaded.DisposeAsync().ConfigureAwait(false);
+        }
+
+        if (_ownsWatcher)
+        {
+            _watcher.Dispose();
         }
 
         _loadMutex.Dispose();
