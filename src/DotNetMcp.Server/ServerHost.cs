@@ -16,8 +16,10 @@ public static class ServerHost
         services.AddSingleton<ISolutionLoader>(solutionLoader ?? new MsBuildSolutionLoader());
         services.AddSingleton<WorkspaceHost>();
         services.AddSingleton<DotNetMcp.Core.SymbolQueryService>();
+        services.AddSingleton<DotNetMcp.Core.DiagnosticQueryService>();
         services.AddSingleton<WorkspaceTools>();
         services.AddSingleton<SymbolTools>();
+        services.AddSingleton<ProjectTools>();
     }
 
     public static async Task<int> RunAsync(string[] args)

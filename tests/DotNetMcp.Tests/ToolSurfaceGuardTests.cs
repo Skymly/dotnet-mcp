@@ -10,6 +10,7 @@ public class ToolSurfaceGuardTests
     /// </summary>
     private static readonly string[] AllowedToolNames =
     [
+        "project_diagnostics",
         "symbol_find_references",
         "symbol_goto_definition",
         "symbol_members",
