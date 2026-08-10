@@ -224,7 +224,7 @@ public class SymbolFindReferencesSeamTests
     public async Task FindReferencesAsync_soft_budget_zero_truncates_with_continuation_message()
     {
         var loaded = FakeSolutionLoader.CreateFindRefsGraphLoaded();
-        var service = new SymbolQueryService();
+        var service = new SymbolQueryService(new GeneratorQueryService());
         var libA = loaded.Solution.Projects.Single(p => p.Name == "LibA");
 
         var (resolved, resolveError) = await service.ResolveByNameAsync(

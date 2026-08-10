@@ -186,6 +186,12 @@ public sealed class FakeSolutionLoader : ISolutionLoader
             {
                 public static string Name => "host";
             }
+
+            public partial class PartialThing
+            {
+                public string Format() => "hw";
+                public string Format(string x) => x;
+            }
             """;
 
         var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";

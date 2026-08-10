@@ -17,5 +17,8 @@ public sealed record ProjectNotFoundError(string Message, string SuggestedAction
 public sealed record CompilationUnavailableError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.CompilationUnavailable, Message, SuggestedAction);
 
+public sealed record GeneratorNotFoundError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.GeneratorNotFound, Message, SuggestedAction);
+
 public sealed record SoftBudgetExceededError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.SoftBudgetExceeded, Message, SuggestedAction);
