@@ -36,6 +36,14 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader ImmediateWithFindRefsGraph(string root = @"C:\fake") =>
         new(TimeSpan.Zero, () => CreateFindRefsGraphLoaded(root));
 
+    public static FakeSolutionLoader ImmediateWithDiagnostics(string projectFilePath = @"C:\fake\BrokenLib.csproj") =>
+        new(TimeSpan.Zero, () => CreateDiagnosticsLoaded(projectFilePath));
+
+    public static FakeSolutionLoader DelayedWithDiagnostics(
+        TimeSpan delay,
+        string projectFilePath = @"C:\fake\BrokenLib.csproj") =>
+        new(delay, () => CreateDiagnosticsLoaded(projectFilePath));
+
     public async Task<LoadedSolution> OpenAsync(
         string path,
         IProgress<LoadProgress>? progress = null,
@@ -139,6 +147,60 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         if (!workspace.TryApplyChanges(solution))
         {
             throw new InvalidOperationException("Failed to apply AdhocWorkspace symbol fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    /// <summary>
+    /// Deterministic Error + Warning diagnostics for project_diagnostics pagination tests.
+    /// </summary>
+    public static LoadedSolution CreateDiagnosticsLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "BrokenLib",
+            "BrokenLib",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        // Multiple #warning + type errors → enough Error/Warning rows for limit=2 paging.
+        const string source = """
+            #warning DiagWarnA
+            #warning DiagWarnB
+            #warning DiagWarnC
+            namespace BrokenLib;
+
+            public class Broken
+            {
+                public int Alpha = "not-an-int";
+                public int Beta = "also-bad";
+            }
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var filePath = Path.Combine(projectDir, "Broken.cs");
+
+        solution = solution.AddDocument(
+            docId,
+            "Broken.cs",
+            SourceText.From(source),
+            filePath: filePath);
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace diagnostics fixture.");
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);

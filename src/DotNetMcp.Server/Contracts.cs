@@ -23,6 +23,9 @@ public static class PolicyErrorCodes
     public const string SymbolAmbiguous = "SymbolAmbiguous";
     public const string StaleCursor = "StaleCursor";
     public const string DefinitionNotFound = "DefinitionNotFound";
+    public const string ProjectNotFound = "ProjectNotFound";
+    public const string CompilationUnavailable = "CompilationUnavailable";
+    public const string SoftBudgetExceeded = "SoftBudgetExceeded";
 }
 
 public sealed record PolicyErrorDto
@@ -119,6 +122,27 @@ public sealed record ReferenceLocationItemDto
 public sealed record SymbolFindReferencesResultDto
 {
     public required IReadOnlyList<ReferenceLocationItemDto> Items { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public required string Message { get; init; }
+}
+
+public sealed record DiagnosticItemDto
+{
+    public required string Id { get; init; }
+    public required string Severity { get; init; }
+    public required string Message { get; init; }
+    public string? FilePath { get; init; }
+    public int? StartLine { get; init; }
+    public int? StartCharacter { get; init; }
+    public int? EndLine { get; init; }
+    public int? EndCharacter { get; init; }
+    public required string ProjectId { get; init; }
+}
+
+public sealed record ProjectDiagnosticsResultDto
+{
+    public required IReadOnlyList<DiagnosticItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
     public required string Message { get; init; }

@@ -66,6 +66,9 @@ public static class SymbolQueryErrorCodes
     public const string SymbolAmbiguous = "SymbolAmbiguous";
     public const string StaleCursor = "StaleCursor";
     public const string DefinitionNotFound = "DefinitionNotFound";
+    public const string ProjectNotFound = "ProjectNotFound";
+    public const string CompilationUnavailable = "CompilationUnavailable";
+    public const string SoftBudgetExceeded = "SoftBudgetExceeded";
 }
 
 public static class DeclarationAvailability
