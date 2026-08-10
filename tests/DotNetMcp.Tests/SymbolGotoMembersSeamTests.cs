@@ -47,7 +47,7 @@ public class SymbolGotoMembersSeamTests
     }
 
     [Fact]
-    public async Task symbol_goto_definition_labels_generated_partial_origin()
+    public async Task symbol_goto_definition_does_not_trust_gcs_path_alone_as_generator_origin()
     {
         var root = CreateTempDir("root");
         var solution = Path.Combine(root, "App.slnx");
@@ -74,7 +74,9 @@ public class SymbolGotoMembersSeamTests
             var body = InProcessMcpFixture.Deserialize<SymbolDefinitionResultDto>(gotoDef);
             var loc = Assert.Single(body.Locations);
             Assert.Equal("InSource", loc.DeclarationAvailability);
-            Assert.Equal("SourceGenerated", loc.Origin);
+            // Fake .g.cs documents are not SourceGeneratedDocuments and are not produced by a
+            // GeneratorDriver — FilePath heuristics alone must not label them SourceGenerator.
+            Assert.Equal("Handwritten", loc.Origin);
             Assert.Contains(".g.cs", loc.FilePath!, StringComparison.OrdinalIgnoreCase);
         }
         finally

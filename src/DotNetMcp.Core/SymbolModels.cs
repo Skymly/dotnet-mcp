@@ -69,6 +69,7 @@ public static class SymbolQueryErrorCodes
     public const string ProjectNotFound = "ProjectNotFound";
     public const string CompilationUnavailable = "CompilationUnavailable";
     public const string SoftBudgetExceeded = "SoftBudgetExceeded";
+    public const string GeneratorNotFound = "GeneratorNotFound";
 }
 
 public static class DeclarationAvailability
@@ -81,5 +82,9 @@ public static class DeclarationAvailability
 public static class SymbolOrigin
 {
     public const string Handwritten = "Handwritten";
-    public const string SourceGenerated = "SourceGenerated";
+    public const string SourceGenerator = "SourceGenerator";
+
+    /// <summary>Parseable Origin label: SourceGenerator(Assembly::Type@Version).</summary>
+    public static string FormatSourceGenerator(GeneratorIdentity identity) =>
+        $"{SourceGenerator}({identity.AssemblyName}::{identity.TypeFullName}@{identity.Version})";
 }

@@ -26,6 +26,7 @@ public static class PolicyErrorCodes
     public const string ProjectNotFound = "ProjectNotFound";
     public const string CompilationUnavailable = "CompilationUnavailable";
     public const string SoftBudgetExceeded = "SoftBudgetExceeded";
+    public const string GeneratorNotFound = "GeneratorNotFound";
 }
 
 public sealed record PolicyErrorDto
@@ -159,6 +160,36 @@ public sealed record ProjectListGeneratorsResultDto
 {
     public required IReadOnlyList<GeneratorIdentityDto> Generators { get; init; }
     public long Epoch { get; init; }
+}
+
+public sealed record GeneratedSourceItemDto
+{
+    public required string HintName { get; init; }
+    public required string Content { get; init; }
+}
+
+public sealed record ProjectListGeneratedSourcesResultDto
+{
+    public required IReadOnlyList<GeneratedSourceItemDto> Items { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public required string Message { get; init; }
+    public long Epoch { get; init; }
+}
+
+public sealed record SymbolAttributionDto
+{
+    public required string DeclarationAvailability { get; init; }
+    public required string OriginKind { get; init; }
+    public GeneratorIdentityDto? Generator { get; init; }
+}
+
+public sealed record SymbolAttributionResultDto
+{
+    public required string DeclarationAvailability { get; init; }
+    public required string OriginKind { get; init; }
+    public GeneratorIdentityDto? Generator { get; init; }
+    public required IReadOnlyDictionary<string, SymbolAttributionDto> Members { get; init; }
 }
 
 /// <summary> Backward-compatible alias used by older tests / call sites. </summary>

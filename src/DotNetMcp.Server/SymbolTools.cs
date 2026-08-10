@@ -76,7 +76,7 @@ public sealed class SymbolTools
 
     [McpServerTool(Name = "symbol_goto_definition"), Description(
         "Navigate a SymbolHandle to its definition locations (file/span). Includes handwritten and " +
-        "source-generated trees; Origin is Handwritten or SourceGenerated when in source.")]
+        "source-generated trees; Origin is Handwritten or SourceGenerator(Assembly::Type@Version) when in source.")]
     public async Task<CallToolResult> SymbolGotoDefinition(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
         string handle,
@@ -90,7 +90,7 @@ public sealed class SymbolTools
         }
 
         var (success, error) = await _symbols
-            .GetDefinitionAsync(session!.Solution, handle, cancellationToken)
+            .GetDefinitionAsync(session!.Solution, handle, session.Epoch, cancellationToken)
             .ConfigureAwait(false);
 
         if (error is not null)
@@ -99,6 +99,34 @@ public sealed class SymbolTools
         }
 
         return OkResult(ToDefinitionDto(success!));
+    }
+
+    [McpServerTool(Name = "symbol_attribution"), Description(
+        "Two-axis symbol attribution for a SymbolHandle: declaration availability plus Handwritten vs " +
+        "SourceGenerator(identity) via public GeneratorDriver reconciliation (not FilePath heuristics). " +
+        "Named types also return a members map keyed by signature-qualified name (partial/overload safe).")]
+    public async Task<CallToolResult> SymbolAttribution(
+        [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
+        string handle,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _symbols
+            .GetAttributionAsync(session!.Solution, handle, session.Epoch, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(ToAttributionDto(success!));
     }
 
     [McpServerTool(Name = "symbol_members"), Description(
@@ -216,6 +244,36 @@ public sealed class SymbolTools
             Start = l.Start,
             Length = l.Length
         }).ToArray()
+    };
+
+    private static SymbolAttributionResultDto ToAttributionDto(SymbolAttributionSuccess success) => new()
+    {
+        DeclarationAvailability = success.Attribution.DeclarationAvailability,
+        OriginKind = success.Attribution.OriginKind,
+        Generator = success.Attribution.Generator is null
+            ? null
+            : new GeneratorIdentityDto
+            {
+                AssemblyName = success.Attribution.Generator.AssemblyName,
+                TypeFullName = success.Attribution.Generator.TypeFullName,
+                Version = success.Attribution.Generator.Version
+            },
+        Members = success.Members.ToDictionary(
+            kv => kv.Key,
+            kv => new SymbolAttributionDto
+            {
+                DeclarationAvailability = kv.Value.DeclarationAvailability,
+                OriginKind = kv.Value.OriginKind,
+                Generator = kv.Value.Generator is null
+                    ? null
+                    : new GeneratorIdentityDto
+                    {
+                        AssemblyName = kv.Value.Generator.AssemblyName,
+                        TypeFullName = kv.Value.Generator.TypeFullName,
+                        Version = kv.Value.Generator.Version
+                    }
+            },
+            StringComparer.Ordinal)
     };
 
     private static SymbolMembersResultDto ToMembersDto(PagedResult<MemberListItem> page) => new()

@@ -12,6 +12,13 @@ public sealed class SymbolQueryService
     public static readonly TimeSpan DependencyClosureSoftBudget = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan EntireSolutionSoftBudget = TimeSpan.FromSeconds(20);
 
+    private readonly GeneratorQueryService _generators;
+
+    public SymbolQueryService(GeneratorQueryService generators)
+    {
+        _generators = generators;
+    }
+
     public async Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
         Solution solution,
         string name,
@@ -90,6 +97,7 @@ public sealed class SymbolQueryService
     public async Task<(SymbolDefinitionSuccess? Success, SymbolQueryError? Error)> GetDefinitionAsync(
         Solution solution,
         string handle,
+        long epoch,
         CancellationToken cancellationToken = default)
     {
         var (project, symbol, error) = await TryResolveHandleAsync(solution, handle, cancellationToken)
@@ -99,11 +107,18 @@ public sealed class SymbolQueryService
             return (null, error);
         }
 
-        _ = project;
         var locations = new List<SymbolLocation>();
         foreach (var location in symbol!.Locations)
         {
-            locations.Add(ToSymbolLocation(solution, location));
+            var (mapped, mapError) = await ToSymbolLocationAsync(
+                    solution, project!, epoch, location, cancellationToken)
+                .ConfigureAwait(false);
+            if (mapError is not null)
+            {
+                return (null, mapError);
+            }
+
+            locations.Add(mapped!);
         }
 
         if (locations.Count == 0)
@@ -114,6 +129,54 @@ public sealed class SymbolQueryService
         }
 
         return (new SymbolDefinitionSuccess(locations), null);
+    }
+
+    public async Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
+        Solution solution,
+        string handle,
+        long epoch,
+        CancellationToken cancellationToken = default)
+    {
+        var (project, symbol, error) = await TryResolveHandleAsync(solution, handle, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        var (attribution, attrError) = await AttributeSymbolAsync(
+                solution, project!, epoch, symbol!, cancellationToken)
+            .ConfigureAwait(false);
+        if (attrError is not null)
+        {
+            return (null, attrError);
+        }
+
+        var members = new Dictionary<string, SymbolAttribution>(StringComparer.Ordinal);
+        if (symbol is INamedTypeSymbol type)
+        {
+            foreach (var member in type.GetMembers()
+                         .Where(m => !m.IsImplicitlyDeclared)
+                         .Where(static m => m is not IMethodSymbol
+                         {
+                             MethodKind: MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.EventAdd
+                             or MethodKind.EventRemove or MethodKind.EventRaise
+                         })
+                         .OrderBy(SymbolKey, StringComparer.Ordinal))
+            {
+                var (memberAttr, memberError) = await AttributeSymbolAsync(
+                        solution, project!, epoch, member, cancellationToken)
+                    .ConfigureAwait(false);
+                if (memberError is not null)
+                {
+                    return (null, memberError);
+                }
+
+                members[SymbolKey(member)] = memberAttr!;
+            }
+        }
+
+        return (new SymbolAttributionSuccess(attribution!, members), null);
     }
 
     public async Task<(PagedResult<MemberListItem>? Success, SymbolQueryError? Error)> GetMembersAsync(
@@ -310,7 +373,9 @@ public sealed class SymbolQueryService
                 }
             }
 
-            var hits = FlattenReferenceHitsForDocument(solution, doc, referenced)
+            var hits = (await FlattenReferenceHitsForDocumentAsync(
+                    solution, doc, referenced, epoch, cancellationToken)
+                .ConfigureAwait(false))
                 .OrderBy(h => h.FilePath ?? string.Empty, StringComparer.Ordinal)
                 .ThenBy(h => h.Start ?? -1)
                 .ThenBy(h => h.Length ?? -1)
@@ -360,11 +425,14 @@ public sealed class SymbolQueryService
         return (new PagedResult<ReferenceLocationItem>(page, truncated, nextCursor, message), null);
     }
 
-    private static IEnumerable<ReferenceLocationItem> FlattenReferenceHitsForDocument(
+    private async Task<IReadOnlyList<ReferenceLocationItem>> FlattenReferenceHitsForDocumentAsync(
         Solution solution,
         Document document,
-        IEnumerable<Microsoft.CodeAnalysis.FindSymbols.ReferencedSymbol> referencedSymbols)
+        IEnumerable<Microsoft.CodeAnalysis.FindSymbols.ReferencedSymbol> referencedSymbols,
+        long epoch,
+        CancellationToken cancellationToken)
     {
+        var items = new List<ReferenceLocationItem>();
         foreach (var referenced in referencedSymbols)
         {
             foreach (var defLocation in referenced.Definition.Locations)
@@ -374,14 +442,17 @@ public sealed class SymbolQueryService
                     continue;
                 }
 
-                var item = ToReferenceLocationItem(
-                    solution,
-                    document,
-                    defLocation,
-                    ReferenceLocationKind.Definition);
+                var item = await ToReferenceLocationItemAsync(
+                        solution,
+                        document,
+                        epoch,
+                        defLocation,
+                        ReferenceLocationKind.Definition,
+                        cancellationToken)
+                    .ConfigureAwait(false);
                 if (item is not null)
                 {
-                    yield return item;
+                    items.Add(item);
                 }
             }
 
@@ -392,17 +463,22 @@ public sealed class SymbolQueryService
                     continue;
                 }
 
-                var item = ToReferenceLocationItem(
-                    solution,
-                    document,
-                    referenceLocation.Location,
-                    ReferenceLocationKind.Reference);
+                var item = await ToReferenceLocationItemAsync(
+                        solution,
+                        document,
+                        epoch,
+                        referenceLocation.Location,
+                        ReferenceLocationKind.Reference,
+                        cancellationToken)
+                    .ConfigureAwait(false);
                 if (item is not null)
                 {
-                    yield return item;
+                    items.Add(item);
                 }
             }
         }
+
+        return items;
     }
 
     private static bool IsLocationInDocument(Solution solution, Location location, Document document)
@@ -416,15 +492,31 @@ public sealed class SymbolQueryService
         return doc is not null && doc.Id == document.Id;
     }
 
-    private static ReferenceLocationItem? ToReferenceLocationItem(
+    private async Task<ReferenceLocationItem?> ToReferenceLocationItemAsync(
         Solution solution,
         Document document,
+        long epoch,
         Location location,
-        string kind)
+        string kind,
+        CancellationToken cancellationToken)
     {
-        var mapped = ToSymbolLocation(solution, location);
-        if (mapped.DeclarationAvailability == DeclarationAvailability.None &&
-            mapped.FilePath is null)
+        var (mapped, error) = await ToSymbolLocationAsync(
+                solution, document.Project, epoch, location, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            // Soft-fail individual refs on driver failure: treat as handwritten span rather than
+            // aborting the whole find-refs page. Attribution/goto paths surface the error instead.
+            mapped = new SymbolLocation(
+                mapped?.DeclarationAvailability ?? DeclarationAvailability.InSource,
+                SymbolOrigin.Handwritten,
+                location.IsInSource ? location.SourceTree?.FilePath : null,
+                location.IsInSource ? location.SourceSpan.Start : null,
+                location.IsInSource ? location.SourceSpan.Length : null);
+        }
+
+        if (mapped is null ||
+            (mapped.DeclarationAvailability == DeclarationAvailability.None && mapped.FilePath is null))
         {
             return null;
         }
@@ -437,6 +529,174 @@ public sealed class SymbolQueryService
             mapped.Length,
             document.Project.Id.Id.ToString("D"),
             kind);
+    }
+
+    private async Task<(SymbolAttribution? Attribution, SymbolQueryError? Error)> AttributeSymbolAsync(
+        Solution solution,
+        Project project,
+        long epoch,
+        ISymbol symbol,
+        CancellationToken cancellationToken)
+    {
+        if (symbol.Locations.Length == 0)
+        {
+            return (new SymbolAttribution(DeclarationAvailability.None, SymbolOrigin.Handwritten, null), null);
+        }
+
+        if (symbol.Locations.All(l => l.IsInMetadata))
+        {
+            return (new SymbolAttribution(DeclarationAvailability.InMetadata, SymbolOrigin.Handwritten, null), null);
+        }
+
+        var declaring = symbol.DeclaringSyntaxReferences.FirstOrDefault();
+        SyntaxTree? tree;
+        if (declaring is null)
+        {
+            var anySource = symbol.Locations.FirstOrDefault(l => l.IsInSource);
+            if (anySource is null)
+            {
+                return (new SymbolAttribution(DeclarationAvailability.None, SymbolOrigin.Handwritten, null), null);
+            }
+
+            tree = anySource.SourceTree;
+        }
+        else
+        {
+            tree = declaring.SyntaxTree;
+        }
+
+        var (originLabel, originError) = await ResolveOriginAsync(
+                solution,
+                project,
+                epoch,
+                tree,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (originError is not null)
+        {
+            return (null, originError);
+        }
+
+        return (ToAttribution(DeclarationAvailability.InSource, originLabel), null);
+    }
+
+    private static SymbolAttribution ToAttribution(string availability, string? originLabel)
+    {
+        if (originLabel is not null &&
+            originLabel.StartsWith(SymbolOrigin.SourceGenerator + "(", StringComparison.Ordinal) &&
+            TryParseSourceGeneratorOrigin(originLabel, out var identity))
+        {
+            return new SymbolAttribution(availability, SymbolOrigin.SourceGenerator, identity);
+        }
+
+        return new SymbolAttribution(availability, SymbolOrigin.Handwritten, null);
+    }
+
+    private static bool TryParseSourceGeneratorOrigin(string origin, out GeneratorIdentity identity)
+    {
+        identity = new GeneratorIdentity(string.Empty, string.Empty, string.Empty);
+        var prefix = SymbolOrigin.SourceGenerator + "(";
+        if (!origin.StartsWith(prefix, StringComparison.Ordinal) || !origin.EndsWith(')'))
+        {
+            return false;
+        }
+
+        var inner = origin[prefix.Length..^1];
+        var at = inner.LastIndexOf('@');
+        var sep = inner.IndexOf("::", StringComparison.Ordinal);
+        if (at <= 0 || sep <= 0 || at <= sep + 2)
+        {
+            return false;
+        }
+
+        identity = new GeneratorIdentity(
+            inner[..sep],
+            inner[(sep + 2)..at],
+            inner[(at + 1)..]);
+        return true;
+    }
+
+    private async Task<(SymbolLocation? Location, SymbolQueryError? Error)> ToSymbolLocationAsync(
+        Solution solution,
+        Project project,
+        long epoch,
+        Location location,
+        CancellationToken cancellationToken)
+    {
+        if (location.IsInMetadata)
+        {
+            return (new SymbolLocation(
+                DeclarationAvailability.InMetadata,
+                Origin: null,
+                FilePath: null,
+                Start: null,
+                Length: null), null);
+        }
+
+        if (!location.IsInSource)
+        {
+            return (new SymbolLocation(
+                DeclarationAvailability.None,
+                Origin: null,
+                FilePath: null,
+                Start: null,
+                Length: null), null);
+        }
+
+        var tree = location.SourceTree;
+        var span = location.SourceSpan;
+        var path = tree?.FilePath;
+        var (origin, originError) = await ResolveOriginAsync(solution, project, epoch, tree, cancellationToken)
+            .ConfigureAwait(false);
+        if (originError is not null)
+        {
+            return (null, originError);
+        }
+
+        return (new SymbolLocation(
+            DeclarationAvailability.InSource,
+            origin,
+            path,
+            span.Start,
+            span.Length), null);
+    }
+
+    private async Task<(string? Origin, SymbolQueryError? Error)> ResolveOriginAsync(
+        Solution solution,
+        Project project,
+        long epoch,
+        SyntaxTree? tree,
+        CancellationToken cancellationToken)
+    {
+        if (tree is null)
+        {
+            return (SymbolOrigin.Handwritten, null);
+        }
+
+        var projectId = project.Id.Id.ToString("D");
+        var (identity, matchError) = await _generators
+            .MatchSyntaxTreeAsync(solution, projectId, epoch, tree, cancellationToken)
+            .ConfigureAwait(false);
+        if (matchError is not null)
+        {
+            return (null, matchError);
+        }
+
+        if (identity is not null)
+        {
+            return (SymbolOrigin.FormatSourceGenerator(identity), null);
+        }
+
+        // Known generated document that failed content reconciliation must not be labeled Handwritten.
+        if (solution.GetDocument(tree) is SourceGeneratedDocument)
+        {
+            return (null, new CompilationUnavailableError(
+                "A source-generated document could not be reconciled to a generator identity via GeneratorDriver.",
+                "Retry after workspace_status is ready; if this persists, check analyzer/generator references."));
+        }
+
+        // FilePath is never enough on its own (ADR-0001 §6 / Spike S1).
+        return (SymbolOrigin.Handwritten, null);
     }
 
     private async Task<(Project? Project, ISymbol? Symbol, SymbolQueryError? Error)> TryResolveHandleAsync(
@@ -495,61 +755,6 @@ public sealed class SymbolQueryService
         }
 
         return Math.Min(limit.Value, MaxMemberPageLimit);
-    }
-
-    private static SymbolLocation ToSymbolLocation(Solution solution, Location location)
-    {
-        if (location.IsInMetadata)
-        {
-            return new SymbolLocation(
-                DeclarationAvailability.InMetadata,
-                Origin: null,
-                FilePath: null,
-                Start: null,
-                Length: null);
-        }
-
-        if (!location.IsInSource)
-        {
-            return new SymbolLocation(
-                DeclarationAvailability.None,
-                Origin: null,
-                FilePath: null,
-                Start: null,
-                Length: null);
-        }
-
-        var tree = location.SourceTree;
-        var span = location.SourceSpan;
-        var path = tree?.FilePath;
-        var origin = ResolveOrigin(solution, tree, path);
-
-        return new SymbolLocation(
-            DeclarationAvailability.InSource,
-            origin,
-            path,
-            span.Start,
-            span.Length);
-    }
-
-    private static string ResolveOrigin(Solution solution, SyntaxTree? tree, string? filePath)
-    {
-        if (tree is not null && solution.GetDocument(tree) is SourceGeneratedDocument)
-        {
-            return SymbolOrigin.SourceGenerated;
-        }
-
-        // Heuristic until full generator identity (#14/#15): keep generated trees visible and labeled.
-        if (filePath is not null &&
-            (filePath.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase) ||
-             filePath.EndsWith(".g.i.cs", StringComparison.OrdinalIgnoreCase) ||
-             filePath.Contains($"{Path.DirectorySeparatorChar}Generated{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) ||
-             filePath.Contains("/Generated/", StringComparison.Ordinal)))
-        {
-            return SymbolOrigin.SourceGenerated;
-        }
-
-        return SymbolOrigin.Handwritten;
     }
 
     private static string SymbolKey(ISymbol symbol) =>

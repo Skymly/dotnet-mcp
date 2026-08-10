@@ -104,6 +104,61 @@ public sealed class ProjectTools
         });
     }
 
+    [McpServerTool(Name = "project_list_generated_sources"), Description(
+        "List GeneratedSources for one source generator identity (HintName + content) with forced pagination. " +
+        "HintName is not assumed unique across generators — filter by assemblyName + typeFullName. " +
+        "Uses public GeneratorDriver reconciliation (ADR-0001 §6). Cursors bind to workspace epoch.")]
+    public async Task<CallToolResult> ProjectListGeneratedSources(
+        [Description("Roslyn projectId GUID string from workspace_list_projects.")]
+        string projectId,
+        [Description("Generator assembly name from project_list_generators.")]
+        string assemblyName,
+        [Description("Generator type full name from project_list_generators.")]
+        string typeFullName,
+        [Description("Page size (default 50, max 100).")]
+        int? limit = null,
+        [Description("Opaque nextCursor from a previous project_list_generated_sources page.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _generators
+            .ListGeneratedSourcesAsync(
+                session!.Solution,
+                projectId,
+                session.Epoch,
+                assemblyName,
+                typeFullName,
+                limit,
+                cursor,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(new ProjectListGeneratedSourcesResultDto
+        {
+            Items = success!.Items.Select(i => new GeneratedSourceItemDto
+            {
+                HintName = i.HintName,
+                Content = i.Content
+            }).ToArray(),
+            Truncated = success.Truncated,
+            NextCursor = success.NextCursor,
+            Message = success.Message,
+            Epoch = session.Epoch
+        });
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)
