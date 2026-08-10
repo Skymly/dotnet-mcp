@@ -148,6 +148,19 @@ public sealed record ProjectDiagnosticsResultDto
     public required string Message { get; init; }
 }
 
+public sealed record GeneratorIdentityDto
+{
+    public required string AssemblyName { get; init; }
+    public required string TypeFullName { get; init; }
+    public required string Version { get; init; }
+}
+
+public sealed record ProjectListGeneratorsResultDto
+{
+    public required IReadOnlyList<GeneratorIdentityDto> Generators { get; init; }
+    public long Epoch { get; init; }
+}
+
 /// <summary> Backward-compatible alias used by older tests / call sites. </summary>
 public sealed record WorkspaceOpenResultDto
 {

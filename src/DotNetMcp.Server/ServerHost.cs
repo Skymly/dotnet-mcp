@@ -17,6 +17,7 @@ public static class ServerHost
         services.AddSingleton<WorkspaceHost>();
         services.AddSingleton<DotNetMcp.Core.SymbolQueryService>();
         services.AddSingleton<DotNetMcp.Core.DiagnosticQueryService>();
+        services.AddSingleton<DotNetMcp.Core.GeneratorQueryService>();
         services.AddSingleton<WorkspaceTools>();
         services.AddSingleton<SymbolTools>();
         services.AddSingleton<ProjectTools>();
