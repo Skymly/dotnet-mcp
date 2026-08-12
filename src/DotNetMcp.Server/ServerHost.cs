@@ -1,3 +1,4 @@
+using DotNetMcp.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -11,15 +12,17 @@ public static class ServerHost
         IServiceCollection services,
         TrustedRoots trustedRoots,
         ISolutionLoader? solutionLoader = null,
-        WorkspaceHostOptions? workspaceHostOptions = null)
+        WorkspaceHostOptions? workspaceHostOptions = null,
+        SoftBudgetOptions? softBudgetOptions = null)
     {
         services.AddSingleton(trustedRoots);
         services.AddSingleton<ISolutionLoader>(solutionLoader ?? new MsBuildSolutionLoader());
         services.AddSingleton(workspaceHostOptions ?? WorkspaceHostOptions.Default);
+        services.AddSingleton(softBudgetOptions ?? SoftBudgetOptions.FromEnvironment());
         services.AddSingleton<WorkspaceHost>();
-        services.AddSingleton<DotNetMcp.Core.SymbolQueryService>();
-        services.AddSingleton<DotNetMcp.Core.DiagnosticQueryService>();
-        services.AddSingleton<DotNetMcp.Core.GeneratorQueryService>();
+        services.AddSingleton<SymbolQueryService>();
+        services.AddSingleton<DiagnosticQueryService>();
+        services.AddSingleton<GeneratorQueryService>();
         services.AddSingleton<WorkspaceTools>();
         services.AddSingleton<SymbolTools>();
         services.AddSingleton<ProjectTools>();

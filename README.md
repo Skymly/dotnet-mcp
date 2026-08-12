@@ -61,6 +61,19 @@ MCP 客户端以 **stdio** 连接该进程。默认受信根为进程当前工�
 
 所有路径参数经规范化（含 `..` 与符号链接/junction 解析）后必须落在某个受信根之内，否则拒绝并返回带 `SuggestedAction` 的错误（不回显目标内容）。详见 [ADR-0004](docs/adr/0004-security-and-path-policy.md)。
 
+### 软预算配置
+
+列表/扫描类工具遵守软性时间预算（ADR-0003）：超预算返回部分结果 + `nextCursor`，而非硬错误。默认值见 ADR 表；可通过环境变量（毫秒整数）覆盖，无需重编译：
+
+| 环境变量 | 默认 | 用途 |
+|----------|------|------|
+| `DOTNET_MCP_BUDGET_SINGLE_PROJECT_MS` | 5000 | 单项目编译（如 `project_diagnostics`） |
+| `DOTNET_MCP_BUDGET_FIND_REFS_SCOPED_MS` | 5000 | 作用域内 Find References |
+| `DOTNET_MCP_BUDGET_FIND_REFS_ENTIRE_MS` | 20000 | 全解决方案 Find References |
+| `DOTNET_MCP_BUDGET_BATCH_DIAGNOSTICS_MS` | 15000 | 批量诊断（预留） |
+
+非法或缺失值回退到上表默认。
+
 ## 安全说明
 
 1. **受信根**：服务器只能读受信根内的路径。多仓库场景请通过 `--roots` 或 `DOTNET_MCP_TRUSTED_ROOTS` 显式配置额外根；越界路径会被拒绝。

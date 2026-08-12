@@ -9,14 +9,20 @@ public sealed class SymbolQueryService
     public const string CSharpLanguage = "csharp";
     public const int DefaultMemberPageLimit = 50;
     public const int MaxMemberPageLimit = 100;
-    public static readonly TimeSpan DependencyClosureSoftBudget = TimeSpan.FromSeconds(5);
-    public static readonly TimeSpan EntireSolutionSoftBudget = TimeSpan.FromSeconds(20);
+    public static readonly TimeSpan DependencyClosureSoftBudget =
+        SoftBudgetOptions.Default.FindRefsScoped;
+    public static readonly TimeSpan EntireSolutionSoftBudget =
+        SoftBudgetOptions.Default.FindRefsEntireSolution;
 
     private readonly GeneratorQueryService _generators;
+    private readonly SoftBudgetOptions _softBudgets;
 
-    public SymbolQueryService(GeneratorQueryService generators)
+    public SymbolQueryService(
+        GeneratorQueryService generators,
+        SoftBudgetOptions? softBudgets = null)
     {
         _generators = generators;
+        _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
     }
 
     public async Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
@@ -275,7 +281,9 @@ public sealed class SymbolQueryService
         }
 
         var pageLimit = ClampLimit(limit);
-        var budget = softBudget ?? (entireSolution ? EntireSolutionSoftBudget : DependencyClosureSoftBudget);
+        var budget = softBudget ?? (entireSolution
+            ? _softBudgets.FindRefsEntireSolution
+            : _softBudgets.FindRefsScoped);
         var docIndex = 0;
         var locOffset = 0;
 
