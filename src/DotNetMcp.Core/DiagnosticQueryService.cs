@@ -7,9 +7,8 @@ public sealed class DiagnosticQueryService
     public static readonly TimeSpan SingleProjectCompileSoftBudget = TimeSpan.FromSeconds(5);
 
     public async Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
-        Solution solution,
+        IWorkspaceSession session,
         string projectId,
-        long epoch,
         int? limit = null,
         string? cursor = null,
         TimeSpan? softBudget = null,
@@ -22,7 +21,7 @@ public sealed class DiagnosticQueryService
                 "Call workspace_list_projects for valid projectId values, then retry project_diagnostics."));
         }
 
-        var project = solution.Projects
+        var project = session.Solution.Projects
             .Where(p => p.Language == LanguageNames.CSharp)
             .FirstOrDefault(p =>
                 string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
@@ -34,6 +33,7 @@ public sealed class DiagnosticQueryService
                 "Call workspace_list_projects for valid projectId values, then retry project_diagnostics."));
         }
 
+        var epoch = session.Epoch;
         var pageLimit = ClampLimit(limit);
         var offset = 0;
         if (!string.IsNullOrWhiteSpace(cursor))
@@ -64,13 +64,20 @@ public sealed class DiagnosticQueryService
 
             try
             {
-                compilation = await project.GetCompilationAsync(budgetCts.Token).ConfigureAwait(false);
+                compilation = await session.GetCompilationAsync(project.Id, budgetCts.Token)
+                    .ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 return (null, new SoftBudgetExceededError(
                     $"Getting compilation for project '{project.Name}' exceeded the {budget.TotalSeconds:0}s soft budget.",
                     "Retry project_diagnostics later, or open a smaller project/solution."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return (null, new CompilationUnavailableError(
+                    ex.Message,
+                    "Retry project_diagnostics; if it keeps failing, call workspace_list_projects and confirm the projectId."));
             }
         }
 

@@ -226,18 +226,18 @@ public class SymbolFindReferencesSeamTests
         var loaded = FakeSolutionLoader.CreateFindRefsGraphLoaded();
         var service = new SymbolQueryService(new GeneratorQueryService());
         var libA = loaded.Solution.Projects.Single(p => p.Name == "LibA");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
 
         var (resolved, resolveError) = await service.ResolveByNameAsync(
-            loaded.Solution,
+            session,
             "LibA.Marker",
             libA.Id.Id.ToString("D"));
         Assert.Null(resolveError);
         Assert.NotNull(resolved);
 
         var (page, error) = await service.FindReferencesAsync(
-            loaded.Solution,
+            session,
             resolved!.Handle,
-            epoch: 1,
             entireSolution: true,
             limit: 50,
             cursor: null,

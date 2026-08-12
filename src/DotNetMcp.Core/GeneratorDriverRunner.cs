@@ -12,19 +12,43 @@ public static class GeneratorDriverRunner
 {
     public static async Task<DriverRunSnapshot> RunOnProjectAsync(
         Project project,
+        Compilation compilationWithGeneratedTrees,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-
-        var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Compilation was null for project '{project.Name}'.");
 
         var generatedDocs = (await project.GetSourceGeneratedDocumentsAsync(cancellationToken).ConfigureAwait(false))
             .OfType<SourceGeneratedDocument>()
             .ToImmutableArray();
 
-        var baseCompilation = await StripGeneratedTreesAsync(compilation, generatedDocs, cancellationToken)
+        var baseCompilation = await StripGeneratedTreesAsync(
+                compilationWithGeneratedTrees,
+                generatedDocs,
+                cancellationToken)
             .ConfigureAwait(false);
+
+        return RunDriver(project, baseCompilation, cancellationToken);
+    }
+
+    public static async Task<Compilation> StripGeneratedTreesFromProjectAsync(
+        Project project,
+        Compilation compilation,
+        CancellationToken cancellationToken = default)
+    {
+        var generatedDocs = (await project.GetSourceGeneratedDocumentsAsync(cancellationToken).ConfigureAwait(false))
+            .OfType<SourceGeneratedDocument>()
+            .ToImmutableArray();
+
+        return await StripGeneratedTreesAsync(compilation, generatedDocs, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public static DriverRunSnapshot RunDriver(
+        Project project,
+        Compilation baseCompilation,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
 
         var generators = project.AnalyzerReferences
             .SelectMany(r => r.GetGenerators(LanguageNames.CSharp))
@@ -68,7 +92,17 @@ public static class GeneratorDriverRunner
                 flat.Add(new GeneratedSourceMatch(identity, source.HintName, content, source.SyntaxTree));
             }
 
-            byGenerator.Add(new GeneratorRunSources(identity, sources));
+            var diagnostics = result.Diagnostics
+                .Select(static d => new GeneratorDiagnosticItem(
+                    d.Id,
+                    d.Severity.ToString(),
+                    d.GetMessage()))
+                .OrderBy(static d => d.Id, StringComparer.Ordinal)
+                .ThenBy(static d => d.Severity, StringComparer.Ordinal)
+                .ThenBy(static d => d.Message, StringComparer.Ordinal)
+                .ToArray();
+
+            byGenerator.Add(new GeneratorRunSources(identity, sources, diagnostics));
         }
 
         byGenerator.Sort(static (a, b) =>

@@ -16,4 +16,9 @@ public sealed class WorkspaceHostOptions
     public IWorkspaceFileWatcher? FileWatcher { get; init; }
 
     public WriteSuppression WriteSuppression { get; init; } = new();
+
+    /// <summary>
+    /// Per-request compilation LRU capacity (ADR-0002 / Spike S2). Default 50; &lt;= 0 is unlimited.
+    /// </summary>
+    public int CompilationLruCapacity { get; init; } = WorkspaceSession.DefaultCompilationLruCapacity;
 }

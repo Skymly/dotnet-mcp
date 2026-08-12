@@ -36,7 +36,7 @@ public sealed class SymbolTools
         }
 
         var (success, error) = await _symbols
-            .ResolveByNameAsync(session!.Solution, name, projectId, cancellationToken)
+            .ResolveByNameAsync(session!, name, projectId, cancellationToken)
             .ConfigureAwait(false);
 
         if (error is not null)
@@ -63,7 +63,7 @@ public sealed class SymbolTools
         }
 
         var (success, error) = await _symbols
-            .GetSummaryAsync(session!.Solution, handle, cancellationToken)
+            .GetSummaryAsync(session!, handle, cancellationToken)
             .ConfigureAwait(false);
 
         if (error is not null)
@@ -90,7 +90,7 @@ public sealed class SymbolTools
         }
 
         var (success, error) = await _symbols
-            .GetDefinitionAsync(session!.Solution, handle, session.Epoch, cancellationToken)
+            .GetDefinitionAsync(session!, handle, cancellationToken)
             .ConfigureAwait(false);
 
         if (error is not null)
@@ -118,7 +118,7 @@ public sealed class SymbolTools
         }
 
         var (success, error) = await _symbols
-            .GetAttributionAsync(session!.Solution, handle, session.Epoch, cancellationToken)
+            .GetAttributionAsync(session!, handle, cancellationToken)
             .ConfigureAwait(false);
 
         if (error is not null)
@@ -150,9 +150,8 @@ public sealed class SymbolTools
 
         var (success, error) = await _symbols
             .GetMembersAsync(
-                session!.Solution,
+                session!,
                 handle,
-                session.Epoch,
                 limit,
                 cursor,
                 cancellationToken)
@@ -190,9 +189,8 @@ public sealed class SymbolTools
 
         var (success, error) = await _symbols
             .FindReferencesAsync(
-                session!.Solution,
+                session!,
                 handle,
-                session.Epoch,
                 entireSolution,
                 limit,
                 cursor,

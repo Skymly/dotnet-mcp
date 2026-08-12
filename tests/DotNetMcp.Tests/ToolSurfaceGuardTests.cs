@@ -12,6 +12,7 @@ public class ToolSurfaceGuardTests
     [
         "project_diagnostics",
         "project_list_generated_sources",
+        "project_list_generator_diagnostics",
         "project_list_generators",
         "symbol_attribution",
         "symbol_find_references",

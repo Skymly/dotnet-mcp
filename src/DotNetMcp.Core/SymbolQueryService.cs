@@ -20,7 +20,7 @@ public sealed class SymbolQueryService
     }
 
     public async Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
-        Solution solution,
+        IWorkspaceSession session,
         string name,
         string? projectId = null,
         CancellationToken cancellationToken = default)
@@ -32,6 +32,7 @@ public sealed class SymbolQueryService
                 "Pass a type or member name / FQN to symbol_resolve."));
         }
 
+        var solution = session.Solution;
         var projects = FilterProjects(solution, projectId, out var projectFilterError);
         if (projectFilterError is not null)
         {
@@ -43,8 +44,12 @@ public sealed class SymbolQueryService
         foreach (var project in projects)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
-            if (compilation is null)
+            Compilation? compilation;
+            try
+            {
+                compilation = await session.GetCompilationAsync(project.Id, cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException)
             {
                 continue;
             }
@@ -80,11 +85,11 @@ public sealed class SymbolQueryService
     }
 
     public async Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> GetSummaryAsync(
-        Solution solution,
+        IWorkspaceSession session,
         string handle,
         CancellationToken cancellationToken = default)
     {
-        var (project, symbol, error) = await TryResolveHandleAsync(solution, handle, cancellationToken)
+        var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -95,12 +100,11 @@ public sealed class SymbolQueryService
     }
 
     public async Task<(SymbolDefinitionSuccess? Success, SymbolQueryError? Error)> GetDefinitionAsync(
-        Solution solution,
+        IWorkspaceSession session,
         string handle,
-        long epoch,
         CancellationToken cancellationToken = default)
     {
-        var (project, symbol, error) = await TryResolveHandleAsync(solution, handle, cancellationToken)
+        var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -111,7 +115,7 @@ public sealed class SymbolQueryService
         foreach (var location in symbol!.Locations)
         {
             var (mapped, mapError) = await ToSymbolLocationAsync(
-                    solution, project!, epoch, location, cancellationToken)
+                    session, project!, location, cancellationToken)
                 .ConfigureAwait(false);
             if (mapError is not null)
             {
@@ -132,12 +136,11 @@ public sealed class SymbolQueryService
     }
 
     public async Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
-        Solution solution,
+        IWorkspaceSession session,
         string handle,
-        long epoch,
         CancellationToken cancellationToken = default)
     {
-        var (project, symbol, error) = await TryResolveHandleAsync(solution, handle, cancellationToken)
+        var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -145,7 +148,7 @@ public sealed class SymbolQueryService
         }
 
         var (attribution, attrError) = await AttributeSymbolAsync(
-                solution, project!, epoch, symbol!, cancellationToken)
+                session, project!, symbol!, cancellationToken)
             .ConfigureAwait(false);
         if (attrError is not null)
         {
@@ -165,7 +168,7 @@ public sealed class SymbolQueryService
                          .OrderBy(SymbolKey, StringComparer.Ordinal))
             {
                 var (memberAttr, memberError) = await AttributeSymbolAsync(
-                        solution, project!, epoch, member, cancellationToken)
+                        session, project!, member, cancellationToken)
                     .ConfigureAwait(false);
                 if (memberError is not null)
                 {
@@ -180,14 +183,14 @@ public sealed class SymbolQueryService
     }
 
     public async Task<(PagedResult<MemberListItem>? Success, SymbolQueryError? Error)> GetMembersAsync(
-        Solution solution,
+        IWorkspaceSession session,
         string handle,
-        long epoch,
         int? limit = null,
         string? cursor = null,
         CancellationToken cancellationToken = default)
     {
-        var (project, symbol, error) = await TryResolveHandleAsync(solution, handle, cancellationToken)
+        var epoch = session.Epoch;
+        var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -254,16 +257,17 @@ public sealed class SymbolQueryService
     }
 
     public async Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> FindReferencesAsync(
-        Solution solution,
+        IWorkspaceSession session,
         string handle,
-        long epoch,
         bool entireSolution = false,
         int? limit = null,
         string? cursor = null,
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
-        var (project, symbol, error) = await TryResolveHandleAsync(solution, handle, cancellationToken)
+        var solution = session.Solution;
+        var epoch = session.Epoch;
+        var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -374,7 +378,7 @@ public sealed class SymbolQueryService
             }
 
             var hits = (await FlattenReferenceHitsForDocumentAsync(
-                    solution, doc, referenced, epoch, cancellationToken)
+                    session, doc, referenced, cancellationToken)
                 .ConfigureAwait(false))
                 .OrderBy(h => h.FilePath ?? string.Empty, StringComparer.Ordinal)
                 .ThenBy(h => h.Start ?? -1)
@@ -426,12 +430,12 @@ public sealed class SymbolQueryService
     }
 
     private async Task<IReadOnlyList<ReferenceLocationItem>> FlattenReferenceHitsForDocumentAsync(
-        Solution solution,
+        IWorkspaceSession session,
         Document document,
         IEnumerable<Microsoft.CodeAnalysis.FindSymbols.ReferencedSymbol> referencedSymbols,
-        long epoch,
         CancellationToken cancellationToken)
     {
+        var solution = session.Solution;
         var items = new List<ReferenceLocationItem>();
         foreach (var referenced in referencedSymbols)
         {
@@ -443,9 +447,8 @@ public sealed class SymbolQueryService
                 }
 
                 var item = await ToReferenceLocationItemAsync(
-                        solution,
+                        session,
                         document,
-                        epoch,
                         defLocation,
                         ReferenceLocationKind.Definition,
                         cancellationToken)
@@ -464,9 +467,8 @@ public sealed class SymbolQueryService
                 }
 
                 var item = await ToReferenceLocationItemAsync(
-                        solution,
+                        session,
                         document,
-                        epoch,
                         referenceLocation.Location,
                         ReferenceLocationKind.Reference,
                         cancellationToken)
@@ -493,15 +495,14 @@ public sealed class SymbolQueryService
     }
 
     private async Task<ReferenceLocationItem?> ToReferenceLocationItemAsync(
-        Solution solution,
+        IWorkspaceSession session,
         Document document,
-        long epoch,
         Location location,
         string kind,
         CancellationToken cancellationToken)
     {
         var (mapped, error) = await ToSymbolLocationAsync(
-                solution, document.Project, epoch, location, cancellationToken)
+                session, document.Project, location, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -532,9 +533,8 @@ public sealed class SymbolQueryService
     }
 
     private async Task<(SymbolAttribution? Attribution, SymbolQueryError? Error)> AttributeSymbolAsync(
-        Solution solution,
+        IWorkspaceSession session,
         Project project,
-        long epoch,
         ISymbol symbol,
         CancellationToken cancellationToken)
     {
@@ -566,9 +566,8 @@ public sealed class SymbolQueryService
         }
 
         var (originLabel, originError) = await ResolveOriginAsync(
-                solution,
+                session,
                 project,
-                epoch,
                 tree,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -617,9 +616,8 @@ public sealed class SymbolQueryService
     }
 
     private async Task<(SymbolLocation? Location, SymbolQueryError? Error)> ToSymbolLocationAsync(
-        Solution solution,
+        IWorkspaceSession session,
         Project project,
-        long epoch,
         Location location,
         CancellationToken cancellationToken)
     {
@@ -646,7 +644,7 @@ public sealed class SymbolQueryService
         var tree = location.SourceTree;
         var span = location.SourceSpan;
         var path = tree?.FilePath;
-        var (origin, originError) = await ResolveOriginAsync(solution, project, epoch, tree, cancellationToken)
+        var (origin, originError) = await ResolveOriginAsync(session, project, tree, cancellationToken)
             .ConfigureAwait(false);
         if (originError is not null)
         {
@@ -662,9 +660,8 @@ public sealed class SymbolQueryService
     }
 
     private async Task<(string? Origin, SymbolQueryError? Error)> ResolveOriginAsync(
-        Solution solution,
+        IWorkspaceSession session,
         Project project,
-        long epoch,
         SyntaxTree? tree,
         CancellationToken cancellationToken)
     {
@@ -675,7 +672,7 @@ public sealed class SymbolQueryService
 
         var projectId = project.Id.Id.ToString("D");
         var (identity, matchError) = await _generators
-            .MatchSyntaxTreeAsync(solution, projectId, epoch, tree, cancellationToken)
+            .MatchSyntaxTreeAsync(session, projectId, tree, cancellationToken)
             .ConfigureAwait(false);
         if (matchError is not null)
         {
@@ -688,7 +685,7 @@ public sealed class SymbolQueryService
         }
 
         // Known generated document that failed content reconciliation must not be labeled Handwritten.
-        if (solution.GetDocument(tree) is SourceGeneratedDocument)
+        if (session.Solution.GetDocument(tree) is SourceGeneratedDocument)
         {
             return (null, new CompilationUnavailableError(
                 "A source-generated document could not be reconciled to a generator identity via GeneratorDriver.",
@@ -700,7 +697,7 @@ public sealed class SymbolQueryService
     }
 
     private async Task<(Project? Project, ISymbol? Symbol, SymbolQueryError? Error)> TryResolveHandleAsync(
-        Solution solution,
+        IWorkspaceSession session,
         string handle,
         CancellationToken cancellationToken)
     {
@@ -718,7 +715,7 @@ public sealed class SymbolQueryService
                 "Call symbol_resolve for a C# symbol to obtain a csharp handle."));
         }
 
-        var project = solution.Projects.FirstOrDefault(p =>
+        var project = session.Solution.Projects.FirstOrDefault(p =>
             string.Equals(p.Id.Id.ToString("D"), parsed.ProjectId, StringComparison.OrdinalIgnoreCase));
         if (project is null)
         {
@@ -728,8 +725,12 @@ public sealed class SymbolQueryService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
-        if (compilation is null)
+        Compilation compilation;
+        try
+        {
+            compilation = await session.GetCompilationAsync(project.Id, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
         {
             return (null, null, new SymbolNotFoundError(
                 $"Compilation for project '{parsed.ProjectId}' is unavailable.",
