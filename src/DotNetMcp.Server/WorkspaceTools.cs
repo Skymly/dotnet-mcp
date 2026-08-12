@@ -10,11 +10,13 @@ public sealed class WorkspaceTools
 {
     private readonly TrustedRoots _trustedRoots;
     private readonly WorkspaceHost _workspaceHost;
+    private readonly IAuditLogger _audit;
 
-    public WorkspaceTools(TrustedRoots trustedRoots, WorkspaceHost workspaceHost)
+    public WorkspaceTools(TrustedRoots trustedRoots, WorkspaceHost workspaceHost, IAuditLogger audit)
     {
         _trustedRoots = trustedRoots;
         _workspaceHost = workspaceHost;
+        _audit = audit;
     }
 
     [McpServerTool(Name = "workspace_open"), Description(
@@ -29,9 +31,11 @@ public sealed class WorkspaceTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("workspace_open", path);
 
         if (!_trustedRoots.Contains(path))
         {
+            _audit.PathPolicyDenied("workspace_open", path);
             return ErrorResult(new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.PathOutsideTrustedRoots,
@@ -83,6 +87,7 @@ public sealed class WorkspaceTools
     public CallToolResult WorkspaceStatus(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("workspace_status");
         return OkResult(_workspaceHost.GetStatus());
     }
 
@@ -92,6 +97,7 @@ public sealed class WorkspaceTools
     public CallToolResult WorkspaceListProjects(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("workspace_list_projects");
 
         if (!_workspaceHost.TryGetReadySession(out var session) || session is null)
         {
@@ -120,6 +126,7 @@ public sealed class WorkspaceTools
     public CallToolResult WorkspaceCheckDrift(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("workspace_check_drift");
 
         var status = _workspaceHost.GetStatus();
         if (status.Phase != "ready")

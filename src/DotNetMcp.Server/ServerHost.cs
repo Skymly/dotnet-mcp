@@ -14,12 +14,25 @@ public static class ServerHost
         TrustedRoots trustedRoots,
         ISolutionLoader? solutionLoader = null,
         WorkspaceHostOptions? workspaceHostOptions = null,
-        SoftBudgetOptions? softBudgetOptions = null)
+        SoftBudgetOptions? softBudgetOptions = null,
+        AuditOptions? auditOptions = null,
+        IAuditLogger? auditLogger = null)
     {
         services.AddSingleton(trustedRoots);
         services.AddSingleton<ISolutionLoader>(solutionLoader ?? new MsBuildSolutionLoader());
         services.AddSingleton(workspaceHostOptions ?? WorkspaceHostOptions.Default);
         services.AddSingleton(softBudgetOptions ?? SoftBudgetOptions.FromEnvironment());
+        services.AddSingleton(auditOptions ?? AuditOptions.FromEnvironment());
+        services.AddLogging();
+        if (auditLogger is not null)
+        {
+            services.AddSingleton(auditLogger);
+        }
+        else
+        {
+            services.AddSingleton<IAuditLogger, LoggerAuditLogger>();
+        }
+
         services.AddSingleton<WorkspaceHost>();
         services.AddSingleton<SymbolQueryService>();
         services.AddSingleton<DiagnosticQueryService>();

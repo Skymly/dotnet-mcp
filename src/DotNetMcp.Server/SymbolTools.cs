@@ -11,11 +11,13 @@ public sealed class SymbolTools
 {
     private readonly WorkspaceHost _workspaceHost;
     private readonly SymbolQueryService _symbols;
+    private readonly IAuditLogger _audit;
 
-    public SymbolTools(WorkspaceHost workspaceHost, SymbolQueryService symbols)
+    public SymbolTools(WorkspaceHost workspaceHost, SymbolQueryService symbols, IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
         _symbols = symbols;
+        _audit = audit;
     }
 
     [McpServerTool(Name = "symbol_resolve"), Description(
@@ -29,6 +31,7 @@ public sealed class SymbolTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_resolve");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
@@ -56,6 +59,7 @@ public sealed class SymbolTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_summary");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
@@ -83,6 +87,7 @@ public sealed class SymbolTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_goto_definition");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
@@ -111,6 +116,7 @@ public sealed class SymbolTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_attribution");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
@@ -142,6 +148,7 @@ public sealed class SymbolTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_members");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
@@ -181,6 +188,7 @@ public sealed class SymbolTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_find_references");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
