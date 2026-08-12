@@ -1,9 +1,12 @@
+#pragma warning disable MCPEXP001
+
 using System.IO.Pipelines;
 using System.Text.Json;
 using DotNetMcp.Core;
 using DotNetMcp.Server;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
+using ModelContextProtocol.Extensions.Tasks;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -24,9 +27,20 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
         ISolutionLoader? solutionLoader = null,
         WorkspaceHostOptions? workspaceHostOptions = null,
         SoftBudgetOptions? softBudgetOptions = null)
+        : this(trustedRoots, solutionLoader, workspaceHostOptions, softBudgetOptions, configure: null)
+    {
+    }
+
+    private InProcessMcpFixture(
+        TrustedRoots? trustedRoots,
+        ISolutionLoader? solutionLoader,
+        WorkspaceHostOptions? workspaceHostOptions,
+        SoftBudgetOptions? softBudgetOptions,
+        Action<IMcpServerBuilder>? configure)
     {
         Pipe clientToServer = new(), serverToClient = new();
         var roots = trustedRoots ?? TrustedRoots.Create([Directory.GetCurrentDirectory()]);
+        var taskStore = new InMemoryMcpTaskStore { DefaultPollIntervalMs = 250 };
 
         var services = new ServiceCollection();
         ServerHost.AddDotNetMcp(
@@ -35,9 +49,12 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
             solutionLoader,
             workspaceHostOptions,
             softBudgetOptions ?? SoftBudgetOptions.Default);
-        services.AddMcpServer()
+
+        var mcp = services.AddMcpServer()
             .WithStreamServerTransport(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream())
-            .WithToolsFromAssembly(typeof(ServerHost).Assembly);
+            .WithToolsFromAssembly(typeof(ServerHost).Assembly)
+            .WithTasks(taskStore);
+        configure?.Invoke(mcp);
 
         _services = services.BuildServiceProvider();
         _server = _services.GetRequiredService<McpServer>();
@@ -50,9 +67,29 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
                 serverOutput: serverToClient.Reader.AsStream())).GetAwaiter().GetResult();
     }
 
+    /// <summary>
+    /// Product fixture plus cancel-probe tools (test assembly only). Does not change Server assembly surface.
+    /// </summary>
+    public static InProcessMcpFixture CreateWithCancelProbe() =>
+        new(
+            trustedRoots: null,
+            solutionLoader: null,
+            workspaceHostOptions: null,
+            softBudgetOptions: null,
+            configure: builder =>
+            {
+                builder.Services.AddSingleton<TasksCancelProbeObservation>();
+                builder.Services.AddSingleton<TasksCancelProbeTools>();
+                builder.WithTools<TasksCancelProbeTools>();
+            });
+
     public McpClient Client { get; }
 
     public WorkspaceHost WorkspaceHost { get; }
+
+    public T GetRequiredService<T>()
+        where T : notnull =>
+        _services.GetRequiredService<T>();
 
     public static string TextOf(CallToolResult result)
     {

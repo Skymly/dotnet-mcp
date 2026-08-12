@@ -2,6 +2,7 @@ using DotNetMcp.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Extensions.Tasks;
 using ModelContextProtocol.Server;
 
 namespace DotNetMcp.Server;
@@ -40,10 +41,12 @@ public static class ServerHost
 
         AddDotNetMcp(builder.Services, trustedRoots);
 
+        var taskStore = new InMemoryMcpTaskStore { DefaultPollIntervalMs = 250 };
         builder.Services
             .AddMcpServer()
             .WithStdioServerTransport()
-            .WithToolsFromAssembly(typeof(ServerHost).Assembly);
+            .WithToolsFromAssembly(typeof(ServerHost).Assembly)
+            .WithTasks(taskStore);
 
         await builder.Build().RunAsync().ConfigureAwait(false);
         return 0;
