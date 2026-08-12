@@ -28,6 +28,6 @@ jobs:
         run: dotnet build DotNetMcp.slnx -c Release --no-restore
 
       - name: Test
-        # Build first: StdioHostSmokeTests launches the server with `dotnet run --no-build`.
+        # Build first: StdioHostSmokeTests launches DotNetMcp.Server.dll from the test output.
         # MSBuildWorkspace uses MSBuildLocator (DOTNET_ROOT from setup-dotnet).
         run: dotnet test DotNetMcp.slnx -c Release --no-build --verbosity normal
