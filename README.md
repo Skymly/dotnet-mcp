@@ -74,6 +74,22 @@ MCP 客户端以 **stdio** 连接该进程。默认受信根为进程当前工�
 
 非法或缺失值回退到上表默认。
 
+### 长耗时与客户端兼容
+
+加载与查询遵守 [ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)：
+
+- **基线（所有客户端）**：`workspace_open` **立即返回**，用 `workspace_status` 轮询至 `ready`；勿在 loading 时重试 `workspace_open`。
+- **Tasks 增强**：服务器启用 MCP Tasks（`.WithTasks`）。仅当客户端协议 ≥ **2026-07-28** 且显式 opt-in `io.modelcontextprotocol/tasks` 时，可用 `tasks/get` / `tasks/cancel`；未 opt-in 仍走同步 `tools/call` + 手工 open/status。
+- **超时**：常见客户端 `tools/call` 硬顶约 **60s**；**progress 不是 keepalive**，不能靠进度通知延长超时。
+
+| 客户端 | Tasks | 建议路径 |
+|--------|--------|----------|
+| C# MCP Client（协议 2026-07-28 + opt-in） | 支持 | Tasks 或手工 open/status |
+| Claude Desktop / Cursor / VS Code Copilot（TS SDK 系） | 通常未 opt-in | 手工 open/status；按 ~60s 规划 |
+| Claude Code CLI | 勿默认依赖 | 手工 open/status；可用 `MCP_TIMEOUT`（ms）延长 |
+
+证据与细节见 `spikes/s3-mcp-long-running/CONCLUSIONS.md`。
+
 ## 安全说明
 
 1. **受信根**：服务器只能读受信根内的路径。多仓库场景请通过 `--roots` 或 `DOTNET_MCP_TRUSTED_ROOTS` 显式配置额外根；越界路径会被拒绝。
