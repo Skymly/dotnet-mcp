@@ -1,15 +1,25 @@
 # dotnet-mcp
 
-一个面向 .NET 的 MCP（Model Context Protocol）服务器，目标能力：
+一个面向 .NET 的 MCP（Model Context Protocol）服务器。**路线图**目标包括：
 
-- **多语言**：C#、VB.NET、F#
-- **互操作与 DLR**：COM Interop、`dynamic` 等场景的符号分析
-- **XAML**：语义级 XAML 分析，与 code-behind 符号联动
-- **源生成器特别支持**：区分每个成员由哪个 Source Generator 生成
+- **多语言**：C#（P0）、VB.NET（P2）、F#（P3）
+- **互操作与 DLR**：COM Interop、`dynamic` 等场景的符号分析（P3）
+- **XAML**：语义级 XAML 分析，与 code-behind 符号联动（P1 Avalonia）
+- **源生成器特别支持**：区分每个成员由哪个 Source Generator 生成（P0，已交付）
 
 ## 状态
 
-P0 产品骨架已落地（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、只读工具面守护。完整工作区加载与符号工具见后续 issue。
+P0 **读侧**已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航与引用、项目诊断、源生成器列表/生成源/诊断与符号归因。VB / F# / XAML 仍属后续分期，尚未交付。
+
+### 当前 MCP 工具面（只读）
+
+| 分组 | 工具 |
+|------|------|
+| Workspace | `workspace_open` · `workspace_status` · `workspace_list_projects` · `workspace_check_drift` |
+| Symbol | `symbol_resolve` · `symbol_summary` · `symbol_goto_definition` · `symbol_members` · `symbol_find_references` · `symbol_attribution` |
+| Project | `project_diagnostics` · `project_list_generators` · `project_list_generated_sources` · `project_list_generator_diagnostics` |
+
+工具面由快照/守护测试约束为纯读侧（无写文件、任意命令或网络类工具）。领域词汇见根目录 [`CONTEXT.md`](CONTEXT.md)。
 
 ## 安装 / 启用
 
@@ -104,6 +114,20 @@ MCP 客户端以 **stdio** 连接该进程。默认受信根为进程当前工�
 2. **打开即执行**：`workspace_open` 加载解决方案时会运行 **MSBuild 求值**以及项目引用的 **analyzer / 源生成器**——等同于在该仓库执行构建逻辑。**不要对不受信任的代码库使用。** 这是 Roslyn 语义分析固有性质，无法仅靠技术手段消除，只能显式告知。
 3. **只读**：当前工具面为纯读侧；不提供写文件、任意命令执行或网络请求类工具（有快照/守护测试约束）。
 4. **日志**：已实现本地审计（默认开启）：记录工具调用与路径策略拒绝的工具名/路径元数据，不记录源码或生成源正文；写入进程本地日志（stdio 下为 stderr），可用 `DOTNET_MCP_AUDIT=0`（或 `false`/`off`/`no`）关闭；无外部遥测。
+
+## 开发 / CI
+
+- **SDK**：产品与测试目标框架为 **net10.0**，需安装 .NET 10 SDK。集成测试夹具含 net8.0 / net9.0 项目，本地若跑 `MsBuildWorkspaceIntegrationTests` 需同时具备对应 SDK。
+- **MSBuild**：真实加载路径经 `MSBuildLocator` 注册本机 SDK（优先 `DOTNET_ROOT` 下最新 SDK）。与 `dotnet build` 使用同一套求值环境。
+- **测试**（产品 solution，不含 `spikes/`）：
+
+```bash
+dotnet restore DotNetMcp.slnx
+dotnet build DotNetMcp.slnx -c Release --no-restore
+dotnet test DotNetMcp.slnx -c Release --no-build
+```
+
+GitHub Actions 工作流见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)（ubuntu + SDK 8/9/10，同上命令）。
 
 ## 开发约定
 
