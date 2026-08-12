@@ -1,5 +1,6 @@
 using System.IO.Pipelines;
 using System.Text.Json;
+using DotNetMcp.Core;
 using DotNetMcp.Server;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
@@ -21,13 +22,19 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
     public InProcessMcpFixture(
         TrustedRoots? trustedRoots = null,
         ISolutionLoader? solutionLoader = null,
-        WorkspaceHostOptions? workspaceHostOptions = null)
+        WorkspaceHostOptions? workspaceHostOptions = null,
+        SoftBudgetOptions? softBudgetOptions = null)
     {
         Pipe clientToServer = new(), serverToClient = new();
         var roots = trustedRoots ?? TrustedRoots.Create([Directory.GetCurrentDirectory()]);
 
         var services = new ServiceCollection();
-        ServerHost.AddDotNetMcp(services, roots, solutionLoader, workspaceHostOptions);
+        ServerHost.AddDotNetMcp(
+            services,
+            roots,
+            solutionLoader,
+            workspaceHostOptions,
+            softBudgetOptions ?? SoftBudgetOptions.Default);
         services.AddMcpServer()
             .WithStreamServerTransport(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream())
             .WithToolsFromAssembly(typeof(ServerHost).Assembly);

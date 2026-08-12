@@ -155,6 +155,39 @@ public class ProjectDiagnosticsSeamTests
     }
 
     [Fact]
+    public async Task GetProjectDiagnosticsAsync_soft_budget_zero_truncates_with_continuation_message()
+    {
+        var loaded = FakeSolutionLoader.CreateDiagnosticsLoaded(@"C:\fake\BrokenLib.csproj");
+        var service = new DiagnosticQueryService();
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+        var projectId = loaded.Solution.Projects.Single().Id.Id.ToString("D");
+
+        var (page, error) = await service.GetProjectDiagnosticsAsync(
+            session,
+            projectId,
+            softBudget: TimeSpan.Zero);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.True(page!.Truncated);
+        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
+        Assert.Empty(page.Items);
+        Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not retry from scratch", page.Message, StringComparison.OrdinalIgnoreCase);
+
+        var (continued, continueError) = await service.GetProjectDiagnosticsAsync(
+            session,
+            projectId,
+            cursor: page.NextCursor,
+            softBudget: TimeSpan.FromSeconds(30));
+
+        Assert.Null(continueError);
+        Assert.NotNull(continued);
+        Assert.NotEmpty(continued!.Items);
+        Assert.DoesNotContain("SoftBudgetExceeded", continued.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task project_diagnostics_rejects_stale_cursor()
     {
         var root = CreateTempDir("root");

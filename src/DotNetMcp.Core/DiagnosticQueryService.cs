@@ -4,7 +4,15 @@ namespace DotNetMcp.Core;
 
 public sealed class DiagnosticQueryService
 {
-    public static readonly TimeSpan SingleProjectCompileSoftBudget = TimeSpan.FromSeconds(5);
+    public static readonly TimeSpan SingleProjectCompileSoftBudget =
+        SoftBudgetOptions.Default.SingleProjectCompile;
+
+    private readonly SoftBudgetOptions _softBudgets;
+
+    public DiagnosticQueryService(SoftBudgetOptions? softBudgets = null)
+    {
+        _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
+    }
 
     public async Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
         IWorkspaceSession session,
@@ -53,11 +61,15 @@ public sealed class DiagnosticQueryService
             }
         }
 
-        var budget = softBudget ?? SingleProjectCompileSoftBudget;
+        var budget = softBudget ?? _softBudgets.SingleProjectCompile;
         Compilation? compilation;
         using (var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
-            if (budget > TimeSpan.Zero)
+            if (budget <= TimeSpan.Zero)
+            {
+                budgetCts.Cancel();
+            }
+            else
             {
                 budgetCts.CancelAfter(budget);
             }
@@ -69,9 +81,14 @@ public sealed class DiagnosticQueryService
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return (null, new SoftBudgetExceededError(
-                    $"Getting compilation for project '{project.Name}' exceeded the {budget.TotalSeconds:0}s soft budget.",
-                    "Retry project_diagnostics later, or open a smaller project/solution."));
+                // Align with FindRefs: soft budget yields a continuable page, not SoftBudgetExceeded.
+                var softMessage =
+                    $"Soft budget reached after 0 item(s). Pass nextCursor to continue; do not retry from scratch.";
+                return (new PagedResult<DiagnosticItem>(
+                    Array.Empty<DiagnosticItem>(),
+                    Truncated: true,
+                    NextCursor: MemberPageCursor.Encode(epoch, offset),
+                    Message: softMessage), null);
             }
             catch (InvalidOperationException ex)
             {

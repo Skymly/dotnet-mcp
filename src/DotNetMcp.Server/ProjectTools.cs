@@ -25,6 +25,7 @@ public sealed class ProjectTools
 
     [McpServerTool(Name = "project_diagnostics"), Description(
         "List compile errors and warnings for a projectId with forced pagination. " +
+        "Soft time budget may truncate with nextCursor (do not restart from scratch). " +
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
         "Cursors bind to the workspace epoch.")]
     public async Task<CallToolResult> ProjectDiagnostics(
