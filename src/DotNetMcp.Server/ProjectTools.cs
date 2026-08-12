@@ -45,9 +45,8 @@ public sealed class ProjectTools
 
         var (success, error) = await _diagnostics
             .GetProjectDiagnosticsAsync(
-                session!.Solution,
+                session!,
                 projectId,
-                session.Epoch,
                 limit,
                 cursor,
                 softBudget: null,
@@ -81,9 +80,8 @@ public sealed class ProjectTools
 
         var (success, error) = await _generators
             .ListGeneratorsAsync(
-                session!.Solution,
+                session!,
                 projectId,
-                session.Epoch,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -130,9 +128,8 @@ public sealed class ProjectTools
 
         var (success, error) = await _generators
             .ListGeneratedSourcesAsync(
-                session!.Solution,
+                session!,
                 projectId,
-                session.Epoch,
                 assemblyName,
                 typeFullName,
                 limit,
@@ -155,6 +152,68 @@ public sealed class ProjectTools
             Truncated = success.Truncated,
             NextCursor = success.NextCursor,
             Message = success.Message,
+            Epoch = session.Epoch
+        });
+    }
+
+    [McpServerTool(Name = "project_list_generator_diagnostics"), Description(
+        "List diagnostics reported by one source generator identity (severity + message) with forced pagination. " +
+        "Uses the attribution GeneratorDriver run result — distinct from project_diagnostics compile errors. " +
+        "Filter by assemblyName + typeFullName from project_list_generators. Cursors bind to workspace epoch.")]
+    public async Task<CallToolResult> ProjectListGeneratorDiagnostics(
+        [Description("Roslyn projectId GUID string from workspace_list_projects.")]
+        string projectId,
+        [Description("Generator assembly name from project_list_generators.")]
+        string assemblyName,
+        [Description("Generator type full name from project_list_generators.")]
+        string typeFullName,
+        [Description("Page size (default 50, max 100).")]
+        int? limit = null,
+        [Description("Opaque nextCursor from a previous project_list_generator_diagnostics page.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _generators
+            .ListGeneratorDiagnosticsAsync(
+                session!,
+                projectId,
+                assemblyName,
+                typeFullName,
+                limit,
+                cursor,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        var page = success!.Page;
+        return OkResult(new ProjectListGeneratorDiagnosticsResultDto
+        {
+            Generator = new GeneratorIdentityDto
+            {
+                AssemblyName = success.Identity.AssemblyName,
+                TypeFullName = success.Identity.TypeFullName,
+                Version = success.Identity.Version
+            },
+            Items = page.Items.Select(i => new GeneratorDiagnosticItemDto
+            {
+                Id = i.Id,
+                Severity = i.Severity,
+                Message = i.Message
+            }).ToArray(),
+            Truncated = page.Truncated,
+            NextCursor = page.NextCursor,
+            Message = page.Message,
             Epoch = session.Epoch
         });
     }

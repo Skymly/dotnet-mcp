@@ -177,6 +177,23 @@ public sealed record ProjectListGeneratedSourcesResultDto
     public long Epoch { get; init; }
 }
 
+public sealed record GeneratorDiagnosticItemDto
+{
+    public required string Id { get; init; }
+    public required string Severity { get; init; }
+    public required string Message { get; init; }
+}
+
+public sealed record ProjectListGeneratorDiagnosticsResultDto
+{
+    public required GeneratorIdentityDto Generator { get; init; }
+    public required IReadOnlyList<GeneratorDiagnosticItemDto> Items { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public required string Message { get; init; }
+    public long Epoch { get; init; }
+}
+
 public sealed record SymbolAttributionDto
 {
     public required string DeclarationAvailability { get; init; }

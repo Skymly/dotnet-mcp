@@ -7,9 +7,19 @@ public sealed record GeneratorIdentity(
 
 public sealed record GeneratedSourceItem(string HintName, string Content);
 
+public sealed record GeneratorDiagnosticItem(
+    string Id,
+    string Severity,
+    string Message);
+
+public sealed record GeneratorDiagnosticsPage(
+    GeneratorIdentity Identity,
+    PagedResult<GeneratorDiagnosticItem> Page);
+
 public sealed record GeneratorRunSources(
     GeneratorIdentity Identity,
-    IReadOnlyList<GeneratedSourceItem> Sources);
+    IReadOnlyList<GeneratedSourceItem> Sources,
+    IReadOnlyList<GeneratorDiagnosticItem> Diagnostics);
 
 public sealed record GeneratedSourceMatch(
     GeneratorIdentity Identity,

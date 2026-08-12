@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using DotNetMcp.Core;
 using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Server;
@@ -32,6 +33,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
 
     private readonly HashSet<string> _pendingPaths = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _debounceCts;
+    private readonly GeneratorRunCache _generatorRunCache = new();
 
     public WorkspaceHost(ISolutionLoader loader, WorkspaceHostOptions options)
     {
@@ -107,9 +109,19 @@ public sealed class WorkspaceHost : IAsyncDisposable
                 return false;
             }
 
-            session = new WorkspaceSession(_loaded, _epoch);
+            session = new WorkspaceSession(
+                _loaded,
+                _epoch,
+                _options.CompilationLruCapacity,
+                _generatorRunCache);
             return true;
         }
+    }
+
+    private void AdvanceEpochUnlocked()
+    {
+        _epoch++;
+        _generatorRunCache.Clear();
     }
 
     /// <summary>
@@ -173,7 +185,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
             drifts = loaded.RepairSourceDrifts(detected, repairTexts);
             if (drifts.Any(static d => d.Repaired))
             {
-                _epoch++;
+                AdvanceEpochUnlocked();
             }
 
             epoch = _epoch;
@@ -260,7 +272,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
 
             if (changed)
             {
-                _epoch++;
+                AdvanceEpochUnlocked();
             }
         }
     }
@@ -401,7 +413,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
                 _warnings = loaded.Warnings;
                 _completedUnits = Math.Max(_completedUnits, loaded.Solution.ProjectIds.Count);
                 _totalUnits = Math.Max(1, loaded.Solution.ProjectIds.Count);
-                _epoch++;
+                AdvanceEpochUnlocked();
                 _phase = "ready";
                 _elapsed.Stop();
                 _estimatedRemainingMs = 0;

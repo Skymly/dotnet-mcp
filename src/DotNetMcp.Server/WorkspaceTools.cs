@@ -108,7 +108,7 @@ public sealed class WorkspaceTools
 
         var result = new WorkspaceListProjectsResultDto
         {
-            Projects = session.ListProjects()
+            Projects = ProjectSummary.FromSolution(session.Solution)
         };
         return OkResult(result);
     }
