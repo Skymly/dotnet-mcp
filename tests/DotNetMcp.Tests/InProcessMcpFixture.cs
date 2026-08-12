@@ -26,8 +26,17 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
         TrustedRoots? trustedRoots = null,
         ISolutionLoader? solutionLoader = null,
         WorkspaceHostOptions? workspaceHostOptions = null,
-        SoftBudgetOptions? softBudgetOptions = null)
-        : this(trustedRoots, solutionLoader, workspaceHostOptions, softBudgetOptions, configure: null)
+        SoftBudgetOptions? softBudgetOptions = null,
+        AuditOptions? auditOptions = null,
+        IAuditLogger? auditLogger = null)
+        : this(
+            trustedRoots,
+            solutionLoader,
+            workspaceHostOptions,
+            softBudgetOptions,
+            auditOptions,
+            auditLogger,
+            configure: null)
     {
     }
 
@@ -36,6 +45,8 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
         ISolutionLoader? solutionLoader,
         WorkspaceHostOptions? workspaceHostOptions,
         SoftBudgetOptions? softBudgetOptions,
+        AuditOptions? auditOptions,
+        IAuditLogger? auditLogger,
         Action<IMcpServerBuilder>? configure)
     {
         Pipe clientToServer = new(), serverToClient = new();
@@ -48,7 +59,9 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
             roots,
             solutionLoader,
             workspaceHostOptions,
-            softBudgetOptions ?? SoftBudgetOptions.Default);
+            softBudgetOptions ?? SoftBudgetOptions.Default,
+            auditOptions ?? AuditOptions.Default,
+            auditLogger);
 
         var mcp = services.AddMcpServer()
             .WithStreamServerTransport(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream())
@@ -76,6 +89,8 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
             solutionLoader: null,
             workspaceHostOptions: null,
             softBudgetOptions: null,
+            auditOptions: null,
+            auditLogger: null,
             configure: builder =>
             {
                 builder.Services.AddSingleton<TasksCancelProbeObservation>();

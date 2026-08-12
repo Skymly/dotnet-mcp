@@ -12,15 +12,18 @@ public sealed class ProjectTools
     private readonly WorkspaceHost _workspaceHost;
     private readonly DiagnosticQueryService _diagnostics;
     private readonly GeneratorQueryService _generators;
+    private readonly IAuditLogger _audit;
 
     public ProjectTools(
         WorkspaceHost workspaceHost,
         DiagnosticQueryService diagnostics,
-        GeneratorQueryService generators)
+        GeneratorQueryService generators,
+        IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
         _diagnostics = diagnostics;
         _generators = generators;
+        _audit = audit;
     }
 
     [McpServerTool(Name = "project_diagnostics"), Description(
@@ -38,6 +41,7 @@ public sealed class ProjectTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("project_diagnostics");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
@@ -73,6 +77,7 @@ public sealed class ProjectTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("project_list_generators");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
@@ -121,6 +126,7 @@ public sealed class ProjectTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("project_list_generated_sources");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
@@ -175,6 +181,7 @@ public sealed class ProjectTools
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("project_list_generator_diagnostics");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
