@@ -114,9 +114,8 @@ public sealed class WorkspaceHost : IAsyncDisposable
             session = new WorkspaceSession(
                 _loaded,
                 _epoch,
-                _options.CompilationLruCapacity,
-                _generatorRunCache,
-                _compilationLru);
+                generatorRunCache: _generatorRunCache,
+                compilationLru: _compilationLru);
             return true;
         }
     }

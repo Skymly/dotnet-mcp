@@ -40,9 +40,8 @@ public sealed class CompilationLru
     {
         lock (_gate)
         {
-            if (_map.TryGetValue(project.Id, out var existing))
+            if (TryGetAndTouch(project.Id, out var existing))
             {
-                Touch(project.Id);
                 return existing;
             }
         }
@@ -51,9 +50,8 @@ public sealed class CompilationLru
 
         lock (_gate)
         {
-            if (_map.TryGetValue(project.Id, out var existing))
+            if (TryGetAndTouch(project.Id, out var existing))
             {
-                Touch(project.Id);
                 return existing;
             }
 
@@ -69,6 +67,18 @@ public sealed class CompilationLru
             _order.AddFirst(project.Id);
             return compilation;
         }
+    }
+
+    private bool TryGetAndTouch(ProjectId id, out Compilation compilation)
+    {
+        if (_map.TryGetValue(id, out compilation!))
+        {
+            Touch(id);
+            return true;
+        }
+
+        compilation = null!;
+        return false;
     }
 
     private void Touch(ProjectId id)

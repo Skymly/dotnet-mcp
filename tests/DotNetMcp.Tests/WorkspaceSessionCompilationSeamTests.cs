@@ -56,22 +56,14 @@ public class WorkspaceSessionCompilationSeamTests
             using var session = new WorkspaceSession(loaded, epoch: 1);
             var projectId = session.Solution.Projects.Single().Id;
             var before = await session.GetCompilationAsync(projectId);
-            var beforeText = before.SyntaxTrees.First(t => t.FilePath?.EndsWith("Calculator.cs") == true)
-                .GetText()
-                .ToString();
-
             var calcPath = Path.Combine(dir, "Calculator.cs");
-            var updated = beforeText.Replace(
-                "public void Reset() { Name = \"calc\"; Mode = 0; }",
-                "public void Reset() { Name = \"calc\"; Mode = 0; }\n                public int Extra() => 1;",
-                StringComparison.Ordinal);
-            Assert.True(loaded.TryUpdateDocumentFromText(calcPath, SourceText.From(updated)));
+            Assert.True(loaded.TryUpdateDocumentFromText(
+                calcPath,
+                SourceText.From(WithExtraMethod(CalculatorTreeText(before)))));
 
             var after = await session.GetCompilationAsync(projectId);
             Assert.Same(before, after);
-            Assert.DoesNotContain("Extra()", after.SyntaxTrees.First(t => t.FilePath?.EndsWith("Calculator.cs") == true)
-                .GetText()
-                .ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("Extra()", CalculatorTreeText(after), StringComparison.Ordinal);
         }
         finally
         {
@@ -157,16 +149,8 @@ public class WorkspaceSessionCompilationSeamTests
             var projectId = sessionA.Solution.Projects.Single().Id;
             var before = await sessionA.GetCompilationAsync(projectId);
             var epochBefore = sessionA.Epoch;
-            var beforeText = before.SyntaxTrees.First(t => t.FilePath?.EndsWith("Calculator.cs") == true)
-                .GetText()
-                .ToString();
-
             var calcPath = Path.Combine(dir, "Calculator.cs");
-            var updated = beforeText.Replace(
-                "public void Reset() { Name = \"calc\"; Mode = 0; }",
-                "public void Reset() { Name = \"calc\"; Mode = 0; }\n                public int Extra() => 1;",
-                StringComparison.Ordinal);
-            await File.WriteAllTextAsync(calcPath, updated);
+            await File.WriteAllTextAsync(calcPath, WithExtraMethod(CalculatorTreeText(before)));
             host.ApplyChangedPaths([calcPath]);
 
             Assert.True(host.CurrentEpoch > epochBefore);
@@ -176,21 +160,29 @@ public class WorkspaceSessionCompilationSeamTests
 
             var after = await sessionB.GetCompilationAsync(projectId);
             Assert.NotSame(before, after);
-            Assert.Contains("Extra()", after.SyntaxTrees.First(t => t.FilePath?.EndsWith("Calculator.cs") == true)
-                .GetText()
-                .ToString(), StringComparison.Ordinal);
+            Assert.Contains("Extra()", CalculatorTreeText(after), StringComparison.Ordinal);
 
             var stillBefore = await sessionA.GetCompilationAsync(projectId);
             Assert.Same(before, stillBefore);
-            Assert.DoesNotContain("Extra()", stillBefore.SyntaxTrees.First(t => t.FilePath?.EndsWith("Calculator.cs") == true)
-                .GetText()
-                .ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("Extra()", CalculatorTreeText(stillBefore), StringComparison.Ordinal);
         }
         finally
         {
             try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
         }
     }
+
+    private static string CalculatorTreeText(Compilation compilation) =>
+        compilation.SyntaxTrees
+            .First(t => t.FilePath?.EndsWith("Calculator.cs") == true)
+            .GetText()
+            .ToString();
+
+    private static string WithExtraMethod(string calculatorSource) =>
+        calculatorSource.Replace(
+            "public void Reset() { Name = \"calc\"; Mode = 0; }",
+            "public void Reset() { Name = \"calc\"; Mode = 0; }\n                public int Extra() => 1;",
+            StringComparison.Ordinal);
 
     private static WorkspaceHost CreateHost(ISolutionLoader loader, int compilationLruCapacity = 50) =>
         new(
