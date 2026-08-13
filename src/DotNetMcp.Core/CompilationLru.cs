@@ -3,21 +3,31 @@ using Microsoft.CodeAnalysis;
 namespace DotNetMcp.Core;
 
 /// <summary>
-/// Per-session compilation cache with LRU eviction (ADR-0002 / Spike S2).
-/// Capacity &lt;= 0 means unlimited.
+/// Workspace-owned compilation cache with LRU eviction (ADR-0002 / Spike S2).
+/// Shared across request sessions of the same epoch; capacity &lt;= 0 means unlimited.
 /// </summary>
 public sealed class CompilationLru
 {
     private readonly int? _capacity;
     private readonly LinkedList<ProjectId> _order = new();
     private readonly Dictionary<ProjectId, Compilation> _map = new();
+    private readonly object _gate = new();
 
     public CompilationLru(int capacity)
     {
         _capacity = capacity <= 0 ? null : capacity;
     }
 
-    public int Count => _map.Count;
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _map.Count;
+            }
+        }
+    }
 
     public int Evictions { get; private set; }
 
@@ -28,25 +38,37 @@ public sealed class CompilationLru
         Func<Project, CancellationToken, Task<Compilation>> factory,
         CancellationToken cancellationToken = default)
     {
-        if (_map.TryGetValue(project.Id, out var existing))
+        lock (_gate)
         {
-            Touch(project.Id);
-            return existing;
+            if (_map.TryGetValue(project.Id, out var existing))
+            {
+                Touch(project.Id);
+                return existing;
+            }
         }
 
         var compilation = await factory(project, cancellationToken).ConfigureAwait(false);
 
-        if (_capacity is int cap && _map.Count >= cap)
+        lock (_gate)
         {
-            var oldest = _order.Last!;
-            _order.RemoveLast();
-            _map.Remove(oldest.Value);
-            Evictions++;
-        }
+            if (_map.TryGetValue(project.Id, out var existing))
+            {
+                Touch(project.Id);
+                return existing;
+            }
 
-        _map[project.Id] = compilation;
-        _order.AddFirst(project.Id);
-        return compilation;
+            if (_capacity is int cap && _map.Count >= cap)
+            {
+                var oldest = _order.Last!;
+                _order.RemoveLast();
+                _map.Remove(oldest.Value);
+                Evictions++;
+            }
+
+            _map[project.Id] = compilation;
+            _order.AddFirst(project.Id);
+            return compilation;
+        }
     }
 
     private void Touch(ProjectId id)

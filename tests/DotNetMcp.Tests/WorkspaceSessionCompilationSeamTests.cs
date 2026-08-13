@@ -119,4 +119,102 @@ public class WorkspaceSessionCompilationSeamTests
         Assert.Equal(50, WorkspaceHostOptions.Default.CompilationLruCapacity);
         Assert.Equal(50, WorkspaceSession.DefaultCompilationLruCapacity);
     }
+
+    [Fact]
+    public async Task ready_sessions_in_the_same_epoch_share_host_compilation_lru()
+    {
+        await using var host = CreateHost(FakeSolutionLoader.ImmediateWithSymbols());
+        await OpenUntilReadyAsync(host, @"C:\fake\SampleLib.csproj");
+
+        Assert.True(host.TryGetReadySession(out var firstSession));
+        Assert.True(host.TryGetReadySession(out var secondSession));
+        var sessionA = Assert.IsType<WorkspaceSession>(firstSession);
+        var sessionB = Assert.IsType<WorkspaceSession>(secondSession);
+        Assert.Equal(sessionA.Epoch, sessionB.Epoch);
+
+        var projectId = sessionA.Solution.Projects.Single().Id;
+        var first = await sessionA.GetCompilationAsync(projectId);
+
+        Assert.Equal(1, sessionB.CompilationCache.Count);
+        var second = await sessionB.GetCompilationAsync(projectId);
+        Assert.Same(first, second);
+        Assert.Equal(0, sessionA.CompilationCache.Evictions);
+    }
+
+    [Fact]
+    public async Task epoch_advance_isolates_new_session_compilations_from_in_flight_snapshot()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-host-lru-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var projectPath = Path.Combine(dir, "SampleLib.csproj");
+            await using var host = CreateHost(FakeSolutionLoader.ImmediateWithSymbolsOnDisk(dir));
+            await OpenUntilReadyAsync(host, projectPath);
+
+            Assert.True(host.TryGetReadySession(out var firstSession));
+            var sessionA = Assert.IsType<WorkspaceSession>(firstSession);
+            var projectId = sessionA.Solution.Projects.Single().Id;
+            var before = await sessionA.GetCompilationAsync(projectId);
+            var epochBefore = sessionA.Epoch;
+            var beforeText = before.SyntaxTrees.First(t => t.FilePath?.EndsWith("Calculator.cs") == true)
+                .GetText()
+                .ToString();
+
+            var calcPath = Path.Combine(dir, "Calculator.cs");
+            var updated = beforeText.Replace(
+                "public void Reset() { Name = \"calc\"; Mode = 0; }",
+                "public void Reset() { Name = \"calc\"; Mode = 0; }\n                public int Extra() => 1;",
+                StringComparison.Ordinal);
+            await File.WriteAllTextAsync(calcPath, updated);
+            host.ApplyChangedPaths([calcPath]);
+
+            Assert.True(host.CurrentEpoch > epochBefore);
+            Assert.True(host.TryGetReadySession(out var secondSession));
+            var sessionB = Assert.IsType<WorkspaceSession>(secondSession);
+            Assert.NotEqual(sessionA.Epoch, sessionB.Epoch);
+
+            var after = await sessionB.GetCompilationAsync(projectId);
+            Assert.NotSame(before, after);
+            Assert.Contains("Extra()", after.SyntaxTrees.First(t => t.FilePath?.EndsWith("Calculator.cs") == true)
+                .GetText()
+                .ToString(), StringComparison.Ordinal);
+
+            var stillBefore = await sessionA.GetCompilationAsync(projectId);
+            Assert.Same(before, stillBefore);
+            Assert.DoesNotContain("Extra()", stillBefore.SyntaxTrees.First(t => t.FilePath?.EndsWith("Calculator.cs") == true)
+                .GetText()
+                .ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    private static WorkspaceHost CreateHost(ISolutionLoader loader, int compilationLruCapacity = 50) =>
+        new(
+            loader,
+            new WorkspaceHostOptions
+            {
+                Debounce = TimeSpan.Zero,
+                FileWatcher = new ManualWorkspaceFileWatcher(),
+                CompilationLruCapacity = compilationLruCapacity
+            });
+
+    private static async Task OpenUntilReadyAsync(WorkspaceHost host, string path)
+    {
+        host.BeginOpen(path);
+        for (var i = 0; i < 40; i++)
+        {
+            if (host.GetStatus().Phase == "ready")
+            {
+                return;
+            }
+
+            await Task.Delay(50);
+        }
+
+        Assert.Fail($"workspace did not become ready: {host.GetStatus().Phase} {host.GetStatus().Error}");
+    }
 }

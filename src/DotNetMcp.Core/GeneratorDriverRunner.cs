@@ -10,26 +10,6 @@ namespace DotNetMcp.Core;
 /// </summary>
 public static class GeneratorDriverRunner
 {
-    public static async Task<DriverRunSnapshot> RunOnProjectAsync(
-        Project project,
-        Compilation compilationWithGeneratedTrees,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var generatedDocs = (await project.GetSourceGeneratedDocumentsAsync(cancellationToken).ConfigureAwait(false))
-            .OfType<SourceGeneratedDocument>()
-            .ToImmutableArray();
-
-        var baseCompilation = await StripGeneratedTreesAsync(
-                compilationWithGeneratedTrees,
-                generatedDocs,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        return RunDriver(project, baseCompilation, cancellationToken);
-    }
-
     public static async Task<Compilation> StripGeneratedTreesFromProjectAsync(
         Project project,
         Compilation compilation,
