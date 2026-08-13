@@ -9,7 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-mcp</ToolCommandName>
     <PackageId>dotnet-mcp</PackageId>
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <Authors>Skymly</Authors>
     <Description>MCP server for .NET symbol analysis (stdio).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
