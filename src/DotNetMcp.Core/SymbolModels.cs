@@ -43,6 +43,16 @@ public sealed record ReferenceLocationItem(
     string ProjectId,
     string Kind);
 
+public sealed record CallerLocationItem(
+    string DeclarationAvailability,
+    string? Origin,
+    string? FilePath,
+    int? Start,
+    int? Length,
+    string ProjectId,
+    string CallerHandle,
+    SymbolSummary CallerSummary);
+
 public static class ReferenceLocationKind
 {
     public const string Definition = "Definition";

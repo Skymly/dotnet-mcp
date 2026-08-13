@@ -449,6 +449,176 @@ public sealed class SymbolQueryService
         return (new PagedResult<HierarchyItem>(slice, truncated, nextCursor, message), null);
     }
 
+    public async Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        TimeSpan? softBudget = null,
+        CancellationToken cancellationToken = default)
+    {
+        var solution = session.Solution;
+        var epoch = session.Epoch;
+        var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        if (symbol is not IMethodSymbol)
+        {
+            return (null, new SymbolNotFoundError(
+                "Handle does not refer to a method; callers require a method SymbolHandle.",
+                "Call symbol_resolve for a method name/FQN, then call symbol_find_callers with that handle."));
+        }
+
+        var pageLimit = ClampLimit(limit);
+        var budget = softBudget ?? _softBudgets.FindRefsEntireSolution;
+        var docIndex = 0;
+        var locOffset = 0;
+
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            if (!FindRefsPageCursor.TryDecode(
+                    cursor,
+                    out var cursorEpoch,
+                    out var cursorEntireSolution,
+                    out docIndex,
+                    out locOffset,
+                    out var cursorError))
+            {
+                return (null, new StaleCursorError(
+                    cursorError ?? "Cursor is invalid.",
+                    "Call symbol_find_callers again without a cursor to start a fresh page."));
+            }
+
+            if (cursorEpoch != epoch || cursorEntireSolution)
+            {
+                return (null, new StaleCursorError(
+                    cursorEpoch != epoch
+                        ? $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}."
+                        : "Cursor payload is invalid.",
+                    "Call symbol_find_callers again without a cursor; do not retry with the stale cursor."));
+            }
+        }
+
+        var documents = solution.Projects
+            .SelectMany(p => p.Documents)
+            .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
+            .ThenBy(d => d.Name, StringComparer.Ordinal)
+            .ThenBy(d => d.Id.Id)
+            .ToList();
+
+        if (docIndex > documents.Count || (docIndex == documents.Count && locOffset > 0))
+        {
+            return (null, new StaleCursorError(
+                "Cursor document index is past the end of the document list.",
+                "Call symbol_find_callers again without a cursor to start a fresh page."));
+        }
+
+        var page = new List<CallerLocationItem>();
+        var stopwatch = Stopwatch.StartNew();
+        var truncatedByBudget = false;
+        var nextDocIndex = documents.Count;
+        var nextLocOffset = 0;
+        var exhausted = true;
+
+        for (var i = docIndex; i < documents.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (page.Count > 0 && stopwatch.Elapsed >= budget)
+            {
+                truncatedByBudget = true;
+                exhausted = false;
+                nextDocIndex = i;
+                nextLocOffset = 0;
+                break;
+            }
+
+            var doc = documents[i];
+            IEnumerable<SymbolCallerInfo> callers;
+            using (var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                var remaining = budget - stopwatch.Elapsed;
+                if (remaining > TimeSpan.Zero)
+                {
+                    budgetCts.CancelAfter(remaining);
+                }
+
+                try
+                {
+                    callers = await SymbolFinder
+                        .FindCallersAsync(
+                            symbol!,
+                            solution,
+                            ImmutableHashSet.Create(doc),
+                            budgetCts.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    truncatedByBudget = true;
+                    exhausted = false;
+                    nextDocIndex = i;
+                    nextLocOffset = 0;
+                    break;
+                }
+            }
+
+            var hits = (await FlattenCallerHitsForDocumentAsync(
+                    session, doc, callers, cancellationToken)
+                .ConfigureAwait(false))
+                .OrderBy(h => h.FilePath ?? string.Empty, StringComparer.Ordinal)
+                .ThenBy(h => h.Start ?? -1)
+                .ThenBy(h => h.Length ?? -1)
+                .ThenBy(h => h.CallerHandle, StringComparer.Ordinal)
+                .ToList();
+
+            var startLoc = i == docIndex ? locOffset : 0;
+            if (startLoc > hits.Count)
+            {
+                return (null, new StaleCursorError(
+                    "Cursor location offset is past the end of hits for a document.",
+                    "Call symbol_find_callers again without a cursor to start a fresh page."));
+            }
+
+            for (var loc = startLoc; loc < hits.Count; loc++)
+            {
+                if (page.Count >= pageLimit)
+                {
+                    exhausted = false;
+                    nextDocIndex = i;
+                    nextLocOffset = loc;
+                    break;
+                }
+
+                page.Add(hits[loc]);
+            }
+
+            if (!exhausted)
+            {
+                break;
+            }
+        }
+
+        var truncated = !exhausted;
+        string? nextCursor = truncated
+            ? FindRefsPageCursor.Encode(epoch, entireSolution: false, nextDocIndex, nextLocOffset)
+            : null;
+
+        var message = truncated
+            ? truncatedByBudget
+                ? $"Soft budget reached after {page.Count} item(s). Pass nextCursor to continue; do not retry from scratch."
+                : "Results truncated; pass nextCursor to symbol_find_callers to continue (do not restart from the first page)."
+            : page.Count == 0
+                ? "No direct callers found."
+                : "Caller page complete.";
+
+        return (new PagedResult<CallerLocationItem>(page, truncated, nextCursor, message), null);
+    }
+
     public async Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> FindReferencesAsync(
         IWorkspaceSession session,
         string handle,
@@ -661,6 +831,64 @@ public sealed class SymbolQueryService
         }
 
         return fallback;
+    }
+
+    private async Task<IReadOnlyList<CallerLocationItem>> FlattenCallerHitsForDocumentAsync(
+        IWorkspaceSession session,
+        Document document,
+        IEnumerable<SymbolCallerInfo> callers,
+        CancellationToken cancellationToken)
+    {
+        var items = new List<CallerLocationItem>();
+        foreach (var caller in callers)
+        {
+            if (!caller.IsDirect)
+            {
+                continue;
+            }
+
+            var owner = ProjectForSymbol(session.Solution, caller.CallingSymbol, document.Project);
+            var success = ToSuccess(owner, caller.CallingSymbol);
+
+            foreach (var location in caller.Locations)
+            {
+                if (!IsLocationInDocument(session.Solution, location, document))
+                {
+                    continue;
+                }
+
+                var (mapped, error) = await ToSymbolLocationAsync(
+                        session, document.Project, location, cancellationToken)
+                    .ConfigureAwait(false);
+                if (error is not null)
+                {
+                    mapped = new SymbolLocation(
+                        mapped?.DeclarationAvailability ?? DeclarationAvailability.InSource,
+                        SymbolOrigin.Handwritten,
+                        location.IsInSource ? location.SourceTree?.FilePath : null,
+                        location.IsInSource ? location.SourceSpan.Start : null,
+                        location.IsInSource ? location.SourceSpan.Length : null);
+                }
+
+                if (mapped is null ||
+                    (mapped.DeclarationAvailability == DeclarationAvailability.None && mapped.FilePath is null))
+                {
+                    continue;
+                }
+
+                items.Add(new CallerLocationItem(
+                    mapped.DeclarationAvailability,
+                    mapped.Origin,
+                    mapped.FilePath,
+                    mapped.Start,
+                    mapped.Length,
+                    document.Project.Id.Id.ToString("D"),
+                    success.Handle,
+                    success.Summary));
+            }
+        }
+
+        return items;
     }
 
     private async Task<IReadOnlyList<ReferenceLocationItem>> FlattenReferenceHitsForDocumentAsync(

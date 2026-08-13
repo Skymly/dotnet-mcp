@@ -278,6 +278,38 @@ public sealed class SymbolTools
         return OkResult(ToHierarchyDto(success!));
     }
 
+    [McpServerTool(Name = "symbol_find_callers"), Description(
+        "Find direct call sites of a method SymbolHandle (shallow callers, not a full call graph). " +
+        "Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch.")]
+    public async Task<CallToolResult> SymbolFindCallers(
+        [Description("Method SymbolHandle from symbol_resolve.")]
+        string handle,
+        [Description("Page size (default 50, max 100).")]
+        int? limit = null,
+        [Description("Opaque nextCursor from a previous symbol_find_callers page.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_find_callers");
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _symbols
+            .FindCallersAsync(session!, handle, limit, cursor, softBudget: null, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(ToCallersDto(success!));
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)
@@ -402,6 +434,24 @@ public sealed class SymbolTools
             Kind = i.Kind,
             Handle = i.Handle,
             Summary = ToSummaryDto(i.Summary)
+        }).ToArray(),
+        Truncated = page.Truncated,
+        NextCursor = page.NextCursor,
+        Message = page.Message
+    };
+
+    private static SymbolFindCallersResultDto ToCallersDto(PagedResult<CallerLocationItem> page) => new()
+    {
+        Items = page.Items.Select(i => new CallerLocationItemDto
+        {
+            DeclarationAvailability = i.DeclarationAvailability,
+            Origin = i.Origin,
+            FilePath = i.FilePath,
+            Start = i.Start,
+            Length = i.Length,
+            ProjectId = i.ProjectId,
+            CallerHandle = i.CallerHandle,
+            CallerSummary = ToSummaryDto(i.CallerSummary)
         }).ToArray(),
         Truncated = page.Truncated,
         NextCursor = page.NextCursor,

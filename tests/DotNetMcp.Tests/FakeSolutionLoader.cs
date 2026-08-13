@@ -542,6 +542,90 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    public static FakeSolutionLoader ImmediateWithCallers(string projectFilePath = @"C:\fake\CallerLib.csproj") =>
+        new(TimeSpan.Zero, () => CreateCallersLoaded(projectFilePath));
+
+    public static FakeSolutionLoader DelayedWithCallers(
+        TimeSpan delay,
+        string projectFilePath = @"C:\fake\CallerLib.csproj") =>
+        new(delay, () => CreateCallersLoaded(projectFilePath));
+
+    public static LoadedSolution CreateCallersLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var opsId = DocumentId.CreateNewId(projectId);
+        var usesId = DocumentId.CreateNewId(projectId);
+        var moreId = DocumentId.CreateNewId(projectId);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "CallerLib",
+            "CallerLib",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        const string ops = """
+            namespace SampleLib;
+
+            public static class MathOps
+            {
+                public static int Add(int a, int b) => a + b;
+            }
+            """;
+
+        const string uses = """
+            namespace SampleLib;
+
+            public static class Uses
+            {
+                public static int Twice(int x) => MathOps.Add(x, x);
+                public static int Triple(int x) => MathOps.Add(x, x) + x;
+            }
+            """;
+
+        const string more = """
+            namespace SampleLib;
+
+            public static class MoreUses
+            {
+                public static int One() => MathOps.Add(1, 0);
+                public static int Two() => MathOps.Add(1, 1);
+            }
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        solution = solution.AddDocument(
+            opsId,
+            "MathOps.cs",
+            SourceText.From(ops),
+            filePath: Path.Combine(projectDir, "MathOps.cs"));
+        solution = solution.AddDocument(
+            usesId,
+            "Uses.cs",
+            SourceText.From(uses),
+            filePath: Path.Combine(projectDir, "Uses.cs"));
+        solution = solution.AddDocument(
+            moreId,
+            "MoreUses.cs",
+            SourceText.From(more),
+            filePath: Path.Combine(projectDir, "MoreUses.cs"));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace callers fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     private static Solution AddEmptyProject(Solution solution, string name, string filePath)
     {
         var projectId = ProjectId.CreateNewId();
