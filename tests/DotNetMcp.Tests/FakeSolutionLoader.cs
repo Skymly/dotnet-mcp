@@ -461,6 +461,87 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    public static FakeSolutionLoader ImmediateWithHierarchy(string projectFilePath = @"C:\fake\HierarchyLib.csproj") =>
+        new(TimeSpan.Zero, () => CreateHierarchyLoaded(projectFilePath));
+
+    public static FakeSolutionLoader DelayedWithHierarchy(
+        TimeSpan delay,
+        string projectFilePath = @"C:\fake\HierarchyLib.csproj") =>
+        new(delay, () => CreateHierarchyLoaded(projectFilePath));
+
+    public static LoadedSolution CreateHierarchyLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "HierarchyLib",
+            "HierarchyLib",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        const string source = """
+            namespace SampleLib;
+
+            public interface IDrawable
+            {
+                void Draw();
+            }
+
+            public interface IWidget : IDrawable
+            {
+                int Size { get; }
+            }
+
+            public abstract class Shape : IWidget
+            {
+                public abstract void Draw();
+                public abstract int Size { get; }
+            }
+
+            public class Circle : Shape
+            {
+                public override void Draw() { }
+                public override int Size => 1;
+            }
+
+            public class Square : Shape
+            {
+                public override void Draw() { }
+                public override int Size => 2;
+            }
+
+            public class SpecialCircle : Circle
+            {
+            }
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var sourcePath = Path.Combine(projectDir, "Shapes.cs");
+
+        solution = solution.AddDocument(
+            docId,
+            "Shapes.cs",
+            SourceText.From(source),
+            filePath: sourcePath);
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace hierarchy fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     private static Solution AddEmptyProject(Solution solution, string name, string filePath)
     {
         var projectId = ProjectId.CreateNewId();

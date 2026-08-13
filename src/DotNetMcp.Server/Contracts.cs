@@ -128,6 +128,36 @@ public sealed record SymbolFindReferencesResultDto
     public required string Message { get; init; }
 }
 
+public sealed record ImplementationItemDto
+{
+    public required string Handle { get; init; }
+    public required SymbolSummaryDto Summary { get; init; }
+    public required IReadOnlyList<SymbolLocationDto> Locations { get; init; }
+}
+
+public sealed record SymbolFindImplementationsResultDto
+{
+    public required IReadOnlyList<ImplementationItemDto> Items { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public required string Message { get; init; }
+}
+
+public sealed record HierarchyItemDto
+{
+    public required string Kind { get; init; }
+    public required string Handle { get; init; }
+    public required SymbolSummaryDto Summary { get; init; }
+}
+
+public sealed record SymbolTypeHierarchyResultDto
+{
+    public required IReadOnlyList<HierarchyItemDto> Items { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public required string Message { get; init; }
+}
+
 public sealed record DiagnosticItemDto
 {
     public required string Id { get; init; }

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.FindSymbols;
 
 namespace DotNetMcp.Core;
 
@@ -262,6 +263,192 @@ public sealed class SymbolQueryService
         return (new PagedResult<MemberListItem>(items, truncated, nextCursor, message), null);
     }
 
+    public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        var epoch = session.Epoch;
+        var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        var pageLimit = ClampLimit(limit);
+        var offset = 0;
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
+            {
+                return (null, new StaleCursorError(
+                    cursorError ?? "Cursor is invalid.",
+                    "Call symbol_find_implementations again without a cursor to start a fresh page."));
+            }
+
+            if (cursorEpoch != epoch)
+            {
+                return (null, new StaleCursorError(
+                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
+                    "Call symbol_find_implementations again without a cursor; do not retry with the stale cursor."));
+            }
+        }
+
+        var found = new List<ISymbol>();
+        var implementations = await SymbolFinder
+            .FindImplementationsAsync(symbol!, session.Solution, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        found.AddRange(implementations);
+
+        if (symbol is INamedTypeSymbol named)
+        {
+            if (named.TypeKind is TypeKind.Class or TypeKind.Struct)
+            {
+                var derived = await SymbolFinder
+                    .FindDerivedClassesAsync(
+                        named,
+                        session.Solution,
+                        transitive: true,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                found.AddRange(derived);
+            }
+
+            if (named.TypeKind == TypeKind.Interface)
+            {
+                var derivedIfaces = await SymbolFinder
+                    .FindDerivedInterfacesAsync(
+                        named,
+                        session.Solution,
+                        transitive: true,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                found.AddRange(derivedIfaces);
+            }
+        }
+
+        var ordered = found
+            .Where(s => !SymbolEqualityComparer.Default.Equals(s, symbol))
+            .Select(s => (Symbol: s, Project: ProjectForSymbol(session.Solution, s, project!)))
+            .DistinctBy(m => (m.Project.Id.Id, SymbolKey(m.Symbol)))
+            .OrderBy(m => SymbolKey(m.Symbol), StringComparer.Ordinal)
+            .ThenBy(m => m.Project.Id.Id.ToString("D"), StringComparer.Ordinal)
+            .ToList();
+
+        if (offset > ordered.Count)
+        {
+            return (null, new StaleCursorError(
+                "Cursor offset is past the end of the implementation list.",
+                "Call symbol_find_implementations again without a cursor to start a fresh page."));
+        }
+
+        var slice = ordered.Skip(offset).Take(pageLimit).ToList();
+        var nextOffset = offset + slice.Count;
+        var truncated = nextOffset < ordered.Count;
+        string? nextCursor = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
+
+        var items = new List<ImplementationItem>(slice.Count);
+        foreach (var (impl, owner) in slice)
+        {
+            var (item, mapError) = await ToImplementationItemAsync(session, owner, impl, cancellationToken)
+                .ConfigureAwait(false);
+            if (mapError is not null)
+            {
+                return (null, mapError);
+            }
+
+            items.Add(item!);
+        }
+
+        var message = truncated
+            ? "Results truncated; pass nextCursor to symbol_find_implementations to continue (do not restart from the first page)."
+            : items.Count == 0
+                ? "No implementations or derived types found."
+                : "Implementation page complete.";
+
+        return (new PagedResult<ImplementationItem>(items, truncated, nextCursor, message), null);
+    }
+
+    public async Task<(PagedResult<HierarchyItem>? Success, SymbolQueryError? Error)> GetTypeHierarchyAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        var epoch = session.Epoch;
+        var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        if (symbol is not INamedTypeSymbol type)
+        {
+            return (null, new SymbolNotFoundError(
+                "Handle does not refer to a named type; type hierarchy requires a type SymbolHandle.",
+                "Call symbol_resolve for a type name/FQN, then call symbol_type_hierarchy with that handle."));
+        }
+
+        var pageLimit = ClampLimit(limit);
+        var offset = 0;
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
+            {
+                return (null, new StaleCursorError(
+                    cursorError ?? "Cursor is invalid.",
+                    "Call symbol_type_hierarchy again without a cursor to start a fresh page."));
+            }
+
+            if (cursorEpoch != epoch)
+            {
+                return (null, new StaleCursorError(
+                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
+                    "Call symbol_type_hierarchy again without a cursor; do not retry with the stale cursor."));
+            }
+        }
+
+        var chain = new List<HierarchyItem>();
+        for (var current = type.BaseType; current is not null; current = current.BaseType)
+        {
+            var owner = ProjectForSymbol(session.Solution, current, project!);
+            var success = ToSuccess(owner, current);
+            chain.Add(new HierarchyItem(HierarchyRelationKind.BaseType, success.Handle, success.Summary));
+        }
+
+        foreach (var iface in type.AllInterfaces.OrderBy(SymbolKey, StringComparer.Ordinal))
+        {
+            var owner = ProjectForSymbol(session.Solution, iface, project!);
+            var success = ToSuccess(owner, iface);
+            chain.Add(new HierarchyItem(HierarchyRelationKind.Interface, success.Handle, success.Summary));
+        }
+
+        if (offset > chain.Count)
+        {
+            return (null, new StaleCursorError(
+                "Cursor offset is past the end of the type hierarchy.",
+                "Call symbol_type_hierarchy again without a cursor to start a fresh page."));
+        }
+
+        var slice = chain.Skip(offset).Take(pageLimit).ToList();
+        var nextOffset = offset + slice.Count;
+        var truncated = nextOffset < chain.Count;
+        string? nextCursor = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
+
+        var message = truncated
+            ? "Results truncated; pass nextCursor to symbol_type_hierarchy to continue (do not restart from the first page)."
+            : chain.Count == 0
+                ? "Type has no base types or interfaces."
+                : "Type hierarchy page complete.";
+
+        return (new PagedResult<HierarchyItem>(slice, truncated, nextCursor, message), null);
+    }
+
     public async Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> FindReferencesAsync(
         IWorkspaceSession session,
         string handle,
@@ -435,6 +622,45 @@ public sealed class SymbolQueryService
                 : "Reference page complete.";
 
         return (new PagedResult<ReferenceLocationItem>(page, truncated, nextCursor, message), null);
+    }
+
+    private async Task<(ImplementationItem? Item, SymbolQueryError? Error)> ToImplementationItemAsync(
+        IWorkspaceSession session,
+        Project project,
+        ISymbol symbol,
+        CancellationToken cancellationToken)
+    {
+        var success = ToSuccess(project, symbol);
+        var locations = new List<SymbolLocation>();
+        foreach (var location in symbol.Locations)
+        {
+            var (mapped, mapError) = await ToSymbolLocationAsync(
+                    session, project, location, cancellationToken)
+                .ConfigureAwait(false);
+            if (mapError is not null)
+            {
+                return (null, mapError);
+            }
+
+            locations.Add(mapped!);
+        }
+
+        return (new ImplementationItem(success.Handle, success.Summary, locations), null);
+    }
+
+    private static Project ProjectForSymbol(Solution solution, ISymbol symbol, Project fallback)
+    {
+        var source = symbol.Locations.FirstOrDefault(l => l.IsInSource && l.SourceTree is not null);
+        if (source?.SourceTree is { } tree)
+        {
+            var document = solution.GetDocument(tree);
+            if (document is not null)
+            {
+                return document.Project;
+            }
+        }
+
+        return fallback;
     }
 
     private async Task<IReadOnlyList<ReferenceLocationItem>> FlattenReferenceHitsForDocumentAsync(

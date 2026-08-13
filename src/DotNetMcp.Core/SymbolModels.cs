@@ -21,6 +21,19 @@ public sealed record SymbolDefinitionSuccess(IReadOnlyList<SymbolLocation> Locat
 
 public sealed record MemberListItem(string Handle, SymbolSummary Summary);
 
+public sealed record ImplementationItem(
+    string Handle,
+    SymbolSummary Summary,
+    IReadOnlyList<SymbolLocation> Locations);
+
+public static class HierarchyRelationKind
+{
+    public const string BaseType = "BaseType";
+    public const string Interface = "Interface";
+}
+
+public sealed record HierarchyItem(string Kind, string Handle, SymbolSummary Summary);
+
 public sealed record ReferenceLocationItem(
     string DeclarationAvailability,
     string? Origin,

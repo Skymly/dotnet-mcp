@@ -214,6 +214,70 @@ public sealed class SymbolTools
         return OkResult(ToFindReferencesDto(success!));
     }
 
+    [McpServerTool(Name = "symbol_find_implementations"), Description(
+        "Find types and members that implement or derive from a SymbolHandle (interfaces, abstract/virtual " +
+        "members, and class inheritance). Results are paginated; cursors bind to the workspace epoch.")]
+    public async Task<CallToolResult> SymbolFindImplementations(
+        [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
+        string handle,
+        [Description("Page size (default 50, max 100).")]
+        int? limit = null,
+        [Description("Opaque nextCursor from a previous symbol_find_implementations page.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_find_implementations");
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _symbols
+            .FindImplementationsAsync(session!, handle, limit, cursor, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(ToImplementationsDto(success!));
+    }
+
+    [McpServerTool(Name = "symbol_type_hierarchy"), Description(
+        "Return a type SymbolHandle's base-type chain (immediate to root) then implemented interfaces, " +
+        "paginated. Cursors bind to the workspace epoch and become stale when the workspace generation advances.")]
+    public async Task<CallToolResult> SymbolTypeHierarchy(
+        [Description("Type SymbolHandle from symbol_resolve.")]
+        string handle,
+        [Description("Page size (default 50, max 100).")]
+        int? limit = null,
+        [Description("Opaque nextCursor from a previous symbol_type_hierarchy page.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_type_hierarchy");
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _symbols
+            .GetTypeHierarchyAsync(session!, handle, limit, cursor, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(ToHierarchyDto(success!));
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)
@@ -305,6 +369,39 @@ public sealed class SymbolTools
             Length = i.Length,
             ProjectId = i.ProjectId,
             Kind = i.Kind
+        }).ToArray(),
+        Truncated = page.Truncated,
+        NextCursor = page.NextCursor,
+        Message = page.Message
+    };
+
+    private static SymbolFindImplementationsResultDto ToImplementationsDto(PagedResult<ImplementationItem> page) => new()
+    {
+        Items = page.Items.Select(i => new ImplementationItemDto
+        {
+            Handle = i.Handle,
+            Summary = ToSummaryDto(i.Summary),
+            Locations = i.Locations.Select(l => new SymbolLocationDto
+            {
+                DeclarationAvailability = l.DeclarationAvailability,
+                Origin = l.Origin,
+                FilePath = l.FilePath,
+                Start = l.Start,
+                Length = l.Length
+            }).ToArray()
+        }).ToArray(),
+        Truncated = page.Truncated,
+        NextCursor = page.NextCursor,
+        Message = page.Message
+    };
+
+    private static SymbolTypeHierarchyResultDto ToHierarchyDto(PagedResult<HierarchyItem> page) => new()
+    {
+        Items = page.Items.Select(i => new HierarchyItemDto
+        {
+            Kind = i.Kind,
+            Handle = i.Handle,
+            Summary = ToSummaryDto(i.Summary)
         }).ToArray(),
         Truncated = page.Truncated,
         NextCursor = page.NextCursor,
