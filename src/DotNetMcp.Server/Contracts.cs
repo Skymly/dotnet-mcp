@@ -128,6 +128,26 @@ public sealed record SymbolFindReferencesResultDto
     public required string Message { get; init; }
 }
 
+public sealed record CallerLocationItemDto
+{
+    public required string DeclarationAvailability { get; init; }
+    public string? Origin { get; init; }
+    public string? FilePath { get; init; }
+    public int? Start { get; init; }
+    public int? Length { get; init; }
+    public required string ProjectId { get; init; }
+    public required string CallerHandle { get; init; }
+    public required SymbolSummaryDto CallerSummary { get; init; }
+}
+
+public sealed record SymbolFindCallersResultDto
+{
+    public required IReadOnlyList<CallerLocationItemDto> Items { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public required string Message { get; init; }
+}
+
 public sealed record ImplementationItemDto
 {
     public required string Handle { get; init; }
