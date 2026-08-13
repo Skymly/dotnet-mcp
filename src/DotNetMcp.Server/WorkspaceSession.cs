@@ -18,12 +18,13 @@ public sealed class WorkspaceSession : IWorkspaceSession
         LoadedSolution loaded,
         long epoch,
         int compilationLruCapacity = DefaultCompilationLruCapacity,
-        GeneratorRunCache? generatorRunCache = null)
+        GeneratorRunCache? generatorRunCache = null,
+        CompilationLru? compilationLru = null)
     {
         // Freeze snapshot at request start so FSW updates cannot cross a mid-request boundary (ADR-0002).
         Solution = loaded.Solution;
         Epoch = epoch;
-        _compilationLru = new CompilationLru(compilationLruCapacity);
+        _compilationLru = compilationLru ?? new CompilationLru(compilationLruCapacity);
         _generatorRunCache = generatorRunCache ?? new GeneratorRunCache();
     }
 
@@ -31,7 +32,7 @@ public sealed class WorkspaceSession : IWorkspaceSession
 
     public Solution Solution { get; }
 
-    /// <summary>Test/observability hook for the per-session compilation LRU.</summary>
+    /// <summary>Test/observability hook for the compilation LRU (host-shared when injected).</summary>
     public CompilationLru CompilationCache => _compilationLru;
 
     public IReadOnlyList<ProjectSummaryDto> ListProjects() =>

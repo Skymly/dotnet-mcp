@@ -34,11 +34,13 @@ public sealed class WorkspaceHost : IAsyncDisposable
     private readonly HashSet<string> _pendingPaths = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _debounceCts;
     private readonly GeneratorRunCache _generatorRunCache = new();
+    private CompilationLru _compilationLru;
 
     public WorkspaceHost(ISolutionLoader loader, WorkspaceHostOptions options)
     {
         _loader = loader;
         _options = options;
+        _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
         if (_options.FileWatcher is not null)
         {
             _watcher = _options.FileWatcher;
@@ -112,8 +114,8 @@ public sealed class WorkspaceHost : IAsyncDisposable
             session = new WorkspaceSession(
                 _loaded,
                 _epoch,
-                _options.CompilationLruCapacity,
-                _generatorRunCache);
+                generatorRunCache: _generatorRunCache,
+                compilationLru: _compilationLru);
             return true;
         }
     }
@@ -122,6 +124,8 @@ public sealed class WorkspaceHost : IAsyncDisposable
     {
         _epoch++;
         _generatorRunCache.Clear();
+        // Replace the instance so in-flight sessions keep the previous epoch's compilations.
+        _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
     }
 
     /// <summary>
