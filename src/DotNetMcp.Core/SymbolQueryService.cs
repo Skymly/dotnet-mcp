@@ -106,6 +106,92 @@ public sealed class SymbolQueryService
         return (ToSuccess(project!, symbol!), null);
     }
 
+    /// <summary>
+    /// Resolve a type SymbolHandle and look up an instance property or field by name.
+    /// Returns the member and its type so callers can walk a Binding path in-process.
+    /// </summary>
+    internal async Task<(TypeMemberLookup? Success, SymbolQueryError? Error)> LookupTypeMemberAsync(
+        IWorkspaceSession session,
+        string typeHandle,
+        string memberName,
+        CancellationToken cancellationToken = default)
+    {
+        var (project, symbol, error) = await TryResolveHandleAsync(session, typeHandle, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        if (symbol is not ITypeSymbol type)
+        {
+            return (null, new SymbolNotFoundError(
+                "Handle does not refer to a type; member lookup requires a type SymbolHandle.",
+                "Call symbol_resolve for a type name/FQN, then look up members on that handle."));
+        }
+
+        return LookupTypeMember(project!, type, memberName);
+    }
+
+    /// <summary>
+    /// Continue a Binding-path walk from an already-resolved type without a handle round-trip.
+    /// </summary>
+    internal (TypeMemberLookup? Success, SymbolQueryError? Error) LookupTypeMember(
+        Project project,
+        ITypeSymbol type,
+        string memberName)
+    {
+        if (string.IsNullOrWhiteSpace(memberName))
+        {
+            return (null, new MemberNotFoundError(
+                "Member name is empty.",
+                "Pass a property or field name from the Binding path."));
+        }
+
+        var name = memberName.Trim();
+        ISymbol? found = null;
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            var candidates = current.GetMembers(name)
+                .Where(m => !m.IsStatic && !m.IsImplicitlyDeclared)
+                .Where(m => m.DeclaredAccessibility == Accessibility.Public)
+                .ToArray();
+
+            found = candidates.OfType<IPropertySymbol>().FirstOrDefault(p => p.Parameters.Length == 0)
+                ?? (ISymbol?)candidates.OfType<IFieldSymbol>().FirstOrDefault();
+            if (found is not null)
+            {
+                break;
+            }
+        }
+
+        if (found is null)
+        {
+            return (null, new MemberNotFoundError(
+                $"Type '{type.ToDisplayString(SymbolDisplayFormats.SignatureQualified)}' has no public instance property or field named '{name}'.",
+                "Check the Binding path segment against the type's public instance properties and fields."));
+        }
+
+        var memberType = found switch
+        {
+            IPropertySymbol property => property.Type,
+            IFieldSymbol field => field.Type,
+            _ => null
+        };
+
+        if (memberType is null)
+        {
+            return (null, new MemberNotFoundError(
+                $"Member '{name}' on '{type.ToDisplayString(SymbolDisplayFormats.SignatureQualified)}' has no resolvable type.",
+                "Check the Binding path segment against the type's public instance properties and fields."));
+        }
+
+        return (new TypeMemberLookup(found, memberType, project), null);
+    }
+
+    internal string FormatHandle(Project project, ISymbol symbol) =>
+        ToSuccess(project, symbol).Handle;
+
     public async Task<(SymbolDefinitionSuccess? Success, SymbolQueryError? Error)> GetDefinitionAsync(
         IWorkspaceSession session,
         string handle,

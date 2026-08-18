@@ -82,6 +82,9 @@ public sealed record StaleCursorError(string Message, string SuggestedAction)
 public sealed record DefinitionNotFoundError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.DefinitionNotFound, Message, SuggestedAction);
 
+public sealed record MemberNotFoundError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.MemberNotFound, Message, SuggestedAction);
+
 public static class SymbolQueryErrorCodes
 {
     public const string InvalidSymbolHandle = "InvalidSymbolHandle";
@@ -89,6 +92,7 @@ public static class SymbolQueryErrorCodes
     public const string SymbolAmbiguous = "SymbolAmbiguous";
     public const string StaleCursor = "StaleCursor";
     public const string DefinitionNotFound = "DefinitionNotFound";
+    public const string MemberNotFound = "MemberNotFound";
     public const string ProjectNotFound = "ProjectNotFound";
     public const string CompilationUnavailable = "CompilationUnavailable";
     public const string SoftBudgetExceeded = "SoftBudgetExceeded";
