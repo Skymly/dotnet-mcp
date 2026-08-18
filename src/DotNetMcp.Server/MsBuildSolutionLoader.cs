@@ -132,6 +132,8 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
 
     private static MSBuildWorkspace CreateWorkspace(List<string> warnings)
     {
+        // Keep Visual Basic language services in the default host catalog.
+        _ = typeof(Microsoft.CodeAnalysis.VisualBasic.VisualBasicCompilation);
         var workspace = MSBuildWorkspace.Create();
 #pragma warning disable CS0618
         workspace.WorkspaceFailed += (_, e) =>

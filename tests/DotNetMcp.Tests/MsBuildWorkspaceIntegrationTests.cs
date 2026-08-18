@@ -10,6 +10,8 @@ public class MsBuildWorkspaceIntegrationTests
     public static string SampleSlnx => Path.Combine(FixturesRoot, "SampleFilter", "Sample.slnx");
     public static string SampleSlnf => Path.Combine(FixturesRoot, "SampleFilter", "Sample.slnf");
     public static string MultiTfmProject => Path.Combine(FixturesRoot, "MultiTfm", "MultiTfm.csproj");
+    public static string VbProject => Path.Combine(FixturesRoot, "MixedCsharpVb", "VbLib", "VbLib.vbproj");
+    public static string MixedSlnx => Path.Combine(FixturesRoot, "MixedCsharpVb", "Mixed.slnx");
 
     [Fact]
     public async Task workspace_open_slnx_status_ready_lists_sample_projects()
@@ -101,6 +103,66 @@ public class MsBuildWorkspaceIntegrationTests
         Assert.Contains(body.Projects, p =>
             (p.TargetFramework?.Contains("net9", StringComparison.OrdinalIgnoreCase) ?? false) ||
             p.Name.Contains("net9", StringComparison.OrdinalIgnoreCase));
+    }
+
+
+    [Fact]
+    public async Task workspace_open_vbproj_reaches_ready_and_lists_vb_language()
+    {
+        Assert.True(File.Exists(VbProject), $"Missing fixture: {VbProject}");
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(VbProject))!;
+
+        await using var fx = new InProcessMcpFixture(
+            TrustedRoots.Create([root]),
+            new MsBuildSolutionLoader());
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = VbProject });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        Assert.Equal("ready", status.Phase);
+
+        var list = await fx.Client.CallToolAsync(
+            "workspace_list_projects",
+            new Dictionary<string, object?>());
+        Assert.True(list.IsError is not true, InProcessMcpFixture.TextOf(list));
+        var body = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+
+        Assert.Contains(body.Projects, p =>
+            p.Name.Contains("VbLib", StringComparison.OrdinalIgnoreCase) && p.Language == "vb");
+        Assert.All(body.Projects, p => Assert.Equal("vb", p.Language));
+    }
+
+    [Fact]
+    public async Task workspace_open_mixed_solution_lists_csharp_and_vb_languages()
+    {
+        Assert.True(File.Exists(MixedSlnx), $"Missing fixture: {MixedSlnx}");
+        var root = Path.GetDirectoryName(MixedSlnx)!;
+
+        await using var fx = new InProcessMcpFixture(
+            TrustedRoots.Create([root]),
+            new MsBuildSolutionLoader());
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = MixedSlnx });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        Assert.Equal("ready", status.Phase);
+
+        var list = await fx.Client.CallToolAsync(
+            "workspace_list_projects",
+            new Dictionary<string, object?>());
+        Assert.True(list.IsError is not true, InProcessMcpFixture.TextOf(list));
+        var body = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+
+        Assert.Contains(body.Projects, p =>
+            p.Name.Contains("CsLib", StringComparison.OrdinalIgnoreCase) && p.Language == "csharp");
+        Assert.Contains(body.Projects, p =>
+            p.Name.Contains("VbLib", StringComparison.OrdinalIgnoreCase) && p.Language == "vb");
     }
 
     private static async Task<WorkspaceStatusDto> PollReadyAsync(InProcessMcpFixture fx, TimeSpan timeout)

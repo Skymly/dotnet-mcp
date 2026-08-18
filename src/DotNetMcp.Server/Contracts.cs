@@ -91,6 +91,7 @@ public sealed record ProjectSummaryDto
 {
     public required string ProjectId { get; init; }
     public required string Name { get; init; }
+    public required string Language { get; init; }
     public string? TargetFramework { get; init; }
     public string? FilePath { get; init; }
 }
