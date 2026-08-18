@@ -1262,12 +1262,6 @@ public sealed class SymbolQueryService
             return (SymbolOrigin.Handwritten, null);
         }
 
-        // Generator Attribution stays C#-only until the VB generator ticket.
-        if (project.Language != LanguageNames.CSharp)
-        {
-            return (SymbolOrigin.Handwritten, null);
-        }
-
         var projectId = project.Id.Id.ToString("D");
         var (identity, matchError) = await _generators
             .MatchSyntaxTreeAsync(session, projectId, tree, cancellationToken)

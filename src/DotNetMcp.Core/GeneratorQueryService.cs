@@ -18,7 +18,7 @@ public sealed class GeneratorQueryService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!TryResolveCSharpProject(session.Solution, projectId, out var project, out var error))
+        if (!TryResolveSupportedProject(session.Solution, projectId, out var project, out var error))
         {
             return Task.FromResult<(IReadOnlyList<GeneratorIdentity>?, SymbolQueryError?)>((null, error));
         }
@@ -231,7 +231,7 @@ public sealed class GeneratorQueryService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!TryResolveCSharpProject(session.Solution, projectId, out var project, out var error))
+        if (!TryResolveSupportedProject(session.Solution, projectId, out var project, out var error))
         {
             return (null, error);
         }
@@ -267,7 +267,7 @@ public sealed class GeneratorQueryService
         return (GeneratorDriverRunner.MatchTree(snapshot!, tree), null);
     }
 
-    private static bool TryResolveCSharpProject(
+    private static bool TryResolveSupportedProject(
         Solution solution,
         string projectId,
         out Project? project,
@@ -285,14 +285,14 @@ public sealed class GeneratorQueryService
         }
 
         project = solution.Projects
-            .Where(p => p.Language == LanguageNames.CSharp)
+            .Where(p => SymbolQueryService.IsSupportedRoslynLanguage(p.Language))
             .FirstOrDefault(p =>
                 string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
 
         if (project is null)
         {
             error = new ProjectNotFoundError(
-                $"No C# project with projectId '{projectId}' is in the ready workspace.",
+                $"No project with projectId '{projectId}' is in the ready workspace.",
                 "Call workspace_list_projects for valid projectId values, then retry.");
             return false;
         }
@@ -307,7 +307,7 @@ public sealed class GeneratorQueryService
 
         foreach (var reference in project.AnalyzerReferences)
         {
-            foreach (var generator in reference.GetGenerators(LanguageNames.CSharp))
+            foreach (var generator in reference.GetGenerators(project.Language))
             {
                 var type = generator.GetGeneratorType();
                 var assemblyName = type.Assembly.GetName().Name ?? string.Empty;

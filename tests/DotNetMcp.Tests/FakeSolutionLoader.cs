@@ -188,6 +188,10 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    public static FakeSolutionLoader ImmediateWithVbGenerators(
+        string projectFilePath = @"C:\fake\VbGeneratorHost.vbproj") =>
+        new(TimeSpan.Zero, () => CreateVbGeneratorsLoaded(projectFilePath));
+
     public static FakeSolutionLoader ImmediateWithGenerators(
         string projectFilePath = @"C:\fake\GeneratorHost.csproj") =>
         new(TimeSpan.Zero, () => CreateGeneratorsLoaded(projectFilePath));
@@ -531,6 +535,68 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         File.WriteAllText(generatedPath, generated);
 
         return CreateSymbolsLoaded(projectFilePath);
+    }
+
+
+    public static LoadedSolution CreateVbGeneratorsLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "VbGeneratorHost",
+            "VbGeneratorHost",
+            LanguageNames.VisualBasic,
+            filePath: projectFilePath));
+
+        const string source = """
+            Namespace GeneratorHost
+                Public Class Host
+                    Public Shared Function Name() As String
+                        Return "host"
+                    End Function
+                End Class
+
+                Partial Public Class VbPartialThing
+                    Public Function Format() As String
+                        Return "hw"
+                    End Function
+
+                    Public Function Format(x As String) As String
+                        Return x
+                    End Function
+                End Class
+            End Namespace
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        solution = solution.AddDocument(
+            docId,
+            "Host.vb",
+            SourceText.From(source),
+            filePath: Path.Combine(projectDir, "Host.vb"));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        var generatorAssemblyPath = typeof(CustomGenerator.VbMarkerGenerator).Assembly.Location;
+        solution = solution.AddAnalyzerReference(
+            projectId,
+            new AnalyzerFileReference(generatorAssemblyPath, TestAnalyzerAssemblyLoader.Instance));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace VB generators fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
     /// <summary>

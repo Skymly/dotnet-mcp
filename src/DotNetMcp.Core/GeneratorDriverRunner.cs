@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.VisualBasic;
 using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Core;
@@ -31,19 +32,30 @@ public static class GeneratorDriverRunner
         cancellationToken.ThrowIfCancellationRequested();
 
         var generators = project.AnalyzerReferences
-            .SelectMany(r => r.GetGenerators(LanguageNames.CSharp))
+            .SelectMany(r => r.GetGenerators(project.Language))
             .ToImmutableArray();
 
-        var parseOptions = project.ParseOptions as CSharpParseOptions ?? CSharpParseOptions.Default;
         var additionalTexts = project.AdditionalDocuments
             .Select(d => (AdditionalText)new WorkspaceAdditionalText(d))
             .ToImmutableArray();
 
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            generators,
-            additionalTexts: additionalTexts,
-            parseOptions: parseOptions,
-            optionsProvider: project.AnalyzerOptions.AnalyzerConfigOptionsProvider);
+        GeneratorDriver driver;
+        if (project.Language == LanguageNames.VisualBasic)
+        {
+            driver = VisualBasicGeneratorDriver.Create(
+                generators,
+                additionalTexts,
+                project.ParseOptions as VisualBasicParseOptions ?? VisualBasicParseOptions.Default,
+                project.AnalyzerOptions.AnalyzerConfigOptionsProvider);
+        }
+        else
+        {
+            driver = CSharpGeneratorDriver.Create(
+                generators,
+                additionalTexts: additionalTexts,
+                parseOptions: project.ParseOptions as CSharpParseOptions ?? CSharpParseOptions.Default,
+                optionsProvider: project.AnalyzerOptions.AnalyzerConfigOptionsProvider);
+        }
 
         driver = driver.RunGeneratorsAndUpdateCompilation(
             baseCompilation,
