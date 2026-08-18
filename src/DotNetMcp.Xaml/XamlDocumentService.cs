@@ -104,6 +104,114 @@ public sealed class XamlDocumentService
         return (success.Success, null, success.Error);
     }
 
+    public async Task<(IReadOnlyList<XamlBindingSegment>? Success, XamlQueryError? XamlError, SymbolQueryError? SymbolError)>
+        ResolveBindingAsync(
+            IWorkspaceSession session,
+            string path,
+            string bindingPath,
+            string? dataType = null,
+            CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(bindingPath))
+        {
+            return (null, new BindingPropertyNotFoundError(
+                "Binding path is empty.",
+                "Pass a Binding Path such as Name or Home.City."), null);
+        }
+
+        var (root, docError) = ReadDocument(path);
+        if (docError is not null)
+        {
+            return (null, docError, null);
+        }
+
+        var (xmlns, xmlnsError) = await ListXmlnsAsync(session, path, prefix: null, cancellationToken)
+            .ConfigureAwait(false);
+        if (xmlnsError is not null)
+        {
+            return (null, xmlnsError, null);
+        }
+
+        var typeName = dataType;
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            typeName = FindFirstDataType(path);
+        }
+
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            return (null, new MissingDataTypeError(
+                "No x:DataType was found for the Binding path.",
+                "Set x:DataType (CompiledBindings) on the element or pass dataType to xaml_resolve_binding."), null);
+        }
+
+        var resolvedTypeName = ResolveTypeName(typeName.Trim(), xmlns!);
+        var (resolved, symbolError) = await _symbols
+            .ResolveByNameAsync(session, resolvedTypeName, projectId: null, cancellationToken)
+            .ConfigureAwait(false);
+        if (symbolError is not null)
+        {
+            return (null, null, symbolError);
+        }
+
+        var (startProject, startSymbol, startError) = await _symbols
+            .ResolveHandleSymbolAsync(session, resolved!.Handle, cancellationToken)
+            .ConfigureAwait(false);
+        if (startError is not null)
+        {
+            return (null, null, startError);
+        }
+
+        if (startSymbol is not ITypeSymbol currentType)
+        {
+            return (null, new BindingTypeMismatchError(
+                $"x:DataType '{resolvedTypeName}' is not a type.",
+                "Point x:DataType at a ViewModel/type, then retry xaml_resolve_binding."), null);
+        }
+
+        var segments = new List<XamlBindingSegment>();
+        ITypeSymbol walkType = currentType;
+        Project walkProject = startProject!;
+        foreach (var segment in bindingPath.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var (lookup, lookupError) = _symbols.LookupTypeMember(walkProject, walkType, segment, publicOnly: true);
+            if (lookupError is not null)
+            {
+                if (HasOrdinaryMethod(walkType, segment))
+                {
+                    return (null, new BindingTypeMismatchError(
+                        $"Binding path segment '{segment}' on '{walkType.ToDisplayString()}' is a method, not a property or field.",
+                        "Bind to a public instance property or field, not a method."), null);
+                }
+
+                return (null, new BindingPropertyNotFoundError(
+                    $"Binding path segment '{segment}' was not found on '{walkType.ToDisplayString()}'.",
+                    "Check the Binding Path against the x:DataType public instance properties."), null);
+            }
+
+            if (lookup!.Member.Kind is not SymbolKind.Property and not SymbolKind.Field)
+            {
+                return (null, new BindingTypeMismatchError(
+                    $"Binding path segment '{segment}' is not a property or field.",
+                    "Bind to a public instance property or field."), null);
+            }
+
+            var handle = _symbols.FormatHandle(lookup.Project, lookup.Member);
+            var (summary, summaryError) = await _symbols.GetSummaryAsync(session, handle, cancellationToken)
+                .ConfigureAwait(false);
+            if (summaryError is not null)
+            {
+                return (null, null, summaryError);
+            }
+
+            segments.Add(new XamlBindingSegment(segment, handle, summary!.Summary));
+            walkType = lookup.MemberType;
+            walkProject = lookup.Project;
+        }
+
+        return (segments, null, null);
+    }
+
     public async Task<(IReadOnlyList<XamlXmlnsMapping>? Success, XamlQueryError? Error)> ListXmlnsAsync(
         IWorkspaceSession session,
         string path,
@@ -403,6 +511,67 @@ public sealed class XamlDocumentService
 
             definitions.Add(new XmlnsDefinition(xml, clr, assembly.Name));
         }
+    }
+
+    private static bool HasOrdinaryMethod(ITypeSymbol type, string name) =>
+        type.GetMembers(name).OfType<IMethodSymbol>().Any(m =>
+            m.MethodKind == MethodKind.Ordinary && !m.IsStatic);
+
+    private static string? FindFirstDataType(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var reader = XmlReader.Create(stream, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+                IgnoreComments = true,
+                IgnoreProcessingInstructions = true
+            });
+
+            while (reader.Read())
+            {
+                if (reader.NodeType != XmlNodeType.Element)
+                {
+                    continue;
+                }
+
+                var dataType = reader.GetAttribute("DataType", XamlXmlns.Xaml);
+                if (!string.IsNullOrWhiteSpace(dataType))
+                {
+                    return dataType.Trim();
+                }
+            }
+        }
+        catch (XmlException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+
+        return null;
+    }
+
+    private static string ResolveTypeName(string dataType, IReadOnlyList<XamlXmlnsMapping> xmlns)
+    {
+        var colon = dataType.IndexOf(':');
+        if (colon <= 0)
+        {
+            var defaultNs = xmlns.FirstOrDefault(x => x.Prefix == "" && x.ClrNamespace is not null);
+            return defaultNs?.ClrNamespace is { Length: > 0 } ns
+                ? $"{ns}.{dataType}"
+                : dataType;
+        }
+
+        var prefix = dataType[..colon];
+        var name = dataType[(colon + 1)..];
+        var mapping = xmlns.FirstOrDefault(x =>
+            string.Equals(x.Prefix, prefix, StringComparison.Ordinal) && x.ClrNamespace is not null);
+        return mapping?.ClrNamespace is { Length: > 0 } clr
+            ? $"{clr}.{name}"
+            : dataType;
     }
 
     internal static IReadOnlySet<string> CollectXNames(string path)

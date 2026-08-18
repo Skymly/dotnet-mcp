@@ -273,6 +273,18 @@ public sealed class FakeSolutionLoader : ISolutionLoader
 
                 public string HandwrittenTitle { get; set; } = "";
             }
+
+            public class Address
+            {
+                public string City { get; set; } = "";
+            }
+
+            public class Customer
+            {
+                public Address Home { get; set; } = new();
+                public string Name { get; set; } = "";
+                public void Save() { }
+            }
             """;
 
         const string attrSource = """

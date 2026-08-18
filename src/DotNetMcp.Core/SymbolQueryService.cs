@@ -217,6 +217,12 @@ public sealed class SymbolQueryService
     internal string FormatHandle(Project project, ISymbol symbol) =>
         ToSuccess(project, symbol).Handle;
 
+    internal Task<(Project? Project, ISymbol? Symbol, SymbolQueryError? Error)> ResolveHandleSymbolAsync(
+        IWorkspaceSession session,
+        string handle,
+        CancellationToken cancellationToken = default) =>
+        TryResolveHandleAsync(session, handle, cancellationToken);
+
     public async Task<(SymbolDefinitionSuccess? Success, SymbolQueryError? Error)> GetDefinitionAsync(
         IWorkspaceSession session,
         string handle,
