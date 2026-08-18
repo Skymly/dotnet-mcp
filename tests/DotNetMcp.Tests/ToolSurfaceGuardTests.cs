@@ -26,7 +26,8 @@ public class ToolSurfaceGuardTests
         "workspace_check_drift",
         "workspace_list_projects",
         "workspace_open",
-        "workspace_status"
+        "workspace_status",
+        "xaml_resolve_class"
     ];
 
     private static readonly string[] ForbiddenNameFragments =

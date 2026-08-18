@@ -1,4 +1,5 @@
 using DotNetMcp.Core;
+using DotNetMcp.Xaml;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -37,9 +38,11 @@ public static class ServerHost
         services.AddSingleton<SymbolQueryService>();
         services.AddSingleton<DiagnosticQueryService>();
         services.AddSingleton<GeneratorQueryService>();
+        services.AddSingleton<XamlDocumentService>();
         services.AddSingleton<WorkspaceTools>();
         services.AddSingleton<SymbolTools>();
         services.AddSingleton<ProjectTools>();
+        services.AddSingleton<XamlTools>();
     }
 
     public static async Task<int> RunAsync(string[] args)
