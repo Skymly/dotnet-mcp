@@ -86,6 +86,59 @@ public sealed class XamlTools
         });
     }
 
+    [McpServerTool(Name = "xaml_list_xmlns"), Description(
+        "List xmlns prefix mappings for an Avalonia .axaml document under a trusted root: " +
+        "using:, clr-namespace:, and XmlnsDefinitionAttribute on referenced assemblies. " +
+        "Optional prefix filters; unknown prefix and missing document are distinguishable.")]
+    public async Task<CallToolResult> XamlListXmlns(
+        [Description("Path to an Avalonia .axaml document under a trusted root.")]
+        string path,
+        [Description("Optional xmlns prefix to resolve (empty string is the default xmlns).")]
+        string? prefix = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("xaml_list_xmlns", path);
+
+        if (!_trustedRoots.Contains(path))
+        {
+            _audit.PathPolicyDenied("xaml_list_xmlns", path);
+            return ErrorResult(new PolicyErrorDto
+            {
+                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
+                Message = "The requested path is outside the configured trusted roots and was rejected.",
+                SuggestedAction =
+                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
+                    "environment variable, then retry xaml_list_xmlns with a path under that root."
+            });
+        }
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _xaml
+            .ListXmlnsAsync(session!, path, prefix, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(new XamlListXmlnsResultDto
+        {
+            Items = success!.Select(m => new XamlXmlnsMappingDto
+            {
+                Prefix = m.Prefix,
+                XmlNamespace = m.XmlNamespace,
+                ClrNamespace = m.ClrNamespace,
+                AssemblyName = m.AssemblyName,
+                Source = m.Source
+            }).ToArray()
+        });
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)

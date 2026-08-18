@@ -30,6 +30,21 @@ public static class PolicyErrorCodes
     public const string MissingXamlClass = "MissingXamlClass";
     public const string XamlDocumentNotFound = "XamlDocumentNotFound";
     public const string UnsupportedXamlDocument = "UnsupportedXamlDocument";
+    public const string UnknownXmlnsPrefix = "UnknownXmlnsPrefix";
+}
+
+public sealed record XamlXmlnsMappingDto
+{
+    public required string Prefix { get; init; }
+    public required string XmlNamespace { get; init; }
+    public string? ClrNamespace { get; init; }
+    public string? AssemblyName { get; init; }
+    public required string Source { get; init; }
+}
+
+public sealed record XamlListXmlnsResultDto
+{
+    public required IReadOnlyList<XamlXmlnsMappingDto> Items { get; init; }
 }
 
 public sealed record PolicyErrorDto
