@@ -8,6 +8,7 @@ namespace DotNetMcp.Core;
 public sealed class SymbolQueryService
 {
     public const string CSharpLanguage = "csharp";
+    public const string VbLanguage = "vb";
     public const int DefaultMemberPageLimit = 50;
     public const int MaxMemberPageLimit = 100;
     public static readonly TimeSpan DependencyClosureSoftBudget =
@@ -78,6 +79,18 @@ public sealed class SymbolQueryService
         matches = matches
             .DistinctBy(m => (m.Project.Id.Id, SymbolKey(m.Symbol)))
             .ToList();
+
+        // A referenced copy in another language/project is not a second definition.
+        if (matches.Count > 1)
+        {
+            var sourceDefining = matches
+                .Where(m => m.Symbol.Locations.Any(static l => l.IsInSource))
+                .ToList();
+            if (sourceDefining.Count == 1)
+            {
+                matches = sourceDefining;
+            }
+        }
 
         if (matches.Count > 1)
         {
@@ -1249,6 +1262,12 @@ public sealed class SymbolQueryService
             return (SymbolOrigin.Handwritten, null);
         }
 
+        // Generator Attribution stays C#-only until the VB generator ticket.
+        if (project.Language != LanguageNames.CSharp)
+        {
+            return (SymbolOrigin.Handwritten, null);
+        }
+
         var projectId = project.Id.Id.ToString("D");
         var (identity, matchError) = await _generators
             .MatchSyntaxTreeAsync(session, projectId, tree, cancellationToken)
@@ -1287,11 +1306,11 @@ public sealed class SymbolQueryService
                 "Call symbol_resolve with a name/FQN to obtain a fresh SymbolHandle; do not invent handles."));
         }
 
-        if (!string.Equals(parsed.Language, CSharpLanguage, StringComparison.Ordinal))
+        if (!IsSupportedLanguageToken(parsed.Language))
         {
             return (null, null, new InvalidSymbolHandleError(
                 $"Unsupported language '{parsed.Language}'.",
-                "Call symbol_resolve for a C# symbol to obtain a csharp handle."));
+                "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
         }
 
         var project = session.Solution.Projects.FirstOrDefault(p =>
@@ -1343,8 +1362,9 @@ public sealed class SymbolQueryService
     private static SymbolResolveSuccess ToSuccess(Project project, ISymbol symbol)
     {
         var projectId = project.Id.Id.ToString("D");
+        var language = LanguageToken(project.Language);
         var signature = symbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified);
-        var handle = SymbolHandle.Create(CSharpLanguage, projectId, signature);
+        var handle = SymbolHandle.Create(language, projectId, signature);
         var summary = new SymbolSummary(
             Kind: symbol.Kind.ToString(),
             DisplayName: symbol.ToDisplayString(SymbolDisplayFormats.ShortName),
@@ -1354,10 +1374,24 @@ public sealed class SymbolQueryService
                 : symbol.ContainingSymbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified),
             Accessibility: symbol.DeclaredAccessibility.ToString(),
             ProjectId: projectId,
-            Language: CSharpLanguage);
+            Language: language);
 
         return new SymbolResolveSuccess(handle.Format(), summary);
     }
+
+    public static string LanguageToken(string roslynLanguage) => roslynLanguage switch
+    {
+        LanguageNames.CSharp => CSharpLanguage,
+        LanguageNames.VisualBasic => VbLanguage,
+        var other => other.Replace(" ", "", StringComparison.Ordinal).ToLowerInvariant()
+    };
+
+    public static bool IsSupportedLanguageToken(string token) =>
+        string.Equals(token, CSharpLanguage, StringComparison.Ordinal) ||
+        string.Equals(token, VbLanguage, StringComparison.Ordinal);
+
+    public static bool IsSupportedRoslynLanguage(string roslynLanguage) =>
+        roslynLanguage is LanguageNames.CSharp or LanguageNames.VisualBasic;
 
     private static IReadOnlyList<Project> FilterProjects(
         Solution solution,
@@ -1365,23 +1399,23 @@ public sealed class SymbolQueryService
         out SymbolQueryError? error)
     {
         error = null;
-        var csharp = solution.Projects
-            .Where(p => p.Language == LanguageNames.CSharp)
+        var supported = solution.Projects
+            .Where(p => IsSupportedRoslynLanguage(p.Language))
             .ToArray();
 
         if (string.IsNullOrWhiteSpace(projectId))
         {
-            return csharp;
+            return supported;
         }
 
-        var match = csharp
+        var match = supported
             .Where(p => string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
         if (match.Length == 0)
         {
             error = new SymbolNotFoundError(
-                $"No C# project with projectId '{projectId}' is in the ready workspace.",
+                $"No project with projectId '{projectId}' is in the ready workspace.",
                 "Call workspace_list_projects for valid projectId values, then retry symbol_resolve.");
         }
 
