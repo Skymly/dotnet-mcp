@@ -9,7 +9,7 @@
 
 ## 状态
 
-P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航（定义/成员/引用/实现/层级/调用者）、项目诊断、源生成器列表/生成源/诊断与符号归因。VB / F# / XAML 仍属后续分期，尚未交付。
+P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航（定义/成员/引用/实现/层级/调用者）、项目诊断、源生成器列表/生成源/诊断与符号归因。P1 Avalonia `xaml_resolve_class`（`.axaml` → `x:Class` 符号）已交付；xmlns / x:Name / Binding / 语义诊断仍在后续 P1 票中。VB / F# 仍属后续分期。
 
 ### 当前 MCP 工具面（只读）
 
@@ -18,6 +18,7 @@ P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受�
 | Workspace | `workspace_open` · `workspace_status` · `workspace_list_projects` · `workspace_check_drift` |
 | Symbol | `symbol_resolve` · `symbol_summary` · `symbol_goto_definition` · `symbol_members` · `symbol_find_references` · `symbol_find_implementations` · `symbol_find_callers` · `symbol_type_hierarchy` · `symbol_attribution` |
 | Project | `project_diagnostics` · `project_list_generators` · `project_list_generated_sources` · `project_list_generator_diagnostics` |
+| XAML | `xaml_resolve_class` |
 
 工具面由快照/守护测试约束为纯读侧（无写文件、任意命令或网络类工具）。领域词汇见根目录 [`CONTEXT.md`](CONTEXT.md)。
 

@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotNetMcp.Core\DotNetMcp.Core.csproj" />
+    <ProjectReference Include="..\DotNetMcp.Xaml\DotNetMcp.Xaml.csproj" />
   </ItemGroup>
 
 </Project>

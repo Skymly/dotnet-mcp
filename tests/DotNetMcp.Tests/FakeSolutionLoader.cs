@@ -227,6 +227,59 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    public static FakeSolutionLoader ImmediateWithAvalonia(
+        string projectFilePath = @"C:\fake\AvaloniaApp.csproj") =>
+        new(TimeSpan.Zero, () => CreateAvaloniaLoaded(projectFilePath));
+
+    /// <summary>
+    /// Avalonia-shaped code-behind type for x:Class resolution. Does not load WPF/MAUI/WinUI.
+    /// </summary>
+    public static LoadedSolution CreateAvaloniaLoaded(string projectFilePath = @"C:\fake\AvaloniaApp.csproj")
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "AvaloniaApp",
+            "AvaloniaApp",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        const string source = """
+            namespace SampleApp;
+
+            public partial class MainWindow
+            {
+                public MainWindow()
+                {
+                }
+            }
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        solution = solution.AddDocument(
+            docId,
+            "MainWindow.axaml.cs",
+            SourceText.From(source),
+            filePath: Path.Combine(projectDir, "MainWindow.axaml.cs"));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace Avalonia fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static LoadedSolution CreateSymbolsLoadedOnDisk(string projectDir)
     {
         Directory.CreateDirectory(projectDir);
