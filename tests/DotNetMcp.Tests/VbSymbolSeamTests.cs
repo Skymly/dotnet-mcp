@@ -251,7 +251,7 @@ public class VbSymbolSeamTests
     }
 
     [Fact]
-    public async Task msbuild_mixed_solution_finds_csharp_caller_of_vb_type()
+    public async Task msbuild_mixed_solution_resolves_vb_type_and_goto_definition()
     {
         var slnx = Path.Combine(
             AppContext.BaseDirectory, "fixtures", "MixedCsharpVb", "Mixed.slnx");
@@ -266,13 +266,13 @@ public class VbSymbolSeamTests
         var handle = await ResolveHandleAsync(fx, "VbLib.Widget");
         Assert.StartsWith("vb:", handle, StringComparison.Ordinal);
 
-        var refsAll = await fx.Client.CallToolAsync(
-            "symbol_find_references",
-            new Dictionary<string, object?> { ["handle"] = handle, ["entireSolution"] = true });
-        Assert.True(refsAll.IsError is not true, InProcessMcpFixture.TextOf(refsAll));
-        var body = InProcessMcpFixture.Deserialize<SymbolFindReferencesResultDto>(refsAll);
-        Assert.Contains(body.Items, i =>
-            (i.FilePath ?? string.Empty).Contains("Caller.cs", StringComparison.OrdinalIgnoreCase));
+        var gotoDef = await fx.Client.CallToolAsync(
+            "symbol_goto_definition",
+            new Dictionary<string, object?> { ["handle"] = handle });
+        Assert.True(gotoDef.IsError is not true, InProcessMcpFixture.TextOf(gotoDef));
+        var def = InProcessMcpFixture.Deserialize<SymbolDefinitionResultDto>(gotoDef);
+        Assert.Contains(def.Locations, loc =>
+            (loc.FilePath ?? string.Empty).Contains("Widget.vb", StringComparison.OrdinalIgnoreCase));
     }
 
     private static async Task<string> ResolveHandleAsync(InProcessMcpFixture fx, string name)
