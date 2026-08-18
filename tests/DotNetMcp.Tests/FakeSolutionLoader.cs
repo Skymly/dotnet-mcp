@@ -168,6 +168,65 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    /// <summary>
+    /// Types with nested property/field types for in-process Binding-path walks.
+    /// </summary>
+    public static LoadedSolution CreateViewModelLoaded(string projectFilePath = @"C:\fake\ViewModels.csproj")
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "ViewModels",
+            "ViewModels",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        const string source = """
+            namespace SampleApp;
+
+            public class Person
+            {
+                public string Name { get; set; } = "";
+            }
+
+            public class Address
+            {
+                public string City { get; set; } = "";
+                public string Postal;
+            }
+
+            public class Customer : Person
+            {
+                public Address Home { get; set; } = new();
+                public string Nickname;
+            }
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        solution = solution.AddDocument(
+            docId,
+            "ViewModels.cs",
+            SourceText.From(source),
+            filePath: Path.Combine(projectDir, "ViewModels.cs"));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace view-model fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static LoadedSolution CreateSymbolsLoadedOnDisk(string projectDir)
     {
         Directory.CreateDirectory(projectDir);
