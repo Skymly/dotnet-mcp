@@ -30,14 +30,14 @@ public sealed class DiagnosticQueryService
         }
 
         var project = session.Solution.Projects
-            .Where(p => p.Language == LanguageNames.CSharp)
+            .Where(p => SymbolQueryService.IsSupportedRoslynLanguage(p.Language))
             .FirstOrDefault(p =>
                 string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
 
         if (project is null)
         {
             return (null, new ProjectNotFoundError(
-                $"No C# project with projectId '{projectId}' is in the ready workspace.",
+                $"No project with projectId '{projectId}' is in the ready workspace.",
                 "Call workspace_list_projects for valid projectId values, then retry project_diagnostics."));
         }
 

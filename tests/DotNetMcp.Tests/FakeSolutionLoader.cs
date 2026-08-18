@@ -44,6 +44,10 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader ImmediateWithFindRefsGraph(string root = @"C:\fake") =>
         new(TimeSpan.Zero, () => CreateFindRefsGraphLoaded(root));
 
+    public static FakeSolutionLoader ImmediateWithVbDiagnostics(
+        string projectFilePath = @"C:\fake\BrokenVb.vbproj") =>
+        new(TimeSpan.Zero, () => CreateVbDiagnosticsLoaded(projectFilePath));
+
     public static FakeSolutionLoader ImmediateWithDiagnostics(string projectFilePath = @"C:\fake\BrokenLib.csproj") =>
         new(TimeSpan.Zero, () => CreateDiagnosticsLoaded(projectFilePath));
 
@@ -602,6 +606,51 @@ public sealed class FakeSolutionLoader : ISolutionLoader
 
         public System.Reflection.Assembly LoadFromPath(string fullPath) =>
             System.Reflection.Assembly.LoadFrom(fullPath);
+    }
+
+
+    public static LoadedSolution CreateVbDiagnosticsLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "BrokenVb",
+            "BrokenVb",
+            LanguageNames.VisualBasic,
+            filePath: projectFilePath));
+
+        const string source = """
+            Public Class Broken
+                Public Alpha As Integer = "not-an-int"
+                Public Beta As Integer = "also-bad"
+                Public Gamma As Integer = "still-bad"
+            End Class
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        solution = solution.AddDocument(
+            docId,
+            "Broken.vb",
+            SourceText.From(source),
+            filePath: Path.Combine(projectDir, "Broken.vb"));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optionStrict: OptionStrict.On));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace VB diagnostics fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
     /// <summary>
