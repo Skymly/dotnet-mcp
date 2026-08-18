@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Xml;
 using DotNetMcp.Core;
 using Microsoft.CodeAnalysis;
@@ -12,10 +13,12 @@ public sealed class XamlDocumentService
     public const string AvaloniaDocumentExtension = ".axaml";
 
     private readonly SymbolQueryService _symbols;
+    private readonly SoftBudgetOptions _softBudgets;
 
-    public XamlDocumentService(SymbolQueryService symbols)
+    public XamlDocumentService(SymbolQueryService symbols, SoftBudgetOptions? softBudgets = null)
     {
         _symbols = symbols;
+        _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
     }
 
     public async Task<(SymbolResolveSuccess? Success, XamlQueryError? XamlError, SymbolQueryError? SymbolError)>
@@ -210,6 +213,75 @@ public sealed class XamlDocumentService
         }
 
         return (segments, null, null);
+    }
+
+    public async Task<(PagedResult<DiagnosticItem>? Success, XamlQueryError? Error, SymbolQueryError? SymbolError)>
+        GetDiagnosticsAsync(
+            IWorkspaceSession session,
+            string path,
+            int? limit = null,
+            string? cursor = null,
+            TimeSpan? softBudget = null,
+            CancellationToken cancellationToken = default)
+    {
+        var (root, docError) = ReadDocument(path);
+        if (docError is not null)
+        {
+            return (null, docError, null);
+        }
+
+        var epoch = session.Epoch;
+        var pageLimit = limit is null or <= 0 ? 50 : Math.Min(limit.Value, 100);
+        var offset = 0;
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
+            {
+                return (null, null, new StaleCursorError(
+                    cursorError ?? "Cursor is invalid.",
+                    "Call xaml_diagnostics again without a cursor to start a fresh page."));
+            }
+
+            if (cursorEpoch != epoch)
+            {
+                return (null, null, new StaleCursorError(
+                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
+                    "Call xaml_diagnostics again without a cursor; do not retry with the stale cursor."));
+            }
+        }
+
+        var (xmlns, xmlnsError) = await ListXmlnsAsync(session, path, prefix: null, cancellationToken)
+            .ConfigureAwait(false);
+        if (xmlnsError is not null)
+        {
+            return (null, xmlnsError, null);
+        }
+
+        var budget = softBudget ?? _softBudgets.SingleProjectCompile;
+        var clock = Stopwatch.StartNew();
+        var all = await CollectSemanticDiagnosticsAsync(
+                session, path, root!, xmlns!, clock, budget, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (offset > all.Count)
+        {
+            return (null, null, new StaleCursorError(
+                "Cursor offset is past the end of the diagnostic list.",
+                "Call xaml_diagnostics again without a cursor to start a fresh page."));
+        }
+
+        var truncatedByBudget = clock.Elapsed >= budget && budget >= TimeSpan.Zero;
+        var slice = all.Skip(offset).Take(pageLimit).ToList();
+        var nextOffset = offset + slice.Count;
+        var truncated = nextOffset < all.Count || truncatedByBudget;
+        string? next = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
+        var message = truncated
+            ? "Results truncated; pass nextCursor to xaml_diagnostics to continue (do not restart from the first page)."
+            : all.Count == 0
+                ? "No semantic XAML diagnostics."
+                : "XAML diagnostic page complete.";
+
+        return (new PagedResult<DiagnosticItem>(slice, truncated, next, message), null, null);
     }
 
     public async Task<(IReadOnlyList<XamlXmlnsMapping>? Success, XamlQueryError? Error)> ListXmlnsAsync(
@@ -611,6 +683,278 @@ public sealed class XamlDocumentService
 
         return names;
     }
+
+    private async Task<List<DiagnosticItem>> CollectSemanticDiagnosticsAsync(
+        IWorkspaceSession session,
+        string path,
+        XamlDocumentRoot root,
+        IReadOnlyList<XamlXmlnsMapping> xmlns,
+        Stopwatch clock,
+        TimeSpan budget,
+        CancellationToken cancellationToken)
+    {
+        var items = new List<DiagnosticItem>();
+        var projectId = session.Solution.Projects.FirstOrDefault(p => p.Language == LanguageNames.CSharp)
+            ?.Id.Id.ToString("D") ?? "";
+
+        INamedTypeSymbol? classType = null;
+        if (!string.IsNullOrWhiteSpace(root.ClassName))
+        {
+            var (resolved, _) = await _symbols.ResolveByNameAsync(session, root.ClassName, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (resolved is not null)
+            {
+                var (_, symbol, _) = await _symbols.ResolveHandleSymbolAsync(session, resolved.Handle, cancellationToken)
+                    .ConfigureAwait(false);
+                classType = symbol as INamedTypeSymbol;
+                projectId = resolved.Summary.ProjectId;
+            }
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var reader = XmlReader.Create(stream, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+                IgnoreComments = true,
+                IgnoreProcessingInstructions = true
+            });
+
+            string? currentDataType = null;
+            var lineInfo = reader as IXmlLineInfo;
+            while (reader.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (budget > TimeSpan.Zero && clock.Elapsed >= budget)
+                {
+                    break;
+                }
+
+                if (reader.NodeType != XmlNodeType.Element)
+                {
+                    continue;
+                }
+
+                var dataType = reader.GetAttribute("DataType", XamlXmlns.Xaml);
+                if (!string.IsNullOrWhiteSpace(dataType))
+                {
+                    currentDataType = dataType.Trim();
+                }
+
+                var prefix = reader.Prefix;
+                var local = reader.LocalName;
+                if (!string.Equals(local, "Window", StringComparison.Ordinal) || prefix.Length > 0)
+                {
+                    var elementType = await ResolveElementTypeAsync(session, prefix, local, xmlns, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (elementType is null && !IsLanguageElement(prefix, local))
+                    {
+                        items.Add(Diag("XAML0001", "Error",
+                            $"Unknown element '{FormatName(prefix, local)}' given xmlns.",
+                            path, lineInfo, projectId));
+                    }
+
+                    if (reader.HasAttributes && reader.MoveToFirstAttribute())
+                    {
+                        do
+                        {
+                            if (IsSkippableAttribute(reader.Prefix, reader.LocalName, reader.Name))
+                            {
+                                continue;
+                            }
+
+                            if (LooksLikeBinding(reader.Value) && !string.IsNullOrWhiteSpace(currentDataType))
+                            {
+                                var bindingPath = ExtractBindingPath(reader.Value);
+                                if (!string.IsNullOrWhiteSpace(bindingPath))
+                                {
+                                    var (_, bindError, _) = await ResolveBindingAsync(
+                                            session, path, bindingPath, currentDataType, cancellationToken)
+                                        .ConfigureAwait(false);
+                                    if (bindError is BindingPropertyNotFoundError or BindingTypeMismatchError)
+                                    {
+                                        items.Add(Diag("XAML0003", "Error",
+                                            $"Binding path '{bindingPath}' is invalid: {bindError.Message}",
+                                            path, lineInfo, projectId));
+                                    }
+                                }
+                            }
+
+                            if (elementType is not null &&
+                                !HasPublicMember(elementType, reader.LocalName))
+                            {
+                                items.Add(Diag("XAML0002", "Error",
+                                    $"Unknown property '{reader.LocalName}' on '{elementType.ToDisplayString()}'.",
+                                    path, lineInfo, projectId));
+                            }
+                        } while (reader.MoveToNextAttribute());
+                        reader.MoveToElement();
+                    }
+                }
+                else if (reader.HasAttributes && reader.MoveToFirstAttribute())
+                {
+                    do
+                    {
+                        if (LooksLikeBinding(reader.Value) && !string.IsNullOrWhiteSpace(currentDataType))
+                        {
+                            var bindingPath = ExtractBindingPath(reader.Value);
+                            if (!string.IsNullOrWhiteSpace(bindingPath))
+                            {
+                                var (_, bindError, _) = await ResolveBindingAsync(
+                                        session, path, bindingPath, currentDataType, cancellationToken)
+                                    .ConfigureAwait(false);
+                                if (bindError is BindingPropertyNotFoundError or BindingTypeMismatchError)
+                                {
+                                    items.Add(Diag("XAML0003", "Error",
+                                        $"Binding path '{bindingPath}' is invalid: {bindError.Message}",
+                                        path, lineInfo, projectId));
+                                }
+                            }
+                        }
+                    } while (reader.MoveToNextAttribute());
+                    reader.MoveToElement();
+                }
+
+                var xName = reader.GetAttribute("Name", XamlXmlns.Xaml);
+                if (!string.IsNullOrWhiteSpace(xName) && classType is not null)
+                {
+                    var field = classType.GetMembers(xName.Trim())
+                        .OfType<IFieldSymbol>()
+                        .FirstOrDefault();
+                    if (field is null)
+                    {
+                        items.Add(Diag("XAML0004", "Error",
+                            $"x:Name '{xName}' has no matching NameGenerator field on '{classType.ToDisplayString()}'.",
+                            path, lineInfo, projectId));
+                    }
+                }
+            }
+        }
+        catch (XmlException)
+        {
+            // Semantic contract: well-formedness is not the diagnostic surface.
+        }
+
+        return items;
+    }
+
+    private async Task<INamedTypeSymbol?> ResolveElementTypeAsync(
+        IWorkspaceSession session,
+        string prefix,
+        string localName,
+        IReadOnlyList<XamlXmlnsMapping> xmlns,
+        CancellationToken cancellationToken)
+    {
+        var mapping = xmlns.FirstOrDefault(x =>
+            string.Equals(x.Prefix, prefix, StringComparison.Ordinal) && x.ClrNamespace is not null);
+        if (mapping?.ClrNamespace is null)
+        {
+            return null;
+        }
+
+        var metadataName = $"{mapping.ClrNamespace}.{localName}";
+        foreach (var project in session.Solution.Projects.Where(p => p.Language == LanguageNames.CSharp))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Compilation compilation;
+            try
+            {
+                compilation = await session.GetCompilationAsync(project.Id, cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException)
+            {
+                continue;
+            }
+
+            var type = compilation.GetTypeByMetadataName(metadataName);
+            if (type is not null)
+            {
+                return type;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasPublicMember(ITypeSymbol type, string name)
+    {
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            if (current.GetMembers(name).Any(m =>
+                    m.DeclaredAccessibility == Accessibility.Public &&
+                    m.Kind is SymbolKind.Property or SymbolKind.Field or SymbolKind.Event))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsLanguageElement(string prefix, string local) =>
+        string.Equals(prefix, "x", StringComparison.Ordinal);
+
+    private static bool IsSkippableAttribute(string prefix, string local, string name) =>
+        name.StartsWith("xmlns", StringComparison.Ordinal) ||
+        string.Equals(prefix, "x", StringComparison.Ordinal) ||
+        string.Equals(prefix, "xml", StringComparison.Ordinal);
+
+    private static bool LooksLikeBinding(string value) =>
+        value.StartsWith("{Binding", StringComparison.Ordinal);
+
+    private static string? ExtractBindingPath(string value)
+    {
+        var inner = value.Trim();
+        if (inner.StartsWith("{", StringComparison.Ordinal) && inner.EndsWith("}", StringComparison.Ordinal))
+        {
+            inner = inner[1..^1].Trim();
+        }
+
+        if (inner.StartsWith("Binding", StringComparison.Ordinal))
+        {
+            inner = inner["Binding".Length..].Trim();
+        }
+
+        if (inner.Length == 0)
+        {
+            return null;
+        }
+
+        const string pathEq = "Path=";
+        var pathIdx = inner.IndexOf(pathEq, StringComparison.Ordinal);
+        if (pathIdx >= 0)
+        {
+            var rest = inner[(pathIdx + pathEq.Length)..];
+            var end = rest.IndexOfAny([' ', ',', '}']);
+            return end < 0 ? rest.Trim() : rest[..end].Trim();
+        }
+
+        var tokenEnd = inner.IndexOfAny([' ', ',', '}']);
+        return tokenEnd < 0 ? inner : inner[..tokenEnd].Trim();
+    }
+
+    private static string FormatName(string prefix, string local) =>
+        string.IsNullOrEmpty(prefix) ? local : $"{prefix}:{local}";
+
+    private static DiagnosticItem Diag(
+        string id,
+        string severity,
+        string message,
+        string path,
+        IXmlLineInfo? lineInfo,
+        string projectId) =>
+        new(
+            id,
+            severity,
+            message,
+            path,
+            lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LineNumber : null,
+            lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LinePosition : null,
+            lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LineNumber : null,
+            lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LinePosition : null,
+            projectId);
 
     private static MissingXamlClassError MissingClassError() =>
         new(

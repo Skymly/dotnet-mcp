@@ -27,6 +27,7 @@ public class ToolSurfaceGuardTests
         "workspace_list_projects",
         "workspace_open",
         "workspace_status",
+        "xaml_diagnostics",
         "xaml_list_xmlns",
         "xaml_resolve_binding",
         "xaml_resolve_class",
