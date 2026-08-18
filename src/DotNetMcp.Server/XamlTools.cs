@@ -264,6 +264,72 @@ public sealed class XamlTools
         });
     }
 
+    [McpServerTool(Name = "xaml_diagnostics"), Description(
+        "Semantic Avalonia XAML diagnostics (unknown elements/properties given xmlns, bad Binding paths, unmatched x:Name). " +
+        "Not XML well-formedness. Paged with a soft budget; stale cursors fail distinctly.")]
+    public async Task<CallToolResult> XamlDiagnostics(
+        [Description("Path to an Avalonia .axaml document under a trusted root.")]
+        string path,
+        [Description("Page size (default 50, max 100).")]
+        int? limit = null,
+        [Description("Opaque nextCursor from a previous xaml_diagnostics page.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("xaml_diagnostics", path);
+
+        if (!_trustedRoots.Contains(path))
+        {
+            _audit.PathPolicyDenied("xaml_diagnostics", path);
+            return ErrorResult(new PolicyErrorDto
+            {
+                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
+                Message = "The requested path is outside the configured trusted roots and was rejected.",
+                SuggestedAction =
+                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
+                    "environment variable, then retry xaml_diagnostics with a path under that root."
+            });
+        }
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, xamlError, symbolError) = await _xaml
+            .GetDiagnosticsAsync(session!, path, limit, cursor, softBudget: null, cancellationToken)
+            .ConfigureAwait(false);
+        if (xamlError is not null)
+        {
+            return ErrorResult(ToPolicyError(xamlError));
+        }
+
+        if (symbolError is not null)
+        {
+            return ErrorResult(ToPolicyError(symbolError));
+        }
+
+        return OkResult(new ProjectDiagnosticsResultDto
+        {
+            Items = success!.Items.Select(i => new DiagnosticItemDto
+            {
+                Id = i.Id,
+                Severity = i.Severity,
+                Message = i.Message,
+                FilePath = i.FilePath,
+                StartLine = i.StartLine,
+                StartCharacter = i.StartCharacter,
+                EndLine = i.EndLine,
+                EndCharacter = i.EndCharacter,
+                ProjectId = i.ProjectId
+            }).ToArray(),
+            Truncated = success.Truncated,
+            NextCursor = success.NextCursor,
+            Message = success.Message
+        });
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)
