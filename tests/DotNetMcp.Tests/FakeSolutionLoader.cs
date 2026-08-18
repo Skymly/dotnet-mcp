@@ -74,6 +74,116 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     }
 
 
+    public static FakeSolutionLoader ImmediateWithVbSymbols(
+        string root = @"C:\fake") =>
+        new(TimeSpan.Zero, () => CreateVbSymbolsLoaded(root));
+
+    public static LoadedSolution CreateVbSymbolsLoaded(string root)
+    {
+        var workspace = new AdhocWorkspace();
+        var vbId = ProjectId.CreateNewId();
+        var csId = ProjectId.CreateNewId();
+        var widgetDoc = DocumentId.CreateNewId(vbId);
+        var usesDoc = DocumentId.CreateNewId(vbId);
+        var callerDoc = DocumentId.CreateNewId(csId);
+        var refs = TrustedPlatformReferences();
+
+        var solution = workspace.CurrentSolution;
+        solution = solution.AddProject(ProjectInfo.Create(
+            vbId,
+            VersionStamp.Create(),
+            "VbLib",
+            "VbLib",
+            LanguageNames.VisualBasic,
+            filePath: Path.Combine(root, "VbLib", "VbLib.vbproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            csId,
+            VersionStamp.Create(),
+            "CsLib",
+            "CsLib",
+            LanguageNames.CSharp,
+            filePath: Path.Combine(root, "CsLib", "CsLib.csproj")));
+
+        const string widgetSource = """
+            Namespace VbLib
+                Public Interface IPingable
+                    Function Ping() As String
+                End Interface
+
+                Public Class Widget
+                    Implements IPingable
+
+                    Public Function Ping() As String Implements IPingable.Ping
+                        Return "vb"
+                    End Function
+
+                    Public Function Echo(text As String) As String
+                        Return text
+                    End Function
+                End Class
+
+                Public Class SpecialWidget
+                    Inherits Widget
+                End Class
+            End Namespace
+            """;
+
+        const string usesSource = """
+            Namespace VbLib
+                Public Class Uses
+                    Public Shared Function CallPing() As String
+                        Return New Widget().Ping()
+                    End Function
+                End Class
+            End Namespace
+            """;
+
+        const string callerSource = """
+            namespace CsLib;
+
+            public static class Caller
+            {
+                public static string Use() => new VbLib.Widget().Ping();
+            }
+            """;
+
+        solution = solution.AddDocument(
+            widgetDoc,
+            "Widget.vb",
+            SourceText.From(widgetSource),
+            filePath: Path.Combine(root, "VbLib", "Widget.vb"));
+        solution = solution.AddDocument(
+            usesDoc,
+            "Uses.vb",
+            SourceText.From(usesSource),
+            filePath: Path.Combine(root, "VbLib", "Uses.vb"));
+        solution = solution.AddDocument(
+            callerDoc,
+            "Caller.cs",
+            SourceText.From(callerSource),
+            filePath: Path.Combine(root, "CsLib", "Caller.cs"));
+
+        solution = solution.AddProjectReference(csId, new ProjectReference(vbId));
+        solution = solution.WithProjectCompilationOptions(
+            vbId, new VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.WithProjectCompilationOptions(
+            csId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in refs)
+        {
+            solution = solution.AddMetadataReference(vbId, metadata);
+            solution = solution.AddMetadataReference(csId, metadata);
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace VB symbols fixture.");
+        }
+
+        ThrowIfCompilationErrors(workspace.CurrentSolution.GetProject(vbId)!);
+        ThrowIfCompilationErrors(workspace.CurrentSolution.GetProject(csId)!);
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithGenerators(
         string projectFilePath = @"C:\fake\GeneratorHost.csproj") =>
         new(TimeSpan.Zero, () => CreateGeneratorsLoaded(projectFilePath));
@@ -833,6 +943,46 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+
+    private static IReadOnlyList<MetadataReference> TrustedPlatformReferences()
+    {
+        var tpa = (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? string.Empty)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "System.Private.CoreLib.dll",
+            "System.Runtime.dll",
+            "System.Console.dll",
+            "netstandard.dll",
+            "Microsoft.VisualBasic.dll",
+            "Microsoft.VisualBasic.Core.dll",
+        };
+        var refs = tpa
+            .Where(path => names.Contains(Path.GetFileName(path)))
+            .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
+            .ToList();
+        if (refs.Count == 0)
+        {
+            refs.Add(MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        }
+
+        return refs;
+    }
+
+    private static void ThrowIfCompilationErrors(Project project)
+    {
+        var compilation = project.GetCompilationAsync().GetAwaiter().GetResult()
+            ?? throw new InvalidOperationException($"No compilation for {project.Name}.");
+        var errors = compilation.GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.ToString())
+            .ToArray();
+        if (errors.Length > 0)
+        {
+            throw new InvalidOperationException($"{project.Name} compile errors: {string.Join(" | ", errors)}");
+        }
     }
 
     private static Solution AddEmptyProject(Solution solution, string name, string filePath)
