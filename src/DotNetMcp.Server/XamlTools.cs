@@ -139,6 +139,65 @@ public sealed class XamlTools
         });
     }
 
+    [McpServerTool(Name = "xaml_resolve_name"), Description(
+        "Map an x:Name in an Avalonia .axaml document to the NameGenerator field SymbolHandle on the x:Class type. " +
+        "Missing x:Name vs NameGenerator-not-run are distinguishable. Use symbol_attribution on the handle.")]
+    public async Task<CallToolResult> XamlResolveName(
+        [Description("Path to an Avalonia .axaml document under a trusted root.")]
+        string path,
+        [Description("x:Name value declared in the document.")]
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("xaml_resolve_name", path);
+
+        if (!_trustedRoots.Contains(path))
+        {
+            _audit.PathPolicyDenied("xaml_resolve_name", path);
+            return ErrorResult(new PolicyErrorDto
+            {
+                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
+                Message = "The requested path is outside the configured trusted roots and was rejected.",
+                SuggestedAction =
+                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
+                    "environment variable, then retry xaml_resolve_name with a path under that root."
+            });
+        }
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, xamlError, symbolError) = await _xaml
+            .ResolveNameAsync(session!, path, name, cancellationToken)
+            .ConfigureAwait(false);
+        if (xamlError is not null)
+        {
+            return ErrorResult(ToPolicyError(xamlError));
+        }
+
+        if (symbolError is not null)
+        {
+            return ErrorResult(ToPolicyError(symbolError));
+        }
+
+        return OkResult(new SymbolResolveResultDto
+        {
+            Handle = success!.Handle,
+            Summary = new SymbolSummaryDto
+            {
+                Kind = success.Summary.Kind,
+                DisplayName = success.Summary.DisplayName,
+                ContainingSymbol = success.Summary.ContainingSymbol,
+                Accessibility = success.Summary.Accessibility,
+                ProjectId = success.Summary.ProjectId,
+                Language = success.Summary.Language
+            }
+        });
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)

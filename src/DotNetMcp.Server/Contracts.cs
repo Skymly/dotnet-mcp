@@ -31,6 +31,8 @@ public static class PolicyErrorCodes
     public const string XamlDocumentNotFound = "XamlDocumentNotFound";
     public const string UnsupportedXamlDocument = "UnsupportedXamlDocument";
     public const string UnknownXmlnsPrefix = "UnknownXmlnsPrefix";
+    public const string MissingXamlName = "MissingXamlName";
+    public const string NameGeneratorNotRun = "NameGeneratorNotRun";
 }
 
 public sealed record XamlXmlnsMappingDto

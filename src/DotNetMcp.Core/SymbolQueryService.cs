@@ -130,7 +130,31 @@ public sealed class SymbolQueryService
                 "Call symbol_resolve for a type name/FQN, then look up members on that handle."));
         }
 
-        return LookupTypeMember(project!, type, memberName);
+        return LookupTypeMember(project!, type, memberName, publicOnly: true);
+    }
+
+    internal async Task<(TypeMemberLookup? Success, SymbolQueryError? Error)> LookupTypeMemberAsync(
+        IWorkspaceSession session,
+        string typeHandle,
+        string memberName,
+        bool publicOnly,
+        CancellationToken cancellationToken = default)
+    {
+        var (project, symbol, error) = await TryResolveHandleAsync(session, typeHandle, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        if (symbol is not ITypeSymbol type)
+        {
+            return (null, new SymbolNotFoundError(
+                "Handle does not refer to a type; member lookup requires a type SymbolHandle.",
+                "Call symbol_resolve for a type name/FQN, then look up members on that handle."));
+        }
+
+        return LookupTypeMember(project!, type, memberName, publicOnly);
     }
 
     /// <summary>
@@ -139,7 +163,8 @@ public sealed class SymbolQueryService
     internal (TypeMemberLookup? Success, SymbolQueryError? Error) LookupTypeMember(
         Project project,
         ITypeSymbol type,
-        string memberName)
+        string memberName,
+        bool publicOnly = true)
     {
         if (string.IsNullOrWhiteSpace(memberName))
         {
@@ -154,7 +179,7 @@ public sealed class SymbolQueryService
         {
             var candidates = current.GetMembers(name)
                 .Where(m => !m.IsStatic && !m.IsImplicitlyDeclared)
-                .Where(m => m.DeclaredAccessibility == Accessibility.Public)
+                .Where(m => !publicOnly || m.DeclaredAccessibility == Accessibility.Public)
                 .ToArray();
 
             found = candidates.OfType<IPropertySymbol>().FirstOrDefault(p => p.Parameters.Length == 0)
