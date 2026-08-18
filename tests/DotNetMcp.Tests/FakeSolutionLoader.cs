@@ -1,6 +1,7 @@
 using DotNetMcp.Server;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.VisualBasic;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 
@@ -50,6 +51,28 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         TimeSpan delay,
         string projectFilePath = @"C:\fake\BrokenLib.csproj") =>
         new(delay, () => CreateDiagnosticsLoaded(projectFilePath));
+
+    public static FakeSolutionLoader ImmediateWithVbAndCSharp(
+        string csharpProjectFilePath = @"C:\fake\CsLib.csproj",
+        string vbProjectFilePath = @"C:\fake\VbLib.vbproj") =>
+        new(TimeSpan.Zero, () => CreateVbAndCSharpLoaded(csharpProjectFilePath, vbProjectFilePath));
+
+    public static LoadedSolution CreateVbAndCSharpLoaded(string csharpProjectFilePath, string vbProjectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var solution = workspace.CurrentSolution;
+
+        solution = AddEmptyProject(solution, "CsLib", csharpProjectFilePath);
+        solution = AddEmptyVbProject(solution, "VbLib", vbProjectFilePath);
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace VB+C# fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
 
     public static FakeSolutionLoader ImmediateWithGenerators(
         string projectFilePath = @"C:\fake\GeneratorHost.csproj") =>
@@ -832,5 +855,27 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         return solution.WithProjectCompilationOptions(
             projectId,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+    }
+
+    private static Solution AddEmptyVbProject(Solution solution, string name, string filePath)
+    {
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        solution = solution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            name,
+            name,
+            LanguageNames.VisualBasic,
+            filePath: filePath));
+
+        solution = solution.AddDocument(
+            docId,
+            "Placeholder.vb",
+            SourceText.From("' placeholder"));
+
+        return solution.WithProjectCompilationOptions(
+            projectId,
+            new VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
     }
 }
