@@ -237,18 +237,32 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     public static LoadedSolution CreateAvaloniaLoaded(string projectFilePath = @"C:\fake\AvaloniaApp.csproj")
     {
         var workspace = new AdhocWorkspace();
-        var projectId = ProjectId.CreateNewId();
-        var docId = DocumentId.CreateNewId(projectId);
+        var appId = ProjectId.CreateNewId();
+        var controlsId = ProjectId.CreateNewId();
+        var appDocId = DocumentId.CreateNewId(appId);
+        var attrDocId = DocumentId.CreateNewId(controlsId);
+        var controlsDocId = DocumentId.CreateNewId(controlsId);
 
-        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
-            projectId,
-            VersionStamp.Create(),
-            "AvaloniaApp",
-            "AvaloniaApp",
-            LanguageNames.CSharp,
-            filePath: projectFilePath));
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var controlsPath = Path.Combine(projectDir, "ControlsLib.csproj");
 
-        const string source = """
+        var solution = workspace.CurrentSolution
+            .AddProject(ProjectInfo.Create(
+                appId,
+                VersionStamp.Create(),
+                "AvaloniaApp",
+                "AvaloniaApp",
+                LanguageNames.CSharp,
+                filePath: projectFilePath))
+            .AddProject(ProjectInfo.Create(
+                controlsId,
+                VersionStamp.Create(),
+                "ControlsLib",
+                "ControlsLib",
+                LanguageNames.CSharp,
+                filePath: controlsPath));
+
+        const string appSource = """
             namespace SampleApp;
 
             public partial class MainWindow
@@ -259,18 +273,60 @@ public sealed class FakeSolutionLoader : ISolutionLoader
             }
             """;
 
-        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        const string attrSource = """
+            using System;
+
+            namespace Avalonia.Metadata
+            {
+                [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+                public sealed class XmlnsDefinitionAttribute : Attribute
+                {
+                    public XmlnsDefinitionAttribute(string xmlNamespace, string clrNamespace)
+                    {
+                        XmlNamespace = xmlNamespace;
+                        ClrNamespace = clrNamespace;
+                    }
+
+                    public string XmlNamespace { get; }
+                    public string ClrNamespace { get; }
+                }
+            }
+            """;
+
+        const string controlsSource = """
+            using Avalonia.Metadata;
+
+            [assembly: XmlnsDefinition("https://github.com/avaloniaui", "SampleControls")]
+
+            namespace SampleControls
+            {
+                public class FancyButton
+                {
+                }
+            }
+            """;
+
+        var runtime = MetadataReference.CreateFromFile(typeof(object).Assembly.Location);
         solution = solution.AddDocument(
-            docId,
+            appDocId,
             "MainWindow.axaml.cs",
-            SourceText.From(source),
+            SourceText.From(appSource),
             filePath: Path.Combine(projectDir, "MainWindow.axaml.cs"));
-        solution = solution.WithProjectCompilationOptions(
-            projectId,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-        solution = solution.AddMetadataReference(
-            projectId,
-            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        solution = solution.AddDocument(
+            attrDocId,
+            "XmlnsDefinitionAttribute.cs",
+            SourceText.From(attrSource),
+            filePath: Path.Combine(projectDir, "XmlnsDefinitionAttribute.cs"));
+        solution = solution.AddDocument(
+            controlsDocId,
+            "FancyButton.cs",
+            SourceText.From(controlsSource),
+            filePath: Path.Combine(projectDir, "FancyButton.cs"));
+        solution = solution.WithProjectCompilationOptions(appId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.WithProjectCompilationOptions(controlsId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(appId, runtime);
+        solution = solution.AddMetadataReference(controlsId, runtime);
+        solution = solution.AddProjectReference(appId, new ProjectReference(controlsId));
 
         if (!workspace.TryApplyChanges(solution))
         {
