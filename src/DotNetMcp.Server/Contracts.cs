@@ -33,6 +33,21 @@ public static class PolicyErrorCodes
     public const string UnknownXmlnsPrefix = "UnknownXmlnsPrefix";
     public const string MissingXamlName = "MissingXamlName";
     public const string NameGeneratorNotRun = "NameGeneratorNotRun";
+    public const string BindingPropertyNotFound = "BindingPropertyNotFound";
+    public const string BindingTypeMismatch = "BindingTypeMismatch";
+    public const string MissingDataType = "MissingDataType";
+}
+
+public sealed record XamlBindingSegmentDto
+{
+    public required string Name { get; init; }
+    public required string Handle { get; init; }
+    public required SymbolSummaryDto Summary { get; init; }
+}
+
+public sealed record XamlResolveBindingResultDto
+{
+    public required IReadOnlyList<XamlBindingSegmentDto> Items { get; init; }
 }
 
 public sealed record XamlXmlnsMappingDto

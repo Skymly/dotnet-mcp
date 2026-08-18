@@ -198,6 +198,72 @@ public sealed class XamlTools
         });
     }
 
+    [McpServerTool(Name = "xaml_resolve_binding"), Description(
+        "Resolve a Binding Path under x:DataType / CompiledBindings to each segment's property SymbolHandle. " +
+        "Walks types in-process (no MCP DTO N+1). Missing property and type mismatch are distinguishable. " +
+        "Code-behind-only DataContext is out of scope.")]
+    public async Task<CallToolResult> XamlResolveBinding(
+        [Description("Path to an Avalonia .axaml document under a trusted root.")]
+        string path,
+        [Description("Binding Path, e.g. Name or Home.City.")]
+        string bindingPath,
+        [Description("Optional x:DataType (prefix:Name or CLR name). Defaults to the first x:DataType in the document.")]
+        string? dataType = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("xaml_resolve_binding", path);
+
+        if (!_trustedRoots.Contains(path))
+        {
+            _audit.PathPolicyDenied("xaml_resolve_binding", path);
+            return ErrorResult(new PolicyErrorDto
+            {
+                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
+                Message = "The requested path is outside the configured trusted roots and was rejected.",
+                SuggestedAction =
+                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
+                    "environment variable, then retry xaml_resolve_binding with a path under that root."
+            });
+        }
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, xamlError, symbolError) = await _xaml
+            .ResolveBindingAsync(session!, path, bindingPath, dataType, cancellationToken)
+            .ConfigureAwait(false);
+        if (xamlError is not null)
+        {
+            return ErrorResult(ToPolicyError(xamlError));
+        }
+
+        if (symbolError is not null)
+        {
+            return ErrorResult(ToPolicyError(symbolError));
+        }
+
+        return OkResult(new XamlResolveBindingResultDto
+        {
+            Items = success!.Select(s => new XamlBindingSegmentDto
+            {
+                Name = s.Name,
+                Handle = s.Handle,
+                Summary = new SymbolSummaryDto
+                {
+                    Kind = s.Summary.Kind,
+                    DisplayName = s.Summary.DisplayName,
+                    ContainingSymbol = s.Summary.ContainingSymbol,
+                    Accessibility = s.Summary.Accessibility,
+                    ProjectId = s.Summary.ProjectId,
+                    Language = s.Summary.Language
+                }
+            }).ToArray()
+        });
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)

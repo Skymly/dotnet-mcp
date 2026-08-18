@@ -18,7 +18,7 @@ P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受�
 | Workspace | `workspace_open` · `workspace_status` · `workspace_list_projects` · `workspace_check_drift` |
 | Symbol | `symbol_resolve` · `symbol_summary` · `symbol_goto_definition` · `symbol_members` · `symbol_find_references` · `symbol_find_implementations` · `symbol_find_callers` · `symbol_type_hierarchy` · `symbol_attribution` |
 | Project | `project_diagnostics` · `project_list_generators` · `project_list_generated_sources` · `project_list_generator_diagnostics` |
-| XAML | `xaml_resolve_class` · `xaml_list_xmlns` · `xaml_resolve_name` |
+| XAML | `xaml_resolve_class` · `xaml_list_xmlns` · `xaml_resolve_name` · `xaml_resolve_binding` |
 
 工具面由快照/守护测试约束为纯读侧（无写文件、任意命令或网络类工具）。领域词汇见根目录 [`CONTEXT.md`](CONTEXT.md)。
 

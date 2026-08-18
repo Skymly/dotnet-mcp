@@ -1,3 +1,5 @@
+using DotNetMcp.Core;
+
 namespace DotNetMcp.Xaml;
 
 public abstract record XamlQueryError(string Code, string Message, string SuggestedAction);
@@ -20,6 +22,15 @@ public sealed record MissingXamlNameError(string Message, string SuggestedAction
 public sealed record NameGeneratorNotRunError(string Message, string SuggestedAction)
     : XamlQueryError(XamlQueryErrorCodes.NameGeneratorNotRun, Message, SuggestedAction);
 
+public sealed record BindingPropertyNotFoundError(string Message, string SuggestedAction)
+    : XamlQueryError(XamlQueryErrorCodes.BindingPropertyNotFound, Message, SuggestedAction);
+
+public sealed record BindingTypeMismatchError(string Message, string SuggestedAction)
+    : XamlQueryError(XamlQueryErrorCodes.BindingTypeMismatch, Message, SuggestedAction);
+
+public sealed record MissingDataTypeError(string Message, string SuggestedAction)
+    : XamlQueryError(XamlQueryErrorCodes.MissingDataType, Message, SuggestedAction);
+
 public static class XamlQueryErrorCodes
 {
     public const string MissingXamlClass = "MissingXamlClass";
@@ -28,7 +39,12 @@ public static class XamlQueryErrorCodes
     public const string UnknownXmlnsPrefix = "UnknownXmlnsPrefix";
     public const string MissingXamlName = "MissingXamlName";
     public const string NameGeneratorNotRun = "NameGeneratorNotRun";
+    public const string BindingPropertyNotFound = "BindingPropertyNotFound";
+    public const string BindingTypeMismatch = "BindingTypeMismatch";
+    public const string MissingDataType = "MissingDataType";
 }
+
+public sealed record XamlBindingSegment(string Name, string Handle, SymbolSummary Summary);
 
 public static class XamlXmlns
 {
