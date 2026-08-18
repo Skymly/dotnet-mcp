@@ -43,3 +43,12 @@ _Avoid_: stale cache (without the drift/check semantics)
 **Read-only tool surface**:
 当前产品阶段仅提供导航、分析、诊断与归因类工具的工具面边界。
 _Avoid_: refactor tools, apply_edit in v0
+
+**XAML document**:
+受信根内的 Avalonia `.axaml` 文档；P1 只注册 Avalonia，不加载其它 UI 框架。
+_Avoid_: generic XML file, WPF/MAUI document (as the current product surface)
+
+**Binding path**:
+从 `x:DataType` 出发、经 Core 内层 API 逐段走到属性/字段的路径（CompiledBindings 主路径）。
+_Avoid_: code-behind-only DataContext walk
+

@@ -9,7 +9,7 @@
 
 ## 状态
 
-P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航（定义/成员/引用/实现/层级/调用者）、项目诊断、源生成器列表/生成源/诊断与符号归因。P1 Avalonia `xaml_resolve_class`（`.axaml` → `x:Class` 符号）已交付；xmlns / x:Name / Binding / 语义诊断仍在后续 P1 票中。VB / F# 仍属后续分期。
+P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航（定义/成员/引用/实现/层级/调用者）、项目诊断、源生成器列表/生成源/诊断与符号归因。P1 Avalonia XAML 读侧已可演示（`xaml_resolve_class` / `xaml_list_xmlns` / `xaml_resolve_name` / `xaml_resolve_binding` / `xaml_diagnostics`）。VB / F# 仍属后续分期。
 
 ### 当前 MCP 工具面（只读）
 
