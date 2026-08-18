@@ -52,3 +52,6 @@ _Avoid_: generic XML file, WPF/MAUI document (as the current product surface)
 从 `x:DataType` 出发、经 Core 内层 API 逐段走到属性/字段的路径（CompiledBindings 主路径）。
 _Avoid_: code-behind-only DataContext walk
 
+**P2 VB.NET**:
+工作区可加载 SDK 风格 `.vbproj` / 混合解决方案；`workspace_list_projects` 以 `csharp` / `vb` 区分项目。VB 符号使用 `vb:` SymbolHandle，导航/分析/诊断/源生成器归因与 C# 同级。F# 仍属后续分期。
+_Avoid_: treating non-csharp handles as a blanket reject
