@@ -28,7 +28,8 @@ public class ToolSurfaceGuardTests
         "workspace_open",
         "workspace_status",
         "xaml_list_xmlns",
-        "xaml_resolve_class"
+        "xaml_resolve_class",
+        "xaml_resolve_name"
     ];
 
     private static readonly string[] ForbiddenNameFragments =

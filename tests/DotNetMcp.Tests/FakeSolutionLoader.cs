@@ -270,6 +270,8 @@ public sealed class FakeSolutionLoader : ISolutionLoader
                 public MainWindow()
                 {
                 }
+
+                public string HandwrittenTitle { get; set; } = "";
             }
             """;
 
@@ -327,6 +329,10 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         solution = solution.AddMetadataReference(appId, runtime);
         solution = solution.AddMetadataReference(controlsId, runtime);
         solution = solution.AddProjectReference(appId, new ProjectReference(controlsId));
+        var generatorAssemblyPath = typeof(Avalonia.NameGenerator.NameGenerator).Assembly.Location;
+        solution = solution.AddAnalyzerReference(
+            appId,
+            new AnalyzerFileReference(generatorAssemblyPath, TestAnalyzerAssemblyLoader.Instance));
 
         if (!workspace.TryApplyChanges(solution))
         {

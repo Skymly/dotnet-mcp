@@ -41,6 +41,69 @@ public sealed class XamlDocumentService
         return (success, null, symbolError);
     }
 
+    public async Task<(SymbolResolveSuccess? Success, XamlQueryError? XamlError, SymbolQueryError? SymbolError)>
+        ResolveNameAsync(
+            IWorkspaceSession session,
+            string path,
+            string name,
+            CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return (null, new MissingXamlNameError(
+                "x:Name is empty.",
+                "Pass an x:Name from the Avalonia document to xaml_resolve_name."), null);
+        }
+
+        var (root, docError) = ReadDocument(path);
+        if (docError is not null)
+        {
+            return (null, docError, null);
+        }
+
+        var names = CollectXNames(path);
+        if (!names.Contains(name.Trim()))
+        {
+            return (null, new MissingXamlNameError(
+                $"No x:Name '{name}' is declared in the Avalonia document.",
+                "Inspect the .axaml for x:Name values, then retry xaml_resolve_name."), null);
+        }
+
+        if (string.IsNullOrWhiteSpace(root!.ClassName))
+        {
+            return (null, MissingClassError(), null);
+        }
+
+        var (resolved, symbolError) = await _symbols
+            .ResolveByNameAsync(session, root.ClassName, projectId: null, cancellationToken)
+            .ConfigureAwait(false);
+        if (symbolError is not null)
+        {
+            return (null, null, symbolError);
+        }
+
+        var (lookup, lookupError) = await _symbols
+            .LookupTypeMemberAsync(session, resolved!.Handle, name.Trim(), publicOnly: false, cancellationToken)
+            .ConfigureAwait(false);
+        if (lookupError is not null)
+        {
+            return (null, new NameGeneratorNotRunError(
+                $"x:Name '{name}' was found in the document but no matching field exists on '{root.ClassName}'.",
+                "Ensure Avalonia NameGenerator has run (build the project), then retry xaml_resolve_name."), null);
+        }
+
+        if (lookup!.Member.Kind != Microsoft.CodeAnalysis.SymbolKind.Field)
+        {
+            return (null, new NameGeneratorNotRunError(
+                $"x:Name '{name}' resolved to a non-field member; NameGenerator fields were not found.",
+                "Ensure Avalonia NameGenerator has run (build the project), then retry xaml_resolve_name."), null);
+        }
+
+        var handle = _symbols.FormatHandle(lookup.Project, lookup.Member);
+        var success = await _symbols.GetSummaryAsync(session, handle, cancellationToken).ConfigureAwait(false);
+        return (success.Success, null, success.Error);
+    }
+
     public async Task<(IReadOnlyList<XamlXmlnsMapping>? Success, XamlQueryError? Error)> ListXmlnsAsync(
         IWorkspaceSession session,
         string path,
@@ -340,6 +403,44 @@ public sealed class XamlDocumentService
 
             definitions.Add(new XmlnsDefinition(xml, clr, assembly.Name));
         }
+    }
+
+    internal static IReadOnlySet<string> CollectXNames(string path)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var reader = XmlReader.Create(stream, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+                IgnoreComments = true,
+                IgnoreProcessingInstructions = true
+            });
+
+            while (reader.Read())
+            {
+                if (reader.NodeType != XmlNodeType.Element)
+                {
+                    continue;
+                }
+
+                var name = reader.GetAttribute("Name", XamlXmlns.Xaml);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    names.Add(name.Trim());
+                }
+            }
+        }
+        catch (XmlException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+
+        return names;
     }
 
     private static MissingXamlClassError MissingClassError() =>

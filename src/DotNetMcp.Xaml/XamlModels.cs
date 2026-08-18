@@ -14,12 +14,20 @@ public sealed record UnsupportedXamlDocumentError(string Message, string Suggest
 public sealed record UnknownXmlnsPrefixError(string Message, string SuggestedAction)
     : XamlQueryError(XamlQueryErrorCodes.UnknownXmlnsPrefix, Message, SuggestedAction);
 
+public sealed record MissingXamlNameError(string Message, string SuggestedAction)
+    : XamlQueryError(XamlQueryErrorCodes.MissingXamlName, Message, SuggestedAction);
+
+public sealed record NameGeneratorNotRunError(string Message, string SuggestedAction)
+    : XamlQueryError(XamlQueryErrorCodes.NameGeneratorNotRun, Message, SuggestedAction);
+
 public static class XamlQueryErrorCodes
 {
     public const string MissingXamlClass = "MissingXamlClass";
     public const string XamlDocumentNotFound = "XamlDocumentNotFound";
     public const string UnsupportedXamlDocument = "UnsupportedXamlDocument";
     public const string UnknownXmlnsPrefix = "UnknownXmlnsPrefix";
+    public const string MissingXamlName = "MissingXamlName";
+    public const string NameGeneratorNotRun = "NameGeneratorNotRun";
 }
 
 public static class XamlXmlns
