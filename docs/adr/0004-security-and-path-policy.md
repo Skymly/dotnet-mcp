@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02）
+Accepted（2026-08-02），**Amended（2026-08-19，见 Amendment 1 / Spike S4 / Spec #84 P0）**
 
 ## 上下文
 
@@ -27,9 +27,13 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 
 文档与 `workspace_open` 的工具描述必须写明：加载解决方案会运行 MSBuild 求值与该项目引用的 analyzer/源生成器，等同于在该仓库执行构建逻辑；不要对不受信任的代码库使用。这是一个**不可通过技术手段消除**的性质（Roslyn 语义分析必须加载这些程序集），只能显式告知。
 
-### 3. 只读保证
+### 3. 默认只读 + 显式 opt-in 的受限 Workspace Edit
 
-v0 纯读侧（Issue #1）：不提供任何写文件、执行任意命令、网络请求的工具。此约束应有测试守护（工具表面清单快照测试），避免后续无意引入写能力。
+默认工具面仍是读：导航、分析、诊断、归因。**不**提供通用写文件、补丁、命令或网络工具。
+
+2.0 起允许一类显式 opt-in 写：`symbol_preview_rename`（及后续 `symbol_apply_rename`）构成 Workspace Edit 合同。Preview 不写盘；Apply 只写 preview 已声明且落在受信根内的已有解决方案文档，并必须套 `WriteSuppression`（Spike S4）。
+
+工具表面清单快照测试继续挡住 `apply_edit` / `patch_file` / `write` / `shell` / 网络碎片；允许名单只增加 rename 两步（本票只加 preview）。
 
 ### 4. 输出侧的注入意识
 
@@ -54,3 +58,10 @@ v0 纯读侧（Issue #1）：不提供任何写文件、执行任意命令、网
 
 - ADR-0002：加载入口与格式支持
 - ADR-0003：`workspace_open` / `workspace_status` 形状
+
+
+## Amendment 1（2026-08-19）：受限 Workspace Edit
+
+证据：[`spikes/s4-rename/CONCLUSIONS.md`](../../spikes/s4-rename/CONCLUSIONS.md)、Spec #84、#86。
+
+§3 从「纯只读」改为「默认只读 + 显式 rename preview/apply」。受信根、打开即执行、审计不记源码正文不变。

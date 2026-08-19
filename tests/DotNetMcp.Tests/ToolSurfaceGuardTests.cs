@@ -1,12 +1,12 @@
 namespace DotNetMcp.Tests;
 
 /// <summary>
-/// Snapshot / guard for the read-only tool surface (ADR-0004 §3).
+/// Snapshot / guard for the tool surface (ADR-0004 §3): read tools + explicit rename preview.
 /// </summary>
 public class ToolSurfaceGuardTests
 {
     /// <summary>
-    /// Canonical allowlist for v0 read-only skeleton. Update deliberately when adding tools.
+    /// Canonical allowlist. Update deliberately when adding tools.
     /// </summary>
     private static readonly string[] AllowedToolNames =
     [
@@ -21,6 +21,7 @@ public class ToolSurfaceGuardTests
         "symbol_find_references",
         "symbol_goto_definition",
         "symbol_members",
+        "symbol_preview_rename",
         "symbol_resolve",
         "symbol_summary",
         "symbol_type_hierarchy",

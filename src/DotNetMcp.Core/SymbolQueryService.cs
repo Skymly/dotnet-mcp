@@ -1395,6 +1395,12 @@ public sealed class SymbolQueryService
         return (SymbolOrigin.Handwritten, null);
     }
 
+    public Task<(Project? Project, ISymbol? Symbol, SymbolQueryError? Error)> ResolveHandleAsync(
+        IWorkspaceSession session,
+        string handle,
+        CancellationToken cancellationToken = default) =>
+        TryResolveHandleAsync(session, handle, cancellationToken);
+
     private async Task<(Project? Project, ISymbol? Symbol, SymbolQueryError? Error)> TryResolveHandleAsync(
         IWorkspaceSession session,
         string handle,
