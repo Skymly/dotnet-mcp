@@ -1,0 +1,11 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+  </Configurations>
+  <Folder Name="/fixtures/">
+    <Project Path="fixtures/RenameApp/RenameApp.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/S4.Verification/S4.Verification.csproj" />
+  </Folder>
+</Solution>
