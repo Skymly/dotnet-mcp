@@ -9,7 +9,7 @@
 
 ## 状态
 
-P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航（定义/成员/引用/实现/层级/调用者）、项目诊断、源生成器列表/生成源/诊断与符号归因。P1 Avalonia XAML 读侧已可演示（`xaml_resolve_class` / `xaml_list_xmlns` / `xaml_resolve_name` / `xaml_resolve_binding` / `xaml_diagnostics`）。P2 VB.NET 读侧已可演示（`workspace_list_projects` 语言标记、`vb:` SymbolHandle 导航/分析、`project_diagnostics`、VB 源生成器列表/生成源/归因）。P3 F#·Interop·DLR 读侧已可演示（`fsharp:` FCS 独立栈导航/分析/诊断、`interopKind` COM 包装识别、`project_list_dynamic_invocations`）。**2.0 P0** 已可演示受限 Workspace Edit：C# `symbol_preview_rename` → `symbol_apply_rename`（不是通用写文件）。
+P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航（定义/成员/引用/实现/层级/调用者）、项目诊断、源生成器列表/生成源/诊断与符号归因。P1 Avalonia XAML 读侧已可演示（`xaml_resolve_class` / `xaml_list_xmlns` / `xaml_resolve_name` / `xaml_resolve_binding` / `xaml_diagnostics`）。P2 VB.NET 读侧已可演示（`workspace_list_projects` 语言标记、`vb:` SymbolHandle 导航/分析、`project_diagnostics`、VB 源生成器列表/生成源/归因）。P3 F#·Interop·DLR 读侧已可演示（`fsharp:` FCS 独立栈导航/分析/诊断、`interopKind` COM 包装识别、`project_list_dynamic_invocations`）。**2.0 P0–P1** 已可演示受限 Workspace Edit：C# / VB `symbol_preview_rename` → `symbol_apply_rename`（不是通用写文件）。
 
 ### 当前 MCP 工具面（读 + 受限 Workspace Edit）
 
