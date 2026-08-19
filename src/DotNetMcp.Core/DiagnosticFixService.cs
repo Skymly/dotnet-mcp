@@ -1,0 +1,555 @@
+using System.Collections.Concurrent;
+using System.Reflection;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CodeActions;
+using Microsoft.CodeAnalysis.CodeFixes;
+using Microsoft.CodeAnalysis.Text;
+
+namespace DotNetMcp.Core;
+
+/// <summary>
+/// First-party / parameterless CodeFix host (Spike S6). No Visual Studio MEF catalog.
+/// </summary>
+public sealed class DiagnosticFixService
+{
+    private static readonly ConcurrentDictionary<string, IReadOnlyList<CodeFixProvider>> ProvidersByLanguage = new(StringComparer.Ordinal);
+
+    public async Task<(DiagnosticFixListSuccess? Success, SymbolQueryError? Error)> ListFixesAsync(
+        IWorkspaceSession session,
+        string projectId,
+        string diagnosticId,
+        string? filePath,
+        int? startLine,
+        int? startCharacter,
+        int? endLine,
+        int? endCharacter,
+        CancellationToken cancellationToken = default)
+    {
+        var (document, diagnostic, error) = await ResolveOccurrenceAsync(
+                session, projectId, diagnosticId, filePath, startLine, startCharacter, endLine, endCharacter, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        var actions = await CollectActionsAsync(document!, diagnostic!, cancellationToken).ConfigureAwait(false);
+        var items = actions
+            .Select((action, index) => new DiagnosticFixItem(index, action.Title, action.EquivalenceKey))
+            .ToArray();
+        return (new DiagnosticFixListSuccess(items), null);
+    }
+
+    public async Task<(DiagnosticFixPreviewDraft? Draft, SymbolQueryError? Error)> BuildPreviewAsync(
+        IWorkspaceSession session,
+        string projectId,
+        string diagnosticId,
+        string? filePath,
+        int? startLine,
+        int? startCharacter,
+        int? endLine,
+        int? endCharacter,
+        int fixIndex,
+        string? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedScope = NormalizeScope(scope, out var scopeError);
+        if (scopeError is not null)
+        {
+            return (null, scopeError);
+        }
+
+        var (document, diagnostic, error) = await ResolveOccurrenceAsync(
+                session, projectId, diagnosticId, filePath, startLine, startCharacter, endLine, endCharacter, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        var actions = await CollectActionsAsync(document!, diagnostic!, cancellationToken).ConfigureAwait(false);
+        if (fixIndex < 0 || fixIndex >= actions.Count)
+        {
+            return (null, new FixIndexOutOfRangeError(
+                $"fixIndex {fixIndex} is out of range for {actions.Count} available fix(es).",
+                "Call diagnostics_list_fixes and pass a fixIndex from that list."));
+        }
+
+        var chosen = actions[fixIndex];
+        Solution? changed;
+        if (normalizedScope == DiagnosticFixScopes.Document)
+        {
+            if (string.IsNullOrWhiteSpace(chosen.EquivalenceKey))
+            {
+                return (null, new FixAllUnavailableError(
+                    "This fix has no EquivalenceKey, so document-scope Fix all is unavailable.",
+                    "Call diagnostics_preview_fix with scope=occurrence, or pick a fix that reports an EquivalenceKey."));
+            }
+
+            changed = await ApplyDocumentScopeAsync(
+                    document!, diagnostic!.Id, chosen.EquivalenceKey, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            changed = await ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (changed is null)
+        {
+            return (null, new FixApplyFailedError(
+                $"CodeFix '{chosen.Title}' did not produce a solution change.",
+                "Pick another fixIndex from diagnostics_list_fixes, or fix the code without this tool."));
+        }
+
+        var (slices, generated) = await DiffAsync(session.Solution, changed, cancellationToken).ConfigureAwait(false);
+        if (generated)
+        {
+            return (null, new GeneratedDocumentFixRefusedError(
+                "This Diagnostic fix would change a generated document.",
+                "Change the generator input (handwritten source / attribute) instead of applying a fix to generated output."));
+        }
+
+        if (slices.Count == 0)
+        {
+            return (null, new FixApplyFailedError(
+                $"CodeFix '{chosen.Title}' produced no handwritten document changes.",
+                "Pick another fixIndex from diagnostics_list_fixes."));
+        }
+
+        return (new DiagnosticFixPreviewDraft(
+            chosen.Title,
+            chosen.EquivalenceKey,
+            normalizedScope,
+            slices,
+            InvalidatedHandles: []), null);
+    }
+
+    private async Task<(Document? Document, Diagnostic? Diagnostic, SymbolQueryError? Error)> ResolveOccurrenceAsync(
+        IWorkspaceSession session,
+        string projectId,
+        string diagnosticId,
+        string? filePath,
+        int? startLine,
+        int? startCharacter,
+        int? endLine,
+        int? endCharacter,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            return (null, null, new ProjectNotFoundError(
+                "projectId is required to locate a diagnostic occurrence.",
+                "Call workspace_list_projects, then project_diagnostics, then pass that projectId."));
+        }
+
+        if (string.IsNullOrWhiteSpace(diagnosticId))
+        {
+            return (null, null, new DiagnosticNotFoundError(
+                "diagnosticId is required.",
+                "Call project_diagnostics and pass the Id of the occurrence to fix."));
+        }
+
+        var project = session.Solution.Projects.FirstOrDefault(p =>
+            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        if (project is null)
+        {
+            return (null, null, new ProjectNotFoundError(
+                $"No project with projectId '{projectId}' is in the ready workspace.",
+                "Call workspace_list_projects for valid projectId values."));
+        }
+
+        if (project.Language == LanguageNames.FSharp)
+        {
+            return (null, null, new FixLanguageNotSupportedError(
+                "Diagnostic fix is not available for F# projects.",
+                "Use project_diagnostics to inspect F# errors, or symbol_preview_rename for handwritten fsharp handles."));
+        }
+
+        if (!SymbolQueryService.IsSupportedRoslynLanguage(project.Language))
+        {
+            return (null, null, new FixLanguageNotSupportedError(
+                $"Diagnostic fix is not available for language '{project.Language}'.",
+                "Call diagnostics_list_fixes on a C# or VB project."));
+        }
+
+        Compilation compilation;
+        try
+        {
+            compilation = await session.GetCompilationAsync(project.Id, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return (null, null, new CompilationUnavailableError(
+                ex.Message,
+                "Retry after workspace_status is ready; confirm the projectId with workspace_list_projects."));
+        }
+
+        var matches = compilation.GetDiagnostics()
+            .Where(d => string.Equals(d.Id, diagnosticId, StringComparison.Ordinal))
+            .Where(d => MatchesLocator(d, filePath, startLine, startCharacter, endLine, endCharacter))
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            return (null, null, new DiagnosticNotFoundError(
+                $"No diagnostic '{diagnosticId}' matched the given locator in project '{projectId}'.",
+                "Call project_diagnostics and pass the exact Id / filePath / span from that result."));
+        }
+
+        if (matches.Count > 1)
+        {
+            return (null, null, new DiagnosticAmbiguousError(
+                $"Diagnostic '{diagnosticId}' matched {matches.Count} occurrences; pass a tighter filePath/span.",
+                "Include filePath and startLine/startCharacter from project_diagnostics to disambiguate."));
+        }
+
+        var diagnostic = matches[0];
+        if (!diagnostic.Location.IsInSource || diagnostic.Location.SourceTree is null)
+        {
+            return (null, null, new DiagnosticNotFoundError(
+                $"Diagnostic '{diagnosticId}' is not in source.",
+                "Pick a source diagnostic from project_diagnostics."));
+        }
+
+        var document = project.GetDocument(diagnostic.Location.SourceTree)
+                       ?? project.Documents.FirstOrDefault(d =>
+                           PathsEqual(d.FilePath, diagnostic.Location.GetLineSpan().Path));
+        if (document is null)
+        {
+            return (null, null, new GeneratedDocumentFixRefusedError(
+                "This diagnostic is on a generated document.",
+                "Change the generator input instead of applying a Diagnostic fix to generated output."));
+        }
+
+        return (document, diagnostic, null);
+    }
+
+    private static bool MatchesLocator(
+        Diagnostic diagnostic,
+        string? filePath,
+        int? startLine,
+        int? startCharacter,
+        int? endLine,
+        int? endCharacter)
+    {
+        if (!diagnostic.Location.IsInSource)
+        {
+            return false;
+        }
+
+        var span = diagnostic.Location.GetLineSpan();
+        if (!string.IsNullOrWhiteSpace(filePath) && !PathsEqual(span.Path, filePath))
+        {
+            return false;
+        }
+
+        var actualStartLine = span.StartLinePosition.Line + 1;
+        var actualStartChar = span.StartLinePosition.Character;
+        var actualEndLine = span.EndLinePosition.Line + 1;
+        var actualEndChar = span.EndLinePosition.Character;
+
+        if (startLine is not null && startLine.Value != actualStartLine)
+        {
+            return false;
+        }
+
+        if (startCharacter is not null && startCharacter.Value != actualStartChar)
+        {
+            return false;
+        }
+
+        if (endLine is not null && endLine.Value != actualEndLine)
+        {
+            return false;
+        }
+
+        if (endCharacter is not null && endCharacter.Value != actualEndChar)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool PathsEqual(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        return string.Equals(NormalizePath(left), NormalizePath(right), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizePath(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception)
+        {
+            return path.Replace('/', Path.DirectorySeparatorChar);
+        }
+    }
+
+    private static string NormalizeScope(string? scope, out SymbolQueryError? error)
+    {
+        error = null;
+        if (string.IsNullOrWhiteSpace(scope))
+        {
+            return DiagnosticFixScopes.Occurrence;
+        }
+
+        if (string.Equals(scope, DiagnosticFixScopes.Occurrence, StringComparison.OrdinalIgnoreCase))
+        {
+            return DiagnosticFixScopes.Occurrence;
+        }
+
+        if (string.Equals(scope, DiagnosticFixScopes.Document, StringComparison.OrdinalIgnoreCase))
+        {
+            return DiagnosticFixScopes.Document;
+        }
+
+        error = new FixAllUnavailableError(
+            $"Unknown scope '{scope}'.",
+            "Pass scope=occurrence or scope=document.");
+        return DiagnosticFixScopes.Occurrence;
+    }
+
+    private static async Task<IReadOnlyList<CodeAction>> CollectActionsAsync(
+        Document document,
+        Diagnostic diagnostic,
+        CancellationToken cancellationToken)
+    {
+        var providers = GetProviders(document.Project.Language);
+        var actions = new List<CodeAction>();
+        foreach (var provider in providers)
+        {
+            if (!provider.FixableDiagnosticIds.Contains(diagnostic.Id))
+            {
+                continue;
+            }
+
+            try
+            {
+                var context = new CodeFixContext(
+                    document,
+                    diagnostic,
+                    (action, _) => actions.AddRange(Flatten(action)),
+                    cancellationToken);
+                await provider.RegisterCodeFixesAsync(context).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Skip providers that require a full IDE host.
+            }
+        }
+
+        return actions
+            .DistinctBy(a => (a.Title, a.EquivalenceKey))
+            .OrderBy(a => a.Title, StringComparer.Ordinal)
+            .ThenBy(a => a.EquivalenceKey ?? string.Empty, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static IEnumerable<CodeAction> Flatten(CodeAction action)
+    {
+        var nested = action.NestedActions;
+        return nested.Length == 0 ? [action] : nested.SelectMany(Flatten);
+    }
+
+    private static IReadOnlyList<CodeFixProvider> GetProviders(string language)
+    {
+        return ProvidersByLanguage.GetOrAdd(language, static lang =>
+        {
+            var assemblyName = lang switch
+            {
+                LanguageNames.CSharp => "Microsoft.CodeAnalysis.CSharp.Features",
+                LanguageNames.VisualBasic => "Microsoft.CodeAnalysis.VisualBasic.Features",
+                _ => null
+            };
+            if (assemblyName is null)
+            {
+                return [];
+            }
+
+            Assembly assembly;
+            try
+            {
+                assembly = Assembly.Load(assemblyName);
+            }
+            catch (Exception)
+            {
+                return [];
+            }
+
+            Type[] types;
+            try
+            {
+                types = assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                types = ex.Types.Where(static t => t is not null).Cast<Type>().ToArray();
+            }
+
+            var list = new List<CodeFixProvider>();
+            foreach (var type in types)
+            {
+                if (type.IsAbstract || !typeof(CodeFixProvider).IsAssignableFrom(type))
+                {
+                    continue;
+                }
+
+                if (type.GetConstructor(Type.EmptyTypes) is null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (Activator.CreateInstance(type) is CodeFixProvider provider)
+                    {
+                        list.Add(provider);
+                    }
+                }
+                catch
+                {
+                    // Skip providers that throw from a parameterless ctor.
+                }
+            }
+
+            return list;
+        });
+    }
+
+    private static async Task<Solution?> ApplyActionAsync(CodeAction action, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var operations = await action.GetOperationsAsync(cancellationToken).ConfigureAwait(false);
+            return operations.OfType<ApplyChangesOperation>().FirstOrDefault()?.ChangedSolution;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<Solution?> ApplyDocumentScopeAsync(
+        Document document,
+        string diagnosticId,
+        string equivalenceKey,
+        CancellationToken cancellationToken)
+    {
+        var currentSolution = document.Project.Solution;
+        var currentDocId = document.Id;
+        var applied = false;
+
+        for (var i = 0; i < 32; i++)
+        {
+            var currentDoc = currentSolution.GetDocument(currentDocId);
+            if (currentDoc is null)
+            {
+                break;
+            }
+
+            var compilation = await currentDoc.Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
+            var tree = await currentDoc.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+            if (compilation is null || tree is null)
+            {
+                break;
+            }
+
+            var nextOccurrence = compilation.GetDiagnostics()
+                .Where(d => d.Location.SourceTree == tree && string.Equals(d.Id, diagnosticId, StringComparison.Ordinal))
+                .OrderByDescending(d => d.Location.SourceSpan.Start)
+                .FirstOrDefault();
+            if (nextOccurrence is null)
+            {
+                break;
+            }
+
+            var actions = await CollectActionsAsync(currentDoc, nextOccurrence, cancellationToken).ConfigureAwait(false);
+            var match = actions.FirstOrDefault(a =>
+                string.Equals(a.EquivalenceKey, equivalenceKey, StringComparison.Ordinal));
+            if (match is null)
+            {
+                break;
+            }
+
+            var next = await ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
+            if (next is null)
+            {
+                break;
+            }
+
+            currentSolution = next;
+            applied = true;
+        }
+
+        return applied ? currentSolution : null;
+    }
+
+    private static async Task<(IReadOnlyList<RenameDocumentSlice> Slices, bool TouchedGenerated)> DiffAsync(
+        Solution before,
+        Solution after,
+        CancellationToken cancellationToken)
+    {
+        var slices = new List<RenameDocumentSlice>();
+        var changes = after.GetChanges(before);
+        if (changes.GetAddedProjects().Any() || changes.GetRemovedProjects().Any())
+        {
+            return (slices, true);
+        }
+
+        foreach (var projectChange in changes.GetProjectChanges())
+        {
+            if (projectChange.GetAddedDocuments().Any() || projectChange.GetRemovedDocuments().Any())
+            {
+                return (slices, true);
+            }
+
+            var oldProject = before.GetProject(projectChange.ProjectId);
+            var generated = oldProject is null
+                ? []
+                : await oldProject.GetSourceGeneratedDocumentsAsync(cancellationToken).ConfigureAwait(false);
+            var generatedIds = generated.Select(g => g.Id).ToHashSet();
+
+            foreach (var docId in projectChange.GetChangedDocuments())
+            {
+                if (generatedIds.Contains(docId))
+                {
+                    return (slices, true);
+                }
+
+                var oldDoc = before.GetDocument(docId);
+                var newDoc = after.GetDocument(docId);
+                if (oldDoc is null || newDoc is null)
+                {
+                    return (slices, true);
+                }
+
+                var path = oldDoc.FilePath;
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    return (slices, true);
+                }
+
+                var oldText = (await oldDoc.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
+                var newText = (await newDoc.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
+                if (oldText == newText)
+                {
+                    continue;
+                }
+
+                slices.Add(new RenameDocumentSlice(path, oldText, newText));
+            }
+        }
+
+        return (slices, false);
+    }
+}
+

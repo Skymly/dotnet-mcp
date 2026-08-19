@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -9,7 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-mcp</ToolCommandName>
     <PackageId>dotnet-mcp</PackageId>
-    <Version>2.0.0</Version>
+    <Version>3.0.0</Version>
     <Authors>Skymly</Authors>
     <Description>MCP server for .NET symbol analysis (stdio).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -25,6 +25,8 @@
     <PackageReference Include="Microsoft.Build.Locator" Version="1.9.1" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.6.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.VisualBasic.Workspaces" Version="5.6.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" Version="5.6.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.VisualBasic.Features" Version="5.6.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.6.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.1" />
@@ -39,3 +41,4 @@
   </ItemGroup>
 
 </Project>
+

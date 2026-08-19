@@ -75,3 +75,14 @@ _Avoid_: MetadataGenerated, COM-in-Origin
 **Dynamic invocation site**:
 `dynamic` 调用点（IOperation），带可选的静态接收者/参数类型；不是符号归因。
 _Avoid_: treating dynamic as SymbolAttribution
+**Diagnostic fix**:
+针对一条 `project_diagnostics` 出现的、由 first-party 或项目已加载 CodeFixProvider 提供的修复动作。
+_Avoid_: invented patch, generic apply_edit, analyzer downloaded just-in-time
+
+**Fix preview**:
+一次 Diagnostic fix（或单文档 Fix all）的 Workspace Edit 预览；带 Epoch + TTL 的 previewId，apply 前不得写盘。
+_Avoid_: applying a CodeFix without preview
+
+**Fix equivalence key**:
+Roslyn CodeAction.EquivalenceKey，用于把同一文档内的等价诊断收成一次 Fix all。
+_Avoid_: fix-all-in-solution

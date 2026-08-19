@@ -320,11 +320,11 @@ public sealed class SymbolTools
     }
 
     [McpServerTool(Name = "symbol_preview_rename"), Description(
-        "Preview renaming a handwritten C# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
+        "Preview renaming a handwritten C# / VB / F# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
         "handles that will become invalid) and an opaque previewId bound to the current workspace Epoch + TTL. " +
         "Does not write disk. SourceGenerator Origin is refused. There is no generic apply_edit / write / shell.")]
     public async Task<CallToolResult> SymbolPreviewRename(
-        [Description("Handwritten C# SymbolHandle from symbol_resolve.")]
+        [Description("Handwritten C# / VB / F# SymbolHandle from symbol_resolve.")]
         string handle,
         [Description("New identifier (unqualified).")]
         string newName,
@@ -385,7 +385,7 @@ public sealed class SymbolTools
     }
 
     [McpServerTool(Name = "symbol_apply_rename"), Description(
-        "Apply a still-valid C# rename preview. Writes only the documents listed in that preview, all of which " +
+        "Apply a still-valid C# / VB / F# rename preview. Writes only the documents listed in that preview, all of which " +
         "must already exist inside a trusted root. Uses WriteSuppression and advances the workspace Epoch. " +
         "There is no apply path that skips preview. Not a generic write / patch / shell tool.")]
     public Task<CallToolResult> SymbolApplyRename(

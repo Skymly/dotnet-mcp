@@ -157,22 +157,24 @@ public sealed class WorkspaceHost : IAsyncDisposable
     /// </summary>
     public (StoredRenamePreview? Applied, PolicyErrorDto? Error) ApplyRenamePreview(
         string previewId,
-        TrustedRoots trustedRoots)
+        TrustedRoots trustedRoots,
+        string previewTool = "symbol_preview_rename",
+        string applyTool = "symbol_apply_rename")
     {
         if (string.IsNullOrWhiteSpace(previewId))
         {
             return (null, new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.PreviewNotFound,
-                Message = "Apply requires a previewId from symbol_preview_rename.",
-                SuggestedAction = "Call symbol_preview_rename first, then pass that previewId to symbol_apply_rename."
+                Message = $"Apply requires a previewId from {previewTool}.",
+                SuggestedAction = $"Call {previewTool} first, then pass that previewId to {applyTool}."
             });
         }
 
         var (preview, errorCode) = TryGetRenamePreview(previewId);
         if (preview is null || errorCode is not null)
         {
-            return (null, PreviewLookupError(errorCode ?? RenamePreviewErrorCodes.PreviewNotFound));
+            return (null, PreviewLookupError(errorCode ?? RenamePreviewErrorCodes.PreviewNotFound, previewTool));
         }
 
         foreach (var document in preview.Documents)
@@ -193,7 +195,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
                 {
                     Error = PolicyErrorCodes.PreviewTargetMissing,
                     Message = "A preview document no longer exists on disk; nothing was written.",
-                    SuggestedAction = "Call symbol_preview_rename again on the current snapshot."
+                    SuggestedAction = $"Call {previewTool} again on the current snapshot."
                 });
             }
         }
@@ -228,7 +230,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
                         {
                             Error = PolicyErrorCodes.PreviewTargetMissing,
                             Message = "A preview document is not in the ready workspace; nothing further was backfilled.",
-                            SuggestedAction = "Call symbol_preview_rename again on the current snapshot."
+                            SuggestedAction = $"Call {previewTool} again on the current snapshot."
                         });
                     }
                 }
@@ -241,25 +243,25 @@ public sealed class WorkspaceHost : IAsyncDisposable
         return (preview, null);
     }
 
-    private static PolicyErrorDto PreviewLookupError(string errorCode) => errorCode switch
+    private static PolicyErrorDto PreviewLookupError(string errorCode, string previewTool = "symbol_preview_rename") => errorCode switch
     {
         RenamePreviewErrorCodes.PreviewExpired => new PolicyErrorDto
         {
             Error = PolicyErrorCodes.PreviewExpired,
-            Message = "The rename preview has expired.",
-            SuggestedAction = "Call symbol_preview_rename again, then apply the new previewId."
+            Message = "The preview has expired.",
+            SuggestedAction = $"Call {previewTool} again, then apply the new previewId."
         },
         RenamePreviewErrorCodes.PreviewEpochMismatch => new PolicyErrorDto
         {
             Error = PolicyErrorCodes.PreviewEpochMismatch,
-            Message = "The rename preview is bound to a previous workspace Epoch.",
-            SuggestedAction = "Call symbol_preview_rename on the current snapshot, then apply that previewId."
+            Message = "The preview is bound to a previous workspace Epoch.",
+            SuggestedAction = $"Call {previewTool} on the current snapshot, then apply that previewId."
         },
         _ => new PolicyErrorDto
         {
             Error = PolicyErrorCodes.PreviewNotFound,
-            Message = "Unknown rename previewId.",
-            SuggestedAction = "Call symbol_preview_rename to obtain a fresh previewId; do not invent preview ids."
+            Message = "Unknown previewId.",
+            SuggestedAction = $"Call {previewTool} to obtain a fresh previewId; do not invent preview ids."
         }
     };
 
@@ -753,3 +755,4 @@ public sealed class WorkspaceHost : IAsyncDisposable
         _loadMutex.Dispose();
     }
 }
+

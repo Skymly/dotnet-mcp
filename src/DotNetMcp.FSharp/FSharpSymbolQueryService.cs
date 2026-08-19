@@ -41,7 +41,7 @@ public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            var catalog = await CatalogAsync(project, cancellationToken).ConfigureAwait(false);
+            var catalog = FlattenCatalog(await CatalogAsync(project, cancellationToken).ConfigureAwait(false));
             matches.AddRange(catalog.Where(item => Matches(item, query)));
         }
 
@@ -200,7 +200,7 @@ public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
                 "Call workspace_list_projects, then symbol_resolve for an F# symbol."));
         }
 
-        var catalog = await CatalogAsync(project, cancellationToken).ConfigureAwait(false);
+        var catalog = FlattenCatalog(await CatalogAsync(project, cancellationToken).ConfigureAwait(false));
         var hit = catalog.FirstOrDefault(item =>
             string.Equals(item.SignatureQualifiedName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
             string.Equals(item.DisplayName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
@@ -624,4 +624,16 @@ public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
         string? BaseTypeName = null,
         IReadOnlyList<string>? InterfaceNames = null,
         bool IsInterface = false);
+
+    private static IEnumerable<FSharpCatalogItem> FlattenCatalog(IEnumerable<FSharpCatalogItem> items)
+    {
+        foreach (var item in items)
+        {
+            yield return item;
+            foreach (var child in FlattenCatalog(item.Members))
+            {
+                yield return child;
+            }
+        }
+    }
 }

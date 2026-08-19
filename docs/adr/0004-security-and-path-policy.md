@@ -65,3 +65,9 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 证据：[`spikes/s4-rename/CONCLUSIONS.md`](../../spikes/s4-rename/CONCLUSIONS.md)、Spec #84、#86。
 
 §3 从「纯只读」改为「默认只读 + 显式 rename preview/apply」。受信根、打开即执行、审计不记源码正文不变。
+
+## Amendment 2（2026-08-20）：Diagnostic fix
+
+证据：`spikes/s6-codefix/CONCLUSIONS.md`、Spec #104。
+
+§3 允许名单从 rename 两步扩为 rename 两步 + `diagnostics_list_fixes` / `diagnostics_preview_fix` / `diagnostics_apply_fix`。仍禁止通用写 / 补丁 / shell / 网络。受信根、打开即执行、审计不记源码正文不变。

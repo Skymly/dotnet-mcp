@@ -293,6 +293,7 @@ public sealed partial class FSharpSymbolQueryService
         }
 
         var (catalog, check, _) = await CheckProjectAsync(project, cancellationToken).ConfigureAwait(false);
+        catalog = FlattenCatalog(catalog).ToList();
         var hit = catalog.FirstOrDefault(item =>
             string.Equals(item.SignatureQualifiedName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
             string.Equals(item.DisplayName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||

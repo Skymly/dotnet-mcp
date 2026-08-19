@@ -1,7 +1,7 @@
 namespace DotNetMcp.Tests;
 
 /// <summary>
-/// Snapshot / guard for the tool surface (ADR-0004 §3): read tools + explicit rename preview.
+/// Snapshot / guard for the tool surface (ADR-0004 §3): read tools + explicit rename + Diagnostic fix.
 /// </summary>
 public class ToolSurfaceGuardTests
 {
@@ -10,6 +10,9 @@ public class ToolSurfaceGuardTests
     /// </summary>
     private static readonly string[] AllowedToolNames =
     [
+        "diagnostics_apply_fix",
+        "diagnostics_list_fixes",
+        "diagnostics_preview_fix",
         "project_diagnostics",
         "project_list_generated_sources",
         "project_list_generator_diagnostics",

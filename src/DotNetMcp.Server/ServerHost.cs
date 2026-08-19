@@ -39,6 +39,7 @@ public static class ServerHost
         services.AddSingleton<IFSharpSymbolQuery, FSharpSymbolQueryService>();
         services.AddSingleton<SymbolQueryService>();
         services.AddSingleton<RenamePreviewService>();
+        services.AddSingleton<DiagnosticFixService>();
         services.AddSingleton<DiagnosticQueryService>();
         services.AddSingleton<DynamicInvocationQueryService>();
         services.AddSingleton<GeneratorQueryService>();
@@ -46,6 +47,7 @@ public static class ServerHost
         services.AddSingleton<WorkspaceTools>();
         services.AddSingleton<SymbolTools>();
         services.AddSingleton<ProjectTools>();
+        services.AddSingleton<DiagnosticTools>();
         services.AddSingleton<XamlTools>();
     }
 

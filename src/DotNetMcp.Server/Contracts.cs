@@ -44,6 +44,13 @@ public static class PolicyErrorCodes
     public const string PreviewEpochMismatch = "PreviewEpochMismatch";
     public const string PreviewPathOutsideTrustedRoots = "PreviewPathOutsideTrustedRoots";
     public const string PreviewTargetMissing = "PreviewTargetMissing";
+    public const string DiagnosticNotFound = "DiagnosticNotFound";
+    public const string DiagnosticAmbiguous = "DiagnosticAmbiguous";
+    public const string FixLanguageNotSupported = "FixLanguageNotSupported";
+    public const string FixIndexOutOfRange = "FixIndexOutOfRange";
+    public const string GeneratedDocumentFixRefused = "GeneratedDocumentFixRefused";
+    public const string FixApplyFailed = "FixApplyFailed";
+    public const string FixAllUnavailable = "FixAllUnavailable";
 }
 
 public sealed record XamlBindingSegmentDto
@@ -392,3 +399,36 @@ public sealed record SymbolApplyRenameResultDto
     public required IReadOnlyList<string> WrittenPaths { get; init; }
     public required IReadOnlyList<string> InvalidatedHandles { get; init; }
 }
+
+public sealed record DiagnosticFixItemDto
+{
+    public required int FixIndex { get; init; }
+    public required string Title { get; init; }
+    public string? EquivalenceKey { get; init; }
+}
+
+public sealed record DiagnosticsListFixesResultDto
+{
+    public required IReadOnlyList<DiagnosticFixItemDto> Items { get; init; }
+}
+
+public sealed record DiagnosticsPreviewFixResultDto
+{
+    public required string PreviewId { get; init; }
+    public required long Epoch { get; init; }
+    public required DateTimeOffset ExpiresAt { get; init; }
+    public required string Title { get; init; }
+    public string? EquivalenceKey { get; init; }
+    public required string Scope { get; init; }
+    public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
+    public required IReadOnlyList<string> InvalidatedHandles { get; init; }
+}
+
+public sealed record DiagnosticsApplyFixResultDto
+{
+    public required string PreviewId { get; init; }
+    public required long Epoch { get; init; }
+    public required IReadOnlyList<string> WrittenPaths { get; init; }
+    public required IReadOnlyList<string> InvalidatedHandles { get; init; }
+}
+
