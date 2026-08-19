@@ -53,8 +53,8 @@ _Avoid_: apply_edit, patch_file, generic write
 _Avoid_: renaming generated members; writing disk from preview
 
 **XAML document**:
-受信根内的 Avalonia `.axaml` 文档；P1 只注册 Avalonia，不加载其它 UI 框架。
-_Avoid_: generic XML file, WPF/MAUI document (as the current product surface)
+已注册框架的 UI 文档：Avalonia `.axaml`，或根 xmlns 为 MAUI URI 的 `.xaml`。工具名不分裂。
+_Avoid_: generic XML file, WPF/WinUI document
 
 **Binding path**:
 从 `x:DataType` 出发、经 Core 内层 API 逐段走到属性/字段的路径（CompiledBindings 主路径）。

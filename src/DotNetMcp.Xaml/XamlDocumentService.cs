@@ -6,11 +6,12 @@ using Microsoft.CodeAnalysis;
 namespace DotNetMcp.Xaml;
 
 /// <summary>
-/// Avalonia-first XAML document queries. Other UI frameworks are not registered.
+/// Registered-framework XAML queries: Avalonia (.axaml) and MAUI (.xaml + MAUI xmlns).
 /// </summary>
 public sealed class XamlDocumentService
 {
     public const string AvaloniaDocumentExtension = ".axaml";
+    public const string MauiDocumentExtension = ".xaml";
 
     private readonly SymbolQueryService _symbols;
     private readonly SoftBudgetOptions _softBudgets;
@@ -348,18 +349,21 @@ public sealed class XamlDocumentService
                 "Pass the path of an Avalonia .axaml document under a trusted root."));
         }
 
-        if (!string.Equals(Path.GetExtension(path), AvaloniaDocumentExtension, StringComparison.OrdinalIgnoreCase))
+        var extension = Path.GetExtension(path);
+        var avalonia = string.Equals(extension, AvaloniaDocumentExtension, StringComparison.OrdinalIgnoreCase);
+        var maybeMaui = string.Equals(extension, MauiDocumentExtension, StringComparison.OrdinalIgnoreCase);
+        if (!avalonia && !maybeMaui)
         {
             return (null, new UnsupportedXamlDocumentError(
-                "Only Avalonia .axaml documents are supported.",
-                "Pass a .axaml document path. Other UI frameworks are not registered."));
+                "Only Avalonia .axaml and MAUI .xaml documents are supported.",
+                "Pass an Avalonia .axaml path or a MAUI .xaml path (MAUI xmlns). WPF/WinUI .xaml is not registered."));
         }
 
         if (!File.Exists(path))
         {
             return (null, new XamlDocumentNotFoundError(
-                "The Avalonia XAML document was not found.",
-                "Confirm the .axaml path under a trusted root, then retry."));
+                "The XAML document was not found.",
+                "Confirm the document path under a trusted root, then retry."));
         }
 
         try
@@ -376,13 +380,21 @@ public sealed class XamlDocumentService
 
             if (!reader.Read())
             {
-                return (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: []), null);
+                return maybeMaui
+                    ? (null, new UnsupportedXamlDocumentError(
+                        "This .xaml document is not a registered MAUI document.",
+                        "Pass a MAUI .xaml whose default xmlns is http://schemas.microsoft.com/dotnet/2021/maui."))
+                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: []), null);
             }
 
             reader.MoveToContent();
             if (reader.NodeType != XmlNodeType.Element)
             {
-                return (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: []), null);
+                return maybeMaui
+                    ? (null, new UnsupportedXamlDocumentError(
+                        "This .xaml document is not a registered MAUI document.",
+                        "Pass a MAUI .xaml whose default xmlns is http://schemas.microsoft.com/dotnet/2021/maui."))
+                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: []), null);
             }
 
             var className = reader.GetAttribute("Class", XamlXmlns.Xaml);
@@ -400,6 +412,15 @@ public sealed class XamlDocumentService
                         xmlns.Add(("", reader.Value));
                     }
                 } while (reader.MoveToNextAttribute());
+            }
+
+            if (maybeMaui &&
+                !xmlns.Any(x => x.Prefix == "" &&
+                                string.Equals(x.XmlNamespace, XamlXmlns.Maui, StringComparison.Ordinal)))
+            {
+                return (null, new UnsupportedXamlDocumentError(
+                    "This .xaml document is not a registered MAUI document.",
+                    "Pass a MAUI .xaml whose default xmlns is http://schemas.microsoft.com/dotnet/2021/maui. WPF/WinUI .xaml is not registered."));
             }
 
             return (new XamlDocumentRoot(
