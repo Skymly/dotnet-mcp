@@ -49,7 +49,7 @@ _Avoid_: treating the whole server as read-only after 2.0; apply_edit / patch_fi
 _Avoid_: apply_edit, patch_file, generic write
 
 **Rename preview**:
-针对手写符号的 Workspace Edit 预览（`symbol_preview_rename`）。带 Epoch + TTL 的不透明 previewId；`Origin = SourceGenerator` 拒绝。本分期 apply 另票。
+针对手写符号的 Workspace Edit 预览（`symbol_preview_rename`）。带 Epoch + TTL 的不透明 previewId；`Origin = SourceGenerator` 拒绝。apply 走自写抑制并推进 Epoch。
 _Avoid_: renaming generated members; writing disk from preview
 
 **XAML document**:

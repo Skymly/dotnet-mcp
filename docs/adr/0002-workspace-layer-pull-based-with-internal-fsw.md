@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-02，见 Amendment 1；2026-08-07，见 Amendment 2 / Spike S2）** —— 拉取式方向不变，但接口签名、新鲜度语义、快照一致性与解决方案格式支持均被修正。以「决策」小节的现行内容为准。
+Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S2；2026-08-19 Amendment 3 / Spike S4）** —— 拉取式方向不变，但接口签名、新鲜度语义、快照一致性与解决方案格式支持均被修正。以「决策」小节的现行内容为准。
 
 ## 上下文
 
@@ -113,3 +113,10 @@ public interface IWorkspaceSession : IDisposable
 | LRU | 默认 **50**；≤10 抖动；25/50/无限在固定序列上接近 |
 | 引用作用域 | 默认依赖闭包；全解决方案 opt-in；全量单符号查找仍 ≪ 60 s |
 | 多 TFM | Name 形如 `Foo(net8.0)`；同 csproj 多 ProjectId，列表工具按多行展示 |
+
+
+## Amendment 3（2026-08-19）：intentional apply
+
+证据：[spikes/s4-rename/CONCLUSIONS.md](../../spikes/s4-rename/CONCLUSIONS.md)、#87。
+
+§3 已预留自写抑制与文本回填。Apply 是 **intentional**：WriteSuppression + WithDocumentText + 主动推进 Epoch **一次**。不得把 apply 实现成 FSW / workspace_check_drift 的 drift-repair。句柄仍不随 Epoch 失效。

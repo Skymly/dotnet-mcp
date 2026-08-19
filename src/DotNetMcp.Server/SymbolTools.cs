@@ -384,7 +384,40 @@ public sealed class SymbolTools
         });
     }
 
+    [McpServerTool(Name = "symbol_apply_rename"), Description(
+        "Apply a still-valid C# rename preview. Writes only the documents listed in that preview, all of which " +
+        "must already exist inside a trusted root. Uses WriteSuppression and advances the workspace Epoch. " +
+        "There is no apply path that skips preview. Not a generic write / patch / shell tool.")]
+    public Task<CallToolResult> SymbolApplyRename(
+        [Description("previewId from symbol_preview_rename (current Epoch, unexpired).")]
+        string previewId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_apply_rename");
+
+        if (!TryGetReadySession(out _, out var notReady))
+        {
+            return Task.FromResult(notReady!);
+        }
+
+        var (applied, error) = _workspaceHost.ApplyRenamePreview(previewId, _trustedRoots);
+        if (error is not null)
+        {
+            return Task.FromResult(ErrorResult(error));
+        }
+
+        return Task.FromResult(OkResult(new SymbolApplyRenameResultDto
+        {
+            PreviewId = applied!.PreviewId,
+            Epoch = _workspaceHost.CurrentEpoch,
+            WrittenPaths = applied.Documents.Select(static d => d.Path).ToArray(),
+            InvalidatedHandles = applied.InvalidatedHandles
+        }));
+    }
+
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
+
     {
         if (_workspaceHost.TryGetReadySession(out session) && session is not null)
         {
