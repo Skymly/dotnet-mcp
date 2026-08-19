@@ -1,0 +1,11 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+  </Configurations>
+  <Folder Name="/fixtures/">
+    <Project Path="fixtures/MauiPage/MauiPage.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/S5.Verification/S5.Verification.csproj" />
+  </Folder>
+</Solution>
