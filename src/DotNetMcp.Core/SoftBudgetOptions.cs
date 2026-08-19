@@ -24,7 +24,7 @@ public sealed class SoftBudgetOptions
     /// <summary>Find references across the entire solution. ADR default: 20s.</summary>
     public TimeSpan FindRefsEntireSolution { get; init; } = TimeSpan.FromSeconds(20);
 
-    /// <summary>Batch diagnostics (multi-project). ADR default: 15s. Reserved until a batch tool lands.</summary>
+    /// <summary>Batch diagnostics (multi-project). ADR default: 15s. Used when project_diagnostics omits projectId.</summary>
     public TimeSpan BatchDiagnostics { get; init; } = TimeSpan.FromSeconds(15);
 
     public static SoftBudgetOptions FromEnvironment() =>

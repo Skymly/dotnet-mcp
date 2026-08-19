@@ -659,6 +659,14 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         string projectFilePath = @"C:\fake\MauiApp.csproj") =>
         new(TimeSpan.Zero, () => CreateMauiLoaded(projectFilePath));
 
+    public static FakeSolutionLoader ImmediateWithDataContext(
+        string projectFilePath = @"C:\fake\DcApp.csproj") =>
+        new(TimeSpan.Zero, () => CreateDataContextLoaded(projectFilePath));
+
+    public static FakeSolutionLoader ImmediateWithVbXaml(
+        string projectFilePath = @"C:\fake\VbXaml.vbproj") =>
+        new(TimeSpan.Zero, () => CreateVbXamlLoaded(projectFilePath));
+
     /// <summary>
     /// Avalonia-shaped code-behind type for x:Class resolution. Does not load WPF/MAUI/WinUI.
     /// </summary>
@@ -777,6 +785,70 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         if (!workspace.TryApplyChanges(solution))
         {
             throw new InvalidOperationException("Failed to apply AdhocWorkspace Avalonia fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    public static LoadedSolution CreateDataContextLoaded(string projectFilePath = @"C:\fake\DcApp.csproj")
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId, VersionStamp.Create(), "DcApp", "DcApp", LanguageNames.CSharp, filePath: projectFilePath));
+        const string source = """
+            namespace SampleApp;
+
+            public class MainWindow
+            {
+                public Customer DataContext { get; set; } = new();
+            }
+
+            public class Customer
+            {
+                public string Name { get; set; } = "";
+            }
+            """;
+        solution = solution.AddDocument(docId, "MainWindow.axaml.cs", SourceText.From(source), filePath: Path.Combine(projectDir, "MainWindow.axaml.cs"));
+        solution = solution.WithProjectCompilationOptions(projectId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply DataContext fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    public static LoadedSolution CreateVbXamlLoaded(string projectFilePath = @"C:\fake\VbXaml.vbproj")
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId, VersionStamp.Create(), "VbXaml", "VbXaml", LanguageNames.VisualBasic, filePath: projectFilePath));
+        const string source = """
+            Public Class MainWindow
+                Public Property TitleText As String = "vb"
+            End Class
+            """;
+        solution = solution.AddDocument(docId, "MainWindow.axaml.vb", SourceText.From(source), filePath: Path.Combine(projectDir, "MainWindow.axaml.vb"));
+        solution = solution.WithProjectCompilationOptions(projectId, new VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply VB XAML fixture.");
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
