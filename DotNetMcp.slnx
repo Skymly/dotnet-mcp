@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/DotNetMcp.Core/DotNetMcp.Core.csproj" />
     <Project Path="src/DotNetMcp.Server/DotNetMcp.Server.csproj" />
+    <Project Path="src/DotNetMcp.FSharp/DotNetMcp.FSharp.csproj" />
     <Project Path="src/DotNetMcp.Xaml/DotNetMcp.Xaml.csproj" />
   </Folder>
   <Folder Name="/tests/">

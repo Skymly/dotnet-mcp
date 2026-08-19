@@ -19,13 +19,16 @@ public sealed class SymbolQueryService
 
     private readonly GeneratorQueryService _generators;
     private readonly SoftBudgetOptions _softBudgets;
+    private readonly IFSharpSymbolQuery? _fsharp;
 
     public SymbolQueryService(
         GeneratorQueryService generators,
-        SoftBudgetOptions? softBudgets = null)
+        SoftBudgetOptions? softBudgets = null,
+        IFSharpSymbolQuery? fsharp = null)
     {
         _generators = generators;
         _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
+        _fsharp = fsharp;
     }
 
     public async Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
@@ -39,6 +42,17 @@ public sealed class SymbolQueryService
             return (null, new SymbolNotFoundError(
                 "Symbol name is empty.",
                 "Pass a type or member name / FQN to symbol_resolve."));
+        }
+
+        if (_fsharp is not null &&
+            !string.IsNullOrWhiteSpace(projectId) &&
+            session.Solution.Projects.Any(p =>
+                p.Language == LanguageNames.FSharp &&
+                string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return await _fsharp
+                .ResolveByNameAsync(session, name, projectId, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var solution = session.Solution;
@@ -71,6 +85,13 @@ public sealed class SymbolQueryService
 
         if (matches.Count == 0)
         {
+            if (_fsharp is not null)
+            {
+                return await _fsharp
+                    .ResolveByNameAsync(session, name, projectId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             return (null, new SymbolNotFoundError(
                 $"No symbol named '{name}' was found in the ready workspace.",
                 "Confirm the name/FQN (and optional projectId), then call symbol_resolve again."));
@@ -110,6 +131,13 @@ public sealed class SymbolQueryService
         string handle,
         CancellationToken cancellationToken = default)
     {
+        if (IsFSharpHandle(handle))
+        {
+            return _fsharp is null
+                ? UnsupportedFSharpSummary()
+                : await _fsharp.GetSummaryAsync(session, handle, cancellationToken).ConfigureAwait(false);
+        }
+
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
@@ -242,6 +270,13 @@ public sealed class SymbolQueryService
         string handle,
         CancellationToken cancellationToken = default)
     {
+        if (IsFSharpHandle(handle))
+        {
+            return _fsharp is null
+                ? UnsupportedFSharpDefinition()
+                : await _fsharp.GetDefinitionAsync(session, handle, cancellationToken).ConfigureAwait(false);
+        }
+
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
@@ -327,6 +362,13 @@ public sealed class SymbolQueryService
         string? cursor = null,
         CancellationToken cancellationToken = default)
     {
+        if (IsFSharpHandle(handle))
+        {
+            return _fsharp is null
+                ? UnsupportedFSharpMembers()
+                : await _fsharp.GetMembersAsync(session, handle, limit, cursor, cancellationToken).ConfigureAwait(false);
+        }
+
         var epoch = session.Epoch;
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
@@ -1373,6 +1415,26 @@ public sealed class SymbolQueryService
 
         return new SymbolResolveSuccess(handle.Format(), summary);
     }
+
+    private static bool IsFSharpHandle(string handle) =>
+        SymbolHandle.TryParse(handle, out var parsed, out _) &&
+        parsed is not null &&
+        string.Equals(parsed.Language, FSharpLanguage, StringComparison.Ordinal);
+
+    private static (SymbolResolveSuccess? Success, SymbolQueryError? Error) UnsupportedFSharpSummary() =>
+        (null, new InvalidSymbolHandleError(
+            "Unsupported language 'fsharp'.",
+            "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
+
+    private static (SymbolDefinitionSuccess? Success, SymbolQueryError? Error) UnsupportedFSharpDefinition() =>
+        (null, new InvalidSymbolHandleError(
+            "Unsupported language 'fsharp'.",
+            "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
+
+    private static (PagedResult<MemberListItem>? Success, SymbolQueryError? Error) UnsupportedFSharpMembers() =>
+        (null, new InvalidSymbolHandleError(
+            "Unsupported language 'fsharp'.",
+            "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
 
     public static string LanguageToken(string roslynLanguage) => roslynLanguage switch
     {
