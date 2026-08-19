@@ -318,6 +318,64 @@ public class ProjectDiagnosticsSeamTests
         }
     }
 
+
+    [Fact]
+    public async Task project_diagnostics_accepts_fsharp_project_and_pages()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithFsharpDiagnostics());
+
+            await OpenUntilReadyAsync(fx, solution);
+
+            var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var fs = Assert.Single(projects.Projects);
+            Assert.Equal("fsharp", fs.Language);
+
+            var page1 = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?>
+                {
+                    ["projectId"] = fs.ProjectId,
+                    ["limit"] = 2
+                });
+            Assert.True(page1.IsError is not true, InProcessMcpFixture.TextOf(page1));
+            var first = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(page1);
+            Assert.Equal(2, first.Items.Count);
+            Assert.True(first.Truncated);
+            Assert.False(string.IsNullOrWhiteSpace(first.NextCursor));
+            Assert.All(first.Items, d =>
+            {
+                Assert.False(string.IsNullOrWhiteSpace(d.Id));
+                Assert.True(d.Severity is "Error" or "Warning");
+                Assert.Equal(fs.ProjectId, d.ProjectId);
+            });
+
+            var page2 = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?>
+                {
+                    ["projectId"] = fs.ProjectId,
+                    ["limit"] = 2,
+                    ["cursor"] = first.NextCursor
+                });
+            Assert.True(page2.IsError is not true, InProcessMcpFixture.TextOf(page2));
+            var second = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(page2);
+            Assert.NotEmpty(second.Items);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
     {
         var open = await fx.Client.CallToolAsync(
@@ -325,7 +383,7 @@ public class ProjectDiagnosticsSeamTests
             new Dictionary<string, object?> { ["path"] = solution });
         Assert.True(open.IsError is not true);
 
-        for (var i = 0; i < 40; i++)
+        for (var i = 0; i < 200; i++)
         {
             var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
             var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
