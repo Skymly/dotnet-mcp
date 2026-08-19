@@ -43,14 +43,11 @@ public sealed class RenamePreviewService
                 "Call symbol_resolve with a name/FQN to obtain a fresh SymbolHandle; do not invent handles."));
         }
 
-        if (string.Equals(parsed.Language, SymbolQueryService.FSharpLanguage, StringComparison.Ordinal) ||
-            string.Equals(parsed.Language, SymbolQueryService.VbLanguage, StringComparison.Ordinal))
+        if (string.Equals(parsed.Language, SymbolQueryService.FSharpLanguage, StringComparison.Ordinal))
         {
             return (null, new RenameLanguageNotSupportedError(
-                $"Rename preview for '{parsed.Language}' handles is not available in this release.",
-                parsed.Language == SymbolQueryService.VbLanguage
-                    ? "Use a csharp SymbolHandle. VB rename ships in a later 2.0 slice."
-                    : "F# rename is out of scope; call symbol_resolve for a handwritten C# symbol."));
+                "Rename preview for 'fsharp' handles is not available.",
+                "F# rename is out of scope; call symbol_resolve for a handwritten C# or VB symbol."));
         }
 
         var (project, symbol, resolveError) = await _symbols
