@@ -53,5 +53,17 @@ _Avoid_: generic XML file, WPF/MAUI document (as the current product surface)
 _Avoid_: code-behind-only DataContext walk
 
 **P2 VB.NET**:
-工作区可加载 SDK 风格 `.vbproj` / 混合解决方案；`workspace_list_projects` 以 `csharp` / `vb` 区分项目。VB 符号使用 `vb:` SymbolHandle，导航/分析/诊断/源生成器归因与 C# 同级。F# 仍属后续分期。
+工作区可加载 SDK 风格 `.vbproj` / 混合解决方案；`workspace_list_projects` 以 `csharp` / `vb` 区分项目。VB 符号使用 `vb:` SymbolHandle，导航/分析/诊断/源生成器归因与 C# 同级。
 _Avoid_: treating non-csharp handles as a blanket reject
+
+**P3 F#**:
+工作区可加载 SDK 风格 `.fsproj` / 混合解决方案；语言标记为 `fsharp`。F# 符号使用独立 FCS 栈上的 `fsharp:` SymbolHandle，导航/分析/诊断与 C# 同级。F# 源生成器归因不在本分期。
+_Avoid_: LSP proxy, stuffing F# into Roslyn ISymbol
+
+**InteropKind**:
+符号是否为 COM 互操作包装的正交标记（`None` / `ComImport` / `ComInteropWrapper`），不进入 Origin/Attribution。
+_Avoid_: MetadataGenerated, COM-in-Origin
+
+**Dynamic invocation site**:
+`dynamic` 调用点（IOperation），带可选的静态接收者/参数类型；不是符号归因。
+_Avoid_: treating dynamic as SymbolAttribution
