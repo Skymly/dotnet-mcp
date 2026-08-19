@@ -12,17 +12,20 @@ public sealed class ProjectTools
     private readonly WorkspaceHost _workspaceHost;
     private readonly DiagnosticQueryService _diagnostics;
     private readonly GeneratorQueryService _generators;
+    private readonly DynamicInvocationQueryService _dynamicInvocations;
     private readonly IAuditLogger _audit;
 
     public ProjectTools(
         WorkspaceHost workspaceHost,
         DiagnosticQueryService diagnostics,
         GeneratorQueryService generators,
+        DynamicInvocationQueryService dynamicInvocations,
         IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
         _diagnostics = diagnostics;
         _generators = generators;
+        _dynamicInvocations = dynamicInvocations;
         _audit = audit;
     }
 
@@ -223,6 +226,53 @@ public sealed class ProjectTools
             NextCursor = page.NextCursor,
             Message = page.Message,
             Epoch = session.Epoch
+        });
+    }
+
+
+    [McpServerTool(Name = "project_list_dynamic_invocations"), Description(
+        "List dynamic invocation / member / indexer sites in a C# or VB project, with static receiver and argument types when Roslyn knows them. " +
+        "This is an IOperation call-site listing — not SymbolAttribution. Soft budget and epoch cursors apply.")]
+    public async Task<CallToolResult> ProjectListDynamicInvocations(
+        [Description("Roslyn projectId GUID string from workspace_list_projects.")]
+        string projectId,
+        [Description("Page size (default 50, max 100).")]
+        int? limit = null,
+        [Description("Opaque nextCursor from a previous project_list_dynamic_invocations page.")]
+        string? cursor = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("project_list_dynamic_invocations");
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _dynamicInvocations
+            .ListAsync(session!, projectId, limit, cursor, softBudget: null, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        return OkResult(new ProjectListDynamicInvocationsResultDto
+        {
+            Items = success!.Items.Select(i => new DynamicInvocationItemDto
+            {
+                Kind = i.Kind,
+                FilePath = i.FilePath,
+                Start = i.Start,
+                Length = i.Length,
+                ProjectId = i.ProjectId,
+                ReceiverStaticType = i.ReceiverStaticType,
+                ArgumentStaticTypes = i.ArgumentStaticTypes
+            }).ToArray(),
+            Truncated = success.Truncated,
+            NextCursor = success.NextCursor,
+            Message = success.Message
         });
     }
 

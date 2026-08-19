@@ -337,3 +337,22 @@ public sealed record WorkspaceOpenResultDto
     };
 }
 
+
+public sealed record DynamicInvocationItemDto
+{
+    public required string Kind { get; init; }
+    public string? FilePath { get; init; }
+    public int? Start { get; init; }
+    public int? Length { get; init; }
+    public required string ProjectId { get; init; }
+    public string? ReceiverStaticType { get; init; }
+    public IReadOnlyList<string?> ArgumentStaticTypes { get; init; } = [];
+}
+
+public sealed record ProjectListDynamicInvocationsResultDto
+{
+    public required IReadOnlyList<DynamicInvocationItemDto> Items { get; init; }
+    public bool Truncated { get; init; }
+    public string? NextCursor { get; init; }
+    public string? Message { get; init; }
+}
