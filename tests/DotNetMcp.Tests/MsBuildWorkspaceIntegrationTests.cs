@@ -12,6 +12,8 @@ public class MsBuildWorkspaceIntegrationTests
     public static string MultiTfmProject => Path.Combine(FixturesRoot, "MultiTfm", "MultiTfm.csproj");
     public static string VbProject => Path.Combine(FixturesRoot, "MixedCsharpVb", "VbLib", "VbLib.vbproj");
     public static string MixedSlnx => Path.Combine(FixturesRoot, "MixedCsharpVb", "Mixed.slnx");
+    public static string FsProject => Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib", "FsLib.fsproj");
+    public static string MixedWithFsSlnx => Path.Combine(FixturesRoot, "MixedCsharpVb", "MixedWithFs.slnx");
 
     [Fact]
     public async Task workspace_open_slnx_status_ready_lists_sample_projects()
@@ -165,6 +167,67 @@ public class MsBuildWorkspaceIntegrationTests
             p.Name.Contains("VbLib", StringComparison.OrdinalIgnoreCase) && p.Language == "vb");
     }
 
+
+    [Fact]
+    public async Task workspace_open_fsproj_reaches_ready_and_lists_fsharp_language()
+    {
+        Assert.True(File.Exists(FsProject), $"Missing fixture: {FsProject}");
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(FsProject))!;
+
+        await using var fx = new InProcessMcpFixture(
+            TrustedRoots.Create([root]),
+            new MsBuildSolutionLoader());
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = FsProject });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        Assert.Equal("ready", status.Phase);
+
+        var list = await fx.Client.CallToolAsync(
+            "workspace_list_projects",
+            new Dictionary<string, object?>());
+        Assert.True(list.IsError is not true, InProcessMcpFixture.TextOf(list));
+        var body = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+
+        Assert.Contains(body.Projects, p =>
+            p.Name.Contains("FsLib", StringComparison.OrdinalIgnoreCase) && p.Language == "fsharp");
+        Assert.All(body.Projects, p => Assert.Equal("fsharp", p.Language));
+    }
+
+    [Fact]
+    public async Task workspace_open_mixed_solution_lists_csharp_vb_and_fsharp_languages()
+    {
+        Assert.True(File.Exists(MixedWithFsSlnx), $"Missing fixture: {MixedWithFsSlnx}");
+        var root = Path.GetDirectoryName(MixedWithFsSlnx)!;
+
+        await using var fx = new InProcessMcpFixture(
+            TrustedRoots.Create([root]),
+            new MsBuildSolutionLoader());
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = MixedWithFsSlnx });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        Assert.Equal("ready", status.Phase);
+
+        var list = await fx.Client.CallToolAsync(
+            "workspace_list_projects",
+            new Dictionary<string, object?>());
+        Assert.True(list.IsError is not true, InProcessMcpFixture.TextOf(list));
+        var body = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+
+        Assert.Contains(body.Projects, p =>
+            p.Name.Contains("CsLib", StringComparison.OrdinalIgnoreCase) && p.Language == "csharp");
+        Assert.Contains(body.Projects, p =>
+            p.Name.Contains("VbLib", StringComparison.OrdinalIgnoreCase) && p.Language == "vb");
+        Assert.Contains(body.Projects, p =>
+            p.Name.Contains("FsLib", StringComparison.OrdinalIgnoreCase) && p.Language == "fsharp");
+    }
     private static async Task<WorkspaceStatusDto> PollReadyAsync(InProcessMcpFixture fx, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

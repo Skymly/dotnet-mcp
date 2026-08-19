@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using DotNetMcp.Core;
 using Microsoft.CodeAnalysis;
 
 namespace DotNetMcp.Server;
@@ -17,7 +18,7 @@ public static partial class ProjectSummary
             {
                 ProjectId = p.Id.Id.ToString("D"),
                 Name = p.Name,
-                Language = LanguageToken(p),
+                Language = SymbolQueryService.LanguageToken(p.Language),
                 TargetFramework = ExtractTfm(p),
                 FilePath = p.FilePath
             })
@@ -52,11 +53,4 @@ public static partial class ProjectSummary
 
         return null;
     }
-
-    private static string LanguageToken(Project project) => project.Language switch
-    {
-        LanguageNames.CSharp => "csharp",
-        LanguageNames.VisualBasic => "vb",
-        var other => other.Replace(" ", "", StringComparison.Ordinal).ToLowerInvariant()
-    };
 }

@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="CsLib/CsLib.csproj" />
+  <Project Path="VbLib/VbLib.vbproj" />
+  <Project Path="FsLib/FsLib.fsproj" />
+</Solution>

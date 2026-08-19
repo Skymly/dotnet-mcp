@@ -77,6 +77,26 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    public static FakeSolutionLoader ImmediateWithFsharpAndCSharp(
+        string csharpProjectFilePath = @"C:\fake\CsLib.csproj",
+        string fsharpProjectFilePath = @"C:\fake\FsLib.fsproj") =>
+        new(TimeSpan.Zero, () => CreateFsharpAndCSharpLoaded(csharpProjectFilePath, fsharpProjectFilePath));
+
+    public static LoadedSolution CreateFsharpAndCSharpLoaded(string csharpProjectFilePath, string fsharpProjectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var solution = workspace.CurrentSolution;
+
+        solution = AddEmptyProject(solution, "CsLib", csharpProjectFilePath);
+        solution = AddEmptyFsharpProject(solution, "FsLib", fsharpProjectFilePath);
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace F#+C# fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
 
     public static FakeSolutionLoader ImmediateWithVbSymbols(
         string root = @"C:\fake") =>
@@ -1143,4 +1163,23 @@ public sealed class FakeSolutionLoader : ISolutionLoader
             projectId,
             new VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
     }
-}
+
+    private static Solution AddEmptyFsharpProject(Solution solution, string name, string filePath)
+    {
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        solution = solution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            name,
+            name,
+            LanguageNames.FSharp,
+            filePath: filePath));
+
+        solution = solution.AddDocument(
+            docId,
+            "Placeholder.fs",
+            SourceText.From("module Placeholder"));
+
+        return solution;
+    }}
