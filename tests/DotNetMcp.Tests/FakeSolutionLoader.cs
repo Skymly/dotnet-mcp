@@ -655,6 +655,10 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         string projectFilePath = @"C:\fake\AvaloniaApp.csproj") =>
         new(TimeSpan.Zero, () => CreateAvaloniaLoaded(projectFilePath));
 
+    public static FakeSolutionLoader ImmediateWithMaui(
+        string projectFilePath = @"C:\fake\MauiApp.csproj") =>
+        new(TimeSpan.Zero, () => CreateMauiLoaded(projectFilePath));
+
     /// <summary>
     /// Avalonia-shaped code-behind type for x:Class resolution. Does not load WPF/MAUI/WinUI.
     /// </summary>
@@ -773,6 +777,58 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         if (!workspace.TryApplyChanges(solution))
         {
             throw new InvalidOperationException("Failed to apply AdhocWorkspace Avalonia fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    public static LoadedSolution CreateMauiLoaded(string projectFilePath = @"C:\fake\MauiApp.csproj")
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "MauiApp",
+            "MauiApp",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+        const string source = """
+            namespace MauiPage;
+
+            public partial class MainPage
+            {
+                public MainPage()
+                {
+                }
+
+                // Stands in for Microsoft.Maui.Controls.SourceGen x:Name field (Spike S5).
+                private object TitleLabel = new();
+            }
+
+            public sealed class MainViewModel
+            {
+                public string Title { get; set; } = "hello";
+            }
+            """;
+        solution = solution.AddDocument(
+            docId,
+            "MainPage.xaml.cs",
+            SourceText.From(source),
+            filePath: Path.Combine(projectDir, "MainPage.xaml.cs"));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace MAUI fixture.");
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
