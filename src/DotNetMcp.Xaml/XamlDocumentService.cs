@@ -144,9 +144,21 @@ public sealed class XamlDocumentService
 
         if (string.IsNullOrWhiteSpace(typeName))
         {
-            return (null, new MissingDataTypeError(
-                "No x:DataType was found for the Binding path.",
-                "Set x:DataType (CompiledBindings) on the element or pass dataType to xaml_resolve_binding."), null);
+            var (fromContext, contextError) = await TryResolveStaticDataContextTypeAsync(
+                session, root!, cancellationToken).ConfigureAwait(false);
+            if (contextError is not null)
+            {
+                return (null, null, contextError);
+            }
+
+            if (fromContext is null)
+            {
+                return (null, new MissingDataTypeError(
+                    "No x:DataType was found, and code-behind has no static DataContext type.",
+                    "Set x:DataType, or declare DataContext as a typed field/property / `DataContext = new Foo()` in the constructor."), null);
+            }
+
+            typeName = fromContext;
         }
 
         var resolvedTypeName = ResolveTypeName(typeName.Trim(), xmlns!);
@@ -512,6 +524,81 @@ public sealed class XamlDocumentService
         return (clr, assembly);
     }
 
+    private async Task<(string? TypeName, SymbolQueryError? Error)> TryResolveStaticDataContextTypeAsync(
+        IWorkspaceSession session,
+        XamlDocumentRoot root,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(root.ClassName))
+        {
+            return (null, null);
+        }
+
+        var (resolved, symbolError) = await _symbols
+            .ResolveByNameAsync(session, root.ClassName, projectId: null, cancellationToken)
+            .ConfigureAwait(false);
+        if (symbolError is not null || resolved is null)
+        {
+            return (null, symbolError);
+        }
+
+        var (_, symbol, handleError) = await _symbols
+            .ResolveHandleSymbolAsync(session, resolved.Handle, cancellationToken)
+            .ConfigureAwait(false);
+        if (handleError is not null || symbol is not INamedTypeSymbol type)
+        {
+            return (null, handleError);
+        }
+
+        foreach (var member in type.GetMembers("DataContext"))
+        {
+            ITypeSymbol? declared = member switch
+            {
+                IPropertySymbol property => property.Type,
+                IFieldSymbol field => field.Type,
+                _ => null
+            };
+            if (declared is null ||
+                declared.SpecialType == SpecialType.System_Object ||
+                declared.TypeKind == TypeKind.Dynamic)
+            {
+                continue;
+            }
+
+            return (declared.ToDisplayString(), null);
+        }
+
+        foreach (var ctor in type.InstanceConstructors)
+        {
+            foreach (var syntaxRef in ctor.DeclaringSyntaxReferences)
+            {
+                var text = (await syntaxRef.GetSyntaxAsync(cancellationToken).ConfigureAwait(false)).ToString();
+                foreach (var marker in new[] { "DataContext = new ", "DataContext=new ", "DataContext = New ", "Me.DataContext = New " })
+                {
+                    var idx = text.IndexOf(marker, StringComparison.Ordinal);
+                    if (idx < 0)
+                    {
+                        continue;
+                    }
+
+                    var start = idx + marker.Length;
+                    var end = start;
+                    while (end < text.Length && (char.IsLetterOrDigit(text[end]) || text[end] is '.' or '_'))
+                    {
+                        end++;
+                    }
+
+                    if (end > start)
+                    {
+                        return (text[start..end], null);
+                    }
+                }
+            }
+        }
+
+        return (null, null);
+    }
+
     private static async Task<string?> ResolveDefaultAssemblyNameAsync(
         IWorkspaceSession session,
         string? className,
@@ -519,7 +606,7 @@ public sealed class XamlDocumentService
     {
         if (!string.IsNullOrWhiteSpace(className))
         {
-            foreach (var project in session.Solution.Projects.Where(p => p.Language == LanguageNames.CSharp))
+            foreach (var project in session.Solution.Projects.Where(p => p.Language is LanguageNames.CSharp or LanguageNames.VisualBasic))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 Compilation compilation;
@@ -539,7 +626,7 @@ public sealed class XamlDocumentService
             }
         }
 
-        var first = session.Solution.Projects.FirstOrDefault(p => p.Language == LanguageNames.CSharp);
+        var first = session.Solution.Projects.FirstOrDefault(p => p.Language is LanguageNames.CSharp or LanguageNames.VisualBasic);
         return first?.AssemblyName ?? first?.Name;
     }
 

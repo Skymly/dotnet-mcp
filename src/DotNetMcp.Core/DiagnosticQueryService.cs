@@ -26,9 +26,8 @@ public sealed class DiagnosticQueryService
     {
         if (string.IsNullOrWhiteSpace(projectId))
         {
-            return (null, new ProjectNotFoundError(
-                "projectId is required.",
-                "Call workspace_list_projects for valid projectId values, then retry project_diagnostics."));
+            return await GetBatchDiagnosticsAsync(session, limit, cursor, softBudget, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var fsharpProject = session.Solution.Projects.FirstOrDefault(p =>
@@ -153,6 +152,82 @@ public sealed class DiagnosticQueryService
                 ? "Project has no error or warning diagnostics."
                 : "Diagnostics page complete.";
 
+        return (new PagedResult<DiagnosticItem>(slice, truncated, nextCursor, message), null);
+    }
+
+    private async Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetBatchDiagnosticsAsync(
+        IWorkspaceSession session,
+        int? limit,
+        string? cursor,
+        TimeSpan? softBudget,
+        CancellationToken cancellationToken)
+    {
+        var epoch = session.Epoch;
+        var pageLimit = ClampLimit(limit);
+        var offset = 0;
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
+            {
+                return (null, new StaleCursorError(
+                    cursorError ?? "Cursor is invalid.",
+                    "Call project_diagnostics again without a cursor to start a fresh page."));
+            }
+
+            if (cursorEpoch != epoch)
+            {
+                return (null, new StaleCursorError(
+                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
+                    "Call project_diagnostics again without a cursor; do not retry with the stale cursor."));
+            }
+        }
+
+        var budget = softBudget ?? _softBudgets.BatchDiagnostics;
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var collected = new List<DiagnosticItem>();
+        var stoppedEarly = false;
+        foreach (var project in session.Solution.Projects)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (started.Elapsed >= budget)
+            {
+                stoppedEarly = true;
+                break;
+            }
+
+            var remaining = budget - started.Elapsed;
+            var (page, error) = await GetProjectDiagnosticsAsync(
+                    session,
+                    project.Id.Id.ToString("D"),
+                    limit: 100,
+                    cursor: null,
+                    softBudget: remaining,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (error is not null)
+            {
+                continue;
+            }
+
+            collected.AddRange(page!.Items);
+        }
+
+        if (offset > collected.Count)
+        {
+            return (null, new StaleCursorError(
+                "Cursor offset is past the end of the diagnostics list.",
+                "Call project_diagnostics again without a cursor to start a fresh page."));
+        }
+
+        var slice = collected.Skip(offset).Take(pageLimit).ToList();
+        var nextOffset = offset + slice.Count;
+        var truncated = nextOffset < collected.Count || stoppedEarly;
+        string? nextCursor = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
+        var message = truncated
+            ? "Batch diagnostics truncated; pass nextCursor to project_diagnostics to continue (do not restart from the first page)."
+            : collected.Count == 0
+                ? "Workspace has no error or warning diagnostics."
+                : "Batch diagnostics page complete.";
         return (new PagedResult<DiagnosticItem>(slice, truncated, nextCursor, message), null);
     }
 

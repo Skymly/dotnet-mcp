@@ -35,8 +35,8 @@ public sealed class ProjectTools
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
         "Cursors bind to the workspace epoch.")]
     public async Task<CallToolResult> ProjectDiagnostics(
-        [Description("Roslyn projectId GUID string from workspace_list_projects.")]
-        string projectId,
+        [Description("Optional Roslyn projectId. Omit to page diagnostics across projects using the batch soft budget.")]
+        string? projectId = null,
         [Description("Page size (default 50, max 100).")]
         int? limit = null,
         [Description("Opaque nextCursor from a previous project_diagnostics page.")]
@@ -54,7 +54,7 @@ public sealed class ProjectTools
         var (success, error) = await _diagnostics
             .GetProjectDiagnosticsAsync(
                 session!,
-                projectId,
+                projectId ?? string.Empty,
                 limit,
                 cursor,
                 softBudget: null,
