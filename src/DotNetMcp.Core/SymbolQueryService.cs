@@ -123,6 +123,17 @@ public sealed class SymbolQueryService
         }
 
         var (projectHit, symbolHit) = matches[0];
+        if (_fsharp is not null && symbolHit.Locations.All(static l => !l.IsInSource))
+        {
+            var fsharpHit = await _fsharp
+                .ResolveByNameAsync(session, name, projectId, cancellationToken)
+                .ConfigureAwait(false);
+            if (fsharpHit.Success is not null)
+            {
+                return fsharpHit;
+            }
+        }
+
         return (ToSuccess(projectHit, symbolHit), null);
     }
 
@@ -443,6 +454,19 @@ public sealed class SymbolQueryService
         string? cursor = null,
         CancellationToken cancellationToken = default)
     {
+        if (IsFSharpHandle(handle))
+        {
+            if (_fsharp is null)
+            {
+                return (null, new InvalidSymbolHandleError(
+                    "Unsupported language 'fsharp'.",
+                    "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
+            }
+
+            return await _fsharp.FindImplementationsAsync(session, handle, limit, cursor, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         var epoch = session.Epoch;
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
@@ -552,6 +576,19 @@ public sealed class SymbolQueryService
         string? cursor = null,
         CancellationToken cancellationToken = default)
     {
+        if (IsFSharpHandle(handle))
+        {
+            if (_fsharp is null)
+            {
+                return (null, new InvalidSymbolHandleError(
+                    "Unsupported language 'fsharp'.",
+                    "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
+            }
+
+            return await _fsharp.GetTypeHierarchyAsync(session, handle, limit, cursor, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         var epoch = session.Epoch;
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
@@ -630,6 +667,19 @@ public sealed class SymbolQueryService
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
+        if (IsFSharpHandle(handle))
+        {
+            if (_fsharp is null)
+            {
+                return (null, new InvalidSymbolHandleError(
+                    "Unsupported language 'fsharp'.",
+                    "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
+            }
+
+            return await _fsharp.FindCallersAsync(session, handle, limit, cursor, softBudget, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         var solution = session.Solution;
         var epoch = session.Epoch;
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
@@ -801,6 +851,20 @@ public sealed class SymbolQueryService
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
+        if (IsFSharpHandle(handle))
+        {
+            if (_fsharp is null)
+            {
+                return (null, new InvalidSymbolHandleError(
+                    "Unsupported language 'fsharp'.",
+                    "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
+            }
+
+            return await _fsharp.FindReferencesAsync(
+                    session, handle, entireSolution, limit, cursor, softBudget, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         var solution = session.Solution;
         var epoch = session.Epoch;
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
