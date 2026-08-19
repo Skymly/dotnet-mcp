@@ -28,6 +28,50 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader DelayedMultiTfm(TimeSpan delay, string projectFilePath = @"C:\fake\Widget.csproj") =>
         new(delay, () => CreateMultiTfmLoaded(projectFilePath));
 
+    public static FakeSolutionLoader ImmediateWithDynamic(string projectFilePath = @"C:\fake\DynLib.csproj") =>
+        new(TimeSpan.Zero, () => CreateDynamicLoaded(projectFilePath));
+
+    public static LoadedSolution CreateDynamicLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        const string source = """
+            namespace DynLib;
+
+            public static class Host
+            {
+                public static object Run(dynamic d)
+                {
+                    var a = d.Foo(1, "x");
+                    var b = 1 + 2;
+                    return a;
+                }
+            }
+            """;
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "DynLib",
+            "DynLib",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+        solution = solution.AddDocument(docId, "Host.cs", SourceText.From(source), filePath: Path.Combine(projectDir, "Host.cs"));
+        solution = solution.WithProjectCompilationOptions(projectId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace dynamic fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithComInterop(string projectFilePath = @"C:\fake\ComLib.csproj") =>
         new(TimeSpan.Zero, () => CreateComInteropLoaded(projectFilePath));
 
