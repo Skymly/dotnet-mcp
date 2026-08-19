@@ -43,6 +43,7 @@ public static class PolicyErrorCodes
     public const string PreviewExpired = "PreviewExpired";
     public const string PreviewEpochMismatch = "PreviewEpochMismatch";
     public const string PreviewPathOutsideTrustedRoots = "PreviewPathOutsideTrustedRoots";
+    public const string PreviewTargetMissing = "PreviewTargetMissing";
 }
 
 public sealed record XamlBindingSegmentDto
@@ -380,5 +381,14 @@ public sealed record SymbolPreviewRenameResultDto
     public required string OldHandle { get; init; }
     public required string NewName { get; init; }
     public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
+    public required IReadOnlyList<string> InvalidatedHandles { get; init; }
+}
+
+
+public sealed record SymbolApplyRenameResultDto
+{
+    public required string PreviewId { get; init; }
+    public required long Epoch { get; init; }
+    public required IReadOnlyList<string> WrittenPaths { get; init; }
     public required IReadOnlyList<string> InvalidatedHandles { get; init; }
 }

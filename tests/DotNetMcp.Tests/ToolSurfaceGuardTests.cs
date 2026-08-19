@@ -15,6 +15,7 @@ public class ToolSurfaceGuardTests
         "project_list_generator_diagnostics",
         "project_list_dynamic_invocations",
         "project_list_generators",
+        "symbol_apply_rename",
         "symbol_attribution",
         "symbol_find_callers",
         "symbol_find_implementations",
