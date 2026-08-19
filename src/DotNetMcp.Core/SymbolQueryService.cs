@@ -9,6 +9,7 @@ public sealed class SymbolQueryService
 {
     public const string CSharpLanguage = "csharp";
     public const string VbLanguage = "vb";
+    public const string FSharpLanguage = "fsharp";
     public const int DefaultMemberPageLimit = 50;
     public const int MaxMemberPageLimit = 100;
     public static readonly TimeSpan DependencyClosureSoftBudget =
@@ -1377,6 +1378,7 @@ public sealed class SymbolQueryService
     {
         LanguageNames.CSharp => CSharpLanguage,
         LanguageNames.VisualBasic => VbLanguage,
+        LanguageNames.FSharp => FSharpLanguage,
         var other => other.Replace(" ", "", StringComparison.Ordinal).ToLowerInvariant()
     };
 
