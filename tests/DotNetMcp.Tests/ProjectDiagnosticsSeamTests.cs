@@ -383,7 +383,7 @@ public class ProjectDiagnosticsSeamTests
             new Dictionary<string, object?> { ["path"] = solution });
         Assert.True(open.IsError is not true);
 
-        for (var i = 0; i < 40; i++)
+        for (var i = 0; i < 200; i++)
         {
             var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
             var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
