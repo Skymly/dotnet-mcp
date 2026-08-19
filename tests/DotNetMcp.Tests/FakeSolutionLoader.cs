@@ -77,6 +77,72 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    public static FakeSolutionLoader ImmediateWithFsharpSymbols(string root = @"C:\fake") =>
+        new(TimeSpan.Zero, () => CreateFsharpSymbolsLoaded(root));
+
+    public static LoadedSolution CreateFsharpSymbolsLoaded(string root)
+    {
+        var workspace = new AdhocWorkspace();
+        var fsId = ProjectId.CreateNewId();
+        var csId = ProjectId.CreateNewId();
+        var widgetDoc = DocumentId.CreateNewId(fsId);
+        var callerDoc = DocumentId.CreateNewId(csId);
+
+        var fsDir = Path.Combine(root, "FsLib");
+        var csDir = Path.Combine(root, "CsLib");
+        Directory.CreateDirectory(fsDir);
+        Directory.CreateDirectory(csDir);
+        var widgetPath = Path.Combine(fsDir, "Widget.fs");
+        var callerPath = Path.Combine(csDir, "Caller.cs");
+
+        const string widgetSource = """
+            module FsLib.Widget
+
+            let ping () = "fs"
+            """;
+        const string callerSource = """
+            namespace CsLib;
+            public static class Caller
+            {
+                public static string Hi() => "cs";
+            }
+            """;
+
+        File.WriteAllText(widgetPath, widgetSource);
+        File.WriteAllText(callerPath, callerSource);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            fsId,
+            VersionStamp.Create(),
+            "FsLib",
+            "FsLib",
+            LanguageNames.FSharp,
+            filePath: Path.Combine(fsDir, "FsLib.fsproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            csId,
+            VersionStamp.Create(),
+            "CsLib",
+            "CsLib",
+            LanguageNames.CSharp,
+            filePath: Path.Combine(csDir, "CsLib.csproj")));
+        solution = solution.AddDocument(widgetDoc, "Widget.fs", SourceText.From(widgetSource), filePath: widgetPath);
+        solution = solution.AddDocument(callerDoc, "Caller.cs", SourceText.From(callerSource), filePath: callerPath);
+        solution = solution.WithProjectCompilationOptions(
+            csId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(csId, metadata);
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace F# symbols fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithFsharpAndCSharp(
         string csharpProjectFilePath = @"C:\fake\CsLib.csproj",
         string fsharpProjectFilePath = @"C:\fake\FsLib.fsproj") =>

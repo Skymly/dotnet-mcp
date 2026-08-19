@@ -1,4 +1,5 @@
 using DotNetMcp.Core;
+using DotNetMcp.FSharp;
 using DotNetMcp.Xaml;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -35,6 +36,7 @@ public static class ServerHost
         }
 
         services.AddSingleton<WorkspaceHost>();
+        services.AddSingleton<IFSharpSymbolQuery, FSharpSymbolQueryService>();
         services.AddSingleton<SymbolQueryService>();
         services.AddSingleton<DiagnosticQueryService>();
         services.AddSingleton<GeneratorQueryService>();

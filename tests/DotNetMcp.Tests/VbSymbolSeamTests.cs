@@ -235,7 +235,7 @@ public class VbSymbolSeamTests
             var missingBody = InProcessMcpFixture.Deserialize<PolicyErrorDto>(missing);
             Assert.Equal(PolicyErrorCodes.SymbolNotFound, missingBody.Error);
 
-            var otherLang = SymbolHandle.Create("fsharp", vbProject.ProjectId, "VbLib.Widget");
+            var otherLang = SymbolHandle.Create("python", vbProject.ProjectId, "VbLib.Widget");
             var unsupported = await fx.Client.CallToolAsync(
                 "symbol_summary",
                 new Dictionary<string, object?> { ["handle"] = otherLang.Format() });
