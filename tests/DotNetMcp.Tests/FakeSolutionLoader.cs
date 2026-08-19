@@ -54,8 +54,7 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         var workspace = new AdhocWorkspace();
         var projectId = ProjectId.CreateNewId();
         var docId = DocumentId.CreateNewId(projectId);
-        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
-        Directory.CreateDirectory(projectDir);
+        var projectDir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-broken-fs");
         var filePath = Path.Combine(projectDir, "Broken.fs");
         const string source = """
             module Broken
@@ -64,7 +63,6 @@ public sealed class FakeSolutionLoader : ISolutionLoader
             let beta: int = "also-bad"
             let gamma: int = "still-bad"
             """;
-        File.WriteAllText(filePath, source);
 
         var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
             projectId,
