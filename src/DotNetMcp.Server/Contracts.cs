@@ -36,6 +36,13 @@ public static class PolicyErrorCodes
     public const string BindingPropertyNotFound = "BindingPropertyNotFound";
     public const string BindingTypeMismatch = "BindingTypeMismatch";
     public const string MissingDataType = "MissingDataType";
+    public const string GeneratedSymbolRenameRefused = "GeneratedSymbolRenameRefused";
+    public const string RenameLanguageNotSupported = "RenameLanguageNotSupported";
+    public const string InvalidRenameName = "InvalidRenameName";
+    public const string PreviewNotFound = "PreviewNotFound";
+    public const string PreviewExpired = "PreviewExpired";
+    public const string PreviewEpochMismatch = "PreviewEpochMismatch";
+    public const string PreviewPathOutsideTrustedRoots = "PreviewPathOutsideTrustedRoots";
 }
 
 public sealed record XamlBindingSegmentDto
@@ -355,4 +362,23 @@ public sealed record ProjectListDynamicInvocationsResultDto
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
     public string? Message { get; init; }
+}
+
+
+public sealed record RenameDocumentSliceDto
+{
+    public required string Path { get; init; }
+    public required string OldText { get; init; }
+    public required string NewText { get; init; }
+}
+
+public sealed record SymbolPreviewRenameResultDto
+{
+    public required string PreviewId { get; init; }
+    public required long Epoch { get; init; }
+    public required DateTimeOffset ExpiresAt { get; init; }
+    public required string OldHandle { get; init; }
+    public required string NewName { get; init; }
+    public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
+    public required IReadOnlyList<string> InvalidatedHandles { get; init; }
 }

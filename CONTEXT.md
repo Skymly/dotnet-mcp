@@ -1,6 +1,6 @@
 # DotNetMCP
 
-面向 AI 编程助手的 .NET 读侧 MCP 服务器上下文：解决方案工作区、符号句柄与源生成器归因。架构取舍见 `docs/adr/`。
+面向 AI 编程助手的 .NET MCP 服务器上下文：解决方案工作区、符号句柄、源生成器归因，以及受限的可预览 Workspace Edit。架构取舍见 `docs/adr/`。
 
 ## Language
 
@@ -41,8 +41,16 @@ _Avoid_: "generated" boolean without generator identity
 _Avoid_: stale cache (without the drift/check semantics)
 
 **Read-only tool surface**:
-当前产品阶段仅提供导航、分析、诊断与归因类工具的工具面边界。
-_Avoid_: refactor tools, apply_edit in v0
+读工具（导航、分析、诊断、归因）的工具面。写侧只有显式 opt-in 的 Workspace Edit，不是通用写。
+_Avoid_: treating the whole server as read-only after 2.0; apply_edit / patch_file / write / shell
+
+**Workspace Edit**:
+一次受限写操作的 preview / apply 合同：按文件的路径 + 旧/新文本 + 将失效的 SymbolHandle。必须先 preview。
+_Avoid_: apply_edit, patch_file, generic write
+
+**Rename preview**:
+针对手写符号的 Workspace Edit 预览（`symbol_preview_rename`）。带 Epoch + TTL 的不透明 previewId；`Origin = SourceGenerator` 拒绝。本分期 apply 另票。
+_Avoid_: renaming generated members; writing disk from preview
 
 **XAML document**:
 受信根内的 Avalonia `.axaml` 文档；P1 只注册 Avalonia，不加载其它 UI 框架。

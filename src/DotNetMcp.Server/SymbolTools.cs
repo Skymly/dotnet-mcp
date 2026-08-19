@@ -11,12 +11,21 @@ public sealed class SymbolTools
 {
     private readonly WorkspaceHost _workspaceHost;
     private readonly SymbolQueryService _symbols;
+    private readonly RenamePreviewService _renames;
+    private readonly TrustedRoots _trustedRoots;
     private readonly IAuditLogger _audit;
 
-    public SymbolTools(WorkspaceHost workspaceHost, SymbolQueryService symbols, IAuditLogger audit)
+    public SymbolTools(
+        WorkspaceHost workspaceHost,
+        SymbolQueryService symbols,
+        RenamePreviewService renames,
+        TrustedRoots trustedRoots,
+        IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
         _symbols = symbols;
+        _renames = renames;
+        _trustedRoots = trustedRoots;
         _audit = audit;
     }
 
@@ -308,6 +317,71 @@ public sealed class SymbolTools
         }
 
         return OkResult(ToCallersDto(success!));
+    }
+
+    [McpServerTool(Name = "symbol_preview_rename"), Description(
+        "Preview renaming a handwritten C# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
+        "handles that will become invalid) and an opaque previewId bound to the current workspace Epoch + TTL. " +
+        "Does not write disk. SourceGenerator Origin is refused. There is no generic apply_edit / write / shell.")]
+    public async Task<CallToolResult> SymbolPreviewRename(
+        [Description("Handwritten C# SymbolHandle from symbol_resolve.")]
+        string handle,
+        [Description("New identifier (unqualified).")]
+        string newName,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_preview_rename");
+
+        if (!TryGetReadySession(out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (draft, error) = await _renames
+            .BuildAsync(session!, handle, newName, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return ErrorResult(ToPolicyError(error));
+        }
+
+        foreach (var slice in draft!.Documents)
+        {
+            if (!_trustedRoots.Contains(slice.Path))
+            {
+                return ErrorResult(new PolicyErrorDto
+                {
+                    Error = PolicyErrorCodes.PreviewPathOutsideTrustedRoots,
+                    Message = "Rename preview includes a path outside trusted roots; the preview was not stored.",
+                    SuggestedAction = "Open a workspace whose documents all sit under a trusted root, then retry."
+                });
+            }
+        }
+
+        var documents = draft.Documents.Select(d => new RenameDocumentSliceDto
+        {
+            Path = d.Path,
+            OldText = d.OldText,
+            NewText = d.NewText
+        }).ToArray();
+
+        var stored = _workspaceHost.StoreRenamePreview(
+            draft.OldHandle,
+            draft.NewName,
+            documents,
+            draft.InvalidatedHandles);
+
+        return OkResult(new SymbolPreviewRenameResultDto
+        {
+            PreviewId = stored.PreviewId,
+            Epoch = stored.Epoch,
+            ExpiresAt = stored.ExpiresAt,
+            OldHandle = stored.OldHandle,
+            NewName = stored.NewName,
+            Documents = stored.Documents,
+            InvalidatedHandles = stored.InvalidatedHandles
+        });
     }
 
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)

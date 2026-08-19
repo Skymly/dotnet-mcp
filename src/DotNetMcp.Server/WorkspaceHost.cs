@@ -34,6 +34,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
     private readonly HashSet<string> _pendingPaths = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _debounceCts;
     private readonly GeneratorRunCache _generatorRunCache = new();
+    private readonly RenamePreviewStore _renamePreviews = new();
     private CompilationLru _compilationLru;
 
     public WorkspaceHost(ISolutionLoader loader, WorkspaceHostOptions options)
@@ -55,6 +56,8 @@ public sealed class WorkspaceHost : IAsyncDisposable
 
     public WriteSuppression WriteSuppression => _options.WriteSuppression;
 
+    public RenamePreviewStore RenamePreviews => _renamePreviews;
+
     public long CurrentEpoch
     {
         get
@@ -72,6 +75,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
 
         CancelInFlightUnlocked();
         StopWatcher();
+        _renamePreviews.Clear();
 
         lock (_gate)
         {
@@ -127,6 +131,25 @@ public sealed class WorkspaceHost : IAsyncDisposable
         // Replace the instance so in-flight sessions keep the previous epoch's compilations.
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
     }
+
+    public StoredRenamePreview StoreRenamePreview(
+        string oldHandle,
+        string newName,
+        IReadOnlyList<RenameDocumentSliceDto> documents,
+        IReadOnlyList<string> invalidatedHandles)
+    {
+        var now = _options.TimeProvider.GetUtcNow();
+        return _renamePreviews.Add(
+            CurrentEpoch,
+            now + _options.RenamePreviewTtl,
+            oldHandle,
+            newName,
+            documents,
+            invalidatedHandles);
+    }
+
+    public (StoredRenamePreview? Preview, string? ErrorCode) TryGetRenamePreview(string previewId) =>
+        _renamePreviews.TryGet(previewId, CurrentEpoch, _options.TimeProvider.GetUtcNow());
 
     /// <summary>
     /// Drift fallback (ADR-0002): compare disk vs workspace; repair source mismatches; bump epoch when repaired.

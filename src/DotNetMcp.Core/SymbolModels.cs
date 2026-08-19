@@ -93,6 +93,15 @@ public sealed record DefinitionNotFoundError(string Message, string SuggestedAct
 public sealed record MemberNotFoundError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.MemberNotFound, Message, SuggestedAction);
 
+public sealed record GeneratedSymbolRenameRefusedError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.GeneratedSymbolRenameRefused, Message, SuggestedAction);
+
+public sealed record RenameLanguageNotSupportedError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.RenameLanguageNotSupported, Message, SuggestedAction);
+
+public sealed record InvalidRenameNameError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.InvalidRenameName, Message, SuggestedAction);
+
 public static class SymbolQueryErrorCodes
 {
     public const string InvalidSymbolHandle = "InvalidSymbolHandle";
@@ -105,6 +114,9 @@ public static class SymbolQueryErrorCodes
     public const string CompilationUnavailable = "CompilationUnavailable";
     public const string SoftBudgetExceeded = "SoftBudgetExceeded";
     public const string GeneratorNotFound = "GeneratorNotFound";
+    public const string GeneratedSymbolRenameRefused = "GeneratedSymbolRenameRefused";
+    public const string RenameLanguageNotSupported = "RenameLanguageNotSupported";
+    public const string InvalidRenameName = "InvalidRenameName";
 }
 
 public static class DeclarationAvailability

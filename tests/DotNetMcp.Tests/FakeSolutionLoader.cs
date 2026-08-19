@@ -160,6 +160,9 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader ImmediateWithSymbolsOnDisk(string projectDir) =>
         new(TimeSpan.Zero, () => CreateSymbolsLoadedOnDisk(projectDir));
 
+    public static FakeSolutionLoader ImmediateWithRenameOnDisk(string projectDir) =>
+        new(TimeSpan.Zero, () => CreateRenameLoadedOnDisk(projectDir));
+
     public static FakeSolutionLoader DelayedWithSymbols(
         TimeSpan delay,
         string projectFilePath = @"C:\fake\SampleLib.csproj") =>
@@ -814,6 +817,65 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         return CreateSymbolsLoaded(projectFilePath);
     }
 
+
+    public static LoadedSolution CreateRenameLoadedOnDisk(string projectDir)
+    {
+        Directory.CreateDirectory(projectDir);
+        var projectFilePath = Path.Combine(projectDir, "RenameApp.csproj");
+        File.WriteAllText(projectFilePath, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        var widgetPath = Path.Combine(projectDir, "Widget.cs");
+        var callerPath = Path.Combine(projectDir, "Caller.cs");
+        File.WriteAllText(widgetPath, """
+            namespace RenameApp;
+
+            public sealed class Widget
+            {
+                public int Ping(int value) => value + 1;
+            }
+            """);
+        File.WriteAllText(callerPath, """
+            namespace RenameApp;
+
+            public static class Caller
+            {
+                public static int Use(Widget widget) => widget.Ping(2);
+            }
+            """);
+
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "RenameApp",
+            "RenameApp",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(projectId),
+            "Widget.cs",
+            SourceText.From(File.ReadAllText(widgetPath)),
+            filePath: widgetPath);
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(projectId),
+            "Caller.cs",
+            SourceText.From(File.ReadAllText(callerPath)),
+            filePath: callerPath);
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace rename fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
 
     public static LoadedSolution CreateVbGeneratorsLoaded(string projectFilePath)
     {

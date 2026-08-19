@@ -38,6 +38,7 @@ public static class ServerHost
         services.AddSingleton<WorkspaceHost>();
         services.AddSingleton<IFSharpSymbolQuery, FSharpSymbolQueryService>();
         services.AddSingleton<SymbolQueryService>();
+        services.AddSingleton<RenamePreviewService>();
         services.AddSingleton<DiagnosticQueryService>();
         services.AddSingleton<DynamicInvocationQueryService>();
         services.AddSingleton<GeneratorQueryService>();

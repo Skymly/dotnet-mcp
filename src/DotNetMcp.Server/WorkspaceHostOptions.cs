@@ -21,4 +21,9 @@ public sealed class WorkspaceHostOptions
     /// Per-request compilation LRU capacity (ADR-0002 / Spike S2). Default 50; &lt;= 0 is unlimited.
     /// </summary>
     public int CompilationLruCapacity { get; init; } = WorkspaceSession.DefaultCompilationLruCapacity;
+
+    /// <summary>TTL for stored rename previews (Spike S4). Default 5 minutes.</summary>
+    public TimeSpan RenamePreviewTtl { get; init; } = TimeSpan.FromMinutes(5);
+
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 }
