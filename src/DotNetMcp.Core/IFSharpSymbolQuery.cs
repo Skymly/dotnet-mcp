@@ -58,4 +58,13 @@ public interface IFSharpSymbolQuery
         string? cursor = null,
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default);
+
+    Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
+        IWorkspaceSession session,
+        string projectId,
+        int? limit = null,
+        string? cursor = null,
+        TimeSpan? softBudget = null,
+        CancellationToken cancellationToken = default);
 }
+

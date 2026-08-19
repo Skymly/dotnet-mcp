@@ -8,10 +8,12 @@ public sealed class DiagnosticQueryService
         SoftBudgetOptions.Default.SingleProjectCompile;
 
     private readonly SoftBudgetOptions _softBudgets;
+    private readonly IFSharpSymbolQuery? _fsharp;
 
-    public DiagnosticQueryService(SoftBudgetOptions? softBudgets = null)
+    public DiagnosticQueryService(SoftBudgetOptions? softBudgets = null, IFSharpSymbolQuery? fsharp = null)
     {
         _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
+        _fsharp = fsharp;
     }
 
     public async Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
@@ -27,6 +29,23 @@ public sealed class DiagnosticQueryService
             return (null, new ProjectNotFoundError(
                 "projectId is required.",
                 "Call workspace_list_projects for valid projectId values, then retry project_diagnostics."));
+        }
+
+        var fsharpProject = session.Solution.Projects.FirstOrDefault(p =>
+            p.Language == LanguageNames.FSharp &&
+            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        if (fsharpProject is not null)
+        {
+            if (_fsharp is null)
+            {
+                return (null, new ProjectNotFoundError(
+                    $"No project with projectId '{projectId}' is in the ready workspace.",
+                    "Call workspace_list_projects for valid projectId values, then retry project_diagnostics."));
+            }
+
+            return await _fsharp
+                .GetProjectDiagnosticsAsync(session, projectId, limit, cursor, softBudget, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var project = session.Solution.Projects

@@ -45,6 +45,44 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader ImmediateWithFindRefsGraph(string root = @"C:\fake") =>
         new(TimeSpan.Zero, () => CreateFindRefsGraphLoaded(root));
 
+    public static FakeSolutionLoader ImmediateWithFsharpDiagnostics(
+        string projectFilePath = @"C:\fake\BrokenFs.fsproj") =>
+        new(TimeSpan.Zero, () => CreateFsharpDiagnosticsLoaded(projectFilePath));
+
+    public static LoadedSolution CreateFsharpDiagnosticsLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        Directory.CreateDirectory(projectDir);
+        var filePath = Path.Combine(projectDir, "Broken.fs");
+        const string source = """
+            module Broken
+
+            let alpha: int = "not-an-int"
+            let beta: int = "also-bad"
+            let gamma: int = "still-bad"
+            """;
+        File.WriteAllText(filePath, source);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "BrokenFs",
+            "BrokenFs",
+            LanguageNames.FSharp,
+            filePath: projectFilePath));
+        solution = solution.AddDocument(docId, "Broken.fs", SourceText.From(source), filePath: filePath);
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace F# diagnostics fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithVbDiagnostics(
         string projectFilePath = @"C:\fake\BrokenVb.vbproj") =>
         new(TimeSpan.Zero, () => CreateVbDiagnosticsLoaded(projectFilePath));
