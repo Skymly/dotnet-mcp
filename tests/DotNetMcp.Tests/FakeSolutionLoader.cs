@@ -28,6 +28,85 @@ public sealed class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader DelayedMultiTfm(TimeSpan delay, string projectFilePath = @"C:\fake\Widget.csproj") =>
         new(delay, () => CreateMultiTfmLoaded(projectFilePath));
 
+    public static FakeSolutionLoader ImmediateWithComInterop(string projectFilePath = @"C:\fake\ComLib.csproj") =>
+        new(TimeSpan.Zero, () => CreateComInteropLoaded(projectFilePath));
+
+    public static LoadedSolution CreateComInteropLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var hostId = ProjectId.CreateNewId();
+        var hostDoc = DocumentId.CreateNewId(hostId);
+        var refs = TrustedPlatformReferences();
+
+        const string hostSource = """
+            using System.Runtime.InteropServices;
+
+            namespace ComLib;
+
+            [ComImport]
+            [Guid("11111111-1111-1111-1111-111111111111")]
+            [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+            public interface IComThing
+            {
+                void Ping();
+            }
+
+            public sealed class Ordinary
+            {
+                public int Value => 1;
+            }
+
+            public static class Uses
+            {
+                public static void Touch(IComThing thing) => thing.Ping();
+            }
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            hostId,
+            VersionStamp.Create(),
+            "ComLib",
+            "ComLib",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+        solution = solution.AddDocument(hostDoc, "ComLib.cs", SourceText.From(hostSource), filePath: Path.Combine(projectDir, "ComLib.cs"));
+        solution = solution.WithProjectCompilationOptions(hostId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in refs)
+        {
+            solution = solution.AddMetadataReference(hostId, metadata);
+        }
+
+        // Metadata-only wrapper: compile a sibling compilation and reference the image.
+        var interop = CSharpCompilation.Create(
+            "FakeTlbImp",
+            new[] { CSharpSyntaxTree.ParseText("""
+                using System.Runtime.InteropServices;
+                [assembly: ImportedFromTypeLib("FakeLib")]
+                namespace InteropLib;
+                [ComImport, Guid("22222222-2222-2222-2222-222222222222")]
+                public interface IMetaCom { void Go(); }
+                """) },
+            refs,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var pe = new MemoryStream();
+        var emit = interop.Emit(pe);
+        if (!emit.Success)
+        {
+            throw new InvalidOperationException("Failed to emit metadata COM fixture: " + string.Join(" | ", emit.Diagnostics));
+        }
+
+        solution = solution.AddMetadataReference(hostId, MetadataReference.CreateFromImage(pe.ToArray()));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace COM fixture.");
+        }
+
+        ThrowIfCompilationErrors(solution.GetProject(hostId)!);
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithSymbols(string projectFilePath = @"C:\fake\SampleLib.csproj") =>
         new(TimeSpan.Zero, () => CreateSymbolsLoaded(projectFilePath));
 
@@ -1227,6 +1306,7 @@ public sealed class FakeSolutionLoader : ISolutionLoader
             "netstandard.dll",
             "Microsoft.VisualBasic.dll",
             "Microsoft.VisualBasic.Core.dll",
+            "System.Runtime.InteropServices.dll",
         };
         var refs = tpa
             .Where(path => names.Contains(Path.GetFileName(path)))
@@ -1317,3 +1397,4 @@ public sealed class FakeSolutionLoader : ISolutionLoader
 
         return solution;
     }}
+

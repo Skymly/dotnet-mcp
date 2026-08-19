@@ -1475,10 +1475,52 @@ public sealed class SymbolQueryService
                 : symbol.ContainingSymbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified),
             Accessibility: symbol.DeclaredAccessibility.ToString(),
             ProjectId: projectId,
-            Language: language);
+            Language: language,
+            InteropKind: DetectInteropKind(symbol));
 
         return new SymbolResolveSuccess(handle.Format(), summary);
     }
+
+    internal static string DetectInteropKind(ISymbol symbol)
+    {
+        if (symbol is not INamedTypeSymbol type)
+        {
+            return InteropKinds.None;
+        }
+
+        if (type.IsComImport || HasInteropAttribute(type, "System.Runtime.InteropServices.ComImportAttribute"))
+        {
+            return InteropKinds.ComImport;
+        }
+
+        if (HasInteropAttribute(type, "System.Runtime.InteropServices.TypeIdentifierAttribute"))
+        {
+            return InteropKinds.ComInteropWrapper;
+        }
+
+        var assembly = type.ContainingAssembly;
+        if (assembly is not null)
+        {
+            foreach (var attr in assembly.GetAttributes())
+            {
+                var name = attr.AttributeClass?.ToDisplayString() ?? attr.AttributeClass?.Name;
+                if (name is "System.Runtime.InteropServices.ImportedFromTypeLibAttribute"
+                    or "ImportedFromTypeLibAttribute"
+                    or "System.Runtime.InteropServices.PrimaryInteropAssemblyAttribute"
+                    or "PrimaryInteropAssemblyAttribute")
+                {
+                    return InteropKinds.ComInteropWrapper;
+                }
+            }
+        }
+
+        return InteropKinds.None;
+    }
+
+    private static bool HasInteropAttribute(ISymbol symbol, string metadataName) =>
+        symbol.GetAttributes().Any(a =>
+            string.Equals(a.AttributeClass?.ToDisplayString(), metadataName, StringComparison.Ordinal) ||
+            string.Equals(a.AttributeClass?.Name, metadataName.Split('.')[^1], StringComparison.Ordinal));
 
     private static bool IsFSharpHandle(string handle) =>
         SymbolHandle.TryParse(handle, out var parsed, out _) &&

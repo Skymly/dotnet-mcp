@@ -109,6 +109,7 @@ public sealed record SymbolSummaryDto
     public required string Accessibility { get; init; }
     public required string ProjectId { get; init; }
     public required string Language { get; init; }
+    public string InteropKind { get; init; } = "None";
 }
 
 public sealed record SymbolResolveResultDto
@@ -335,3 +336,4 @@ public sealed record WorkspaceOpenResultDto
         Error = status.Error
     };
 }
+
