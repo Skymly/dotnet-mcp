@@ -465,7 +465,8 @@ public sealed class SymbolTools
         ContainingSymbol = summary.ContainingSymbol,
         Accessibility = summary.Accessibility,
         ProjectId = summary.ProjectId,
-        Language = summary.Language
+        Language = summary.Language,
+        InteropKind = summary.InteropKind
     };
 
     private static PolicyErrorDto ToPolicyError(SymbolQueryError error) => new()

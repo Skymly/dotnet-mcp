@@ -1,12 +1,20 @@
 namespace DotNetMcp.Core;
 
+public static class InteropKinds
+{
+    public const string None = "None";
+    public const string ComImport = "ComImport";
+    public const string ComInteropWrapper = "ComInteropWrapper";
+}
+
 public sealed record SymbolSummary(
     string Kind,
     string DisplayName,
     string? ContainingSymbol,
     string Accessibility,
     string ProjectId,
-    string Language);
+    string Language,
+    string InteropKind = InteropKinds.None);
 
 public sealed record SymbolResolveSuccess(string Handle, SymbolSummary Summary);
 
