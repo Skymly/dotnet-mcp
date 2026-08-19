@@ -11,7 +11,7 @@ using RoslynProject = Microsoft.CodeAnalysis.Project;
 
 namespace DotNetMcp.FSharp;
 
-public sealed class FSharpSymbolQueryService : IFSharpSymbolQuery
+public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
 {
     private readonly FSharpChecker _checker = FSharpChecker.Create(
         null,
@@ -202,7 +202,9 @@ public sealed class FSharpSymbolQueryService : IFSharpSymbolQuery
 
         var catalog = await CatalogAsync(project, cancellationToken).ConfigureAwait(false);
         var hit = catalog.FirstOrDefault(item =>
-            string.Equals(item.SignatureQualifiedName, parsed.SignatureQualifiedName, StringComparison.Ordinal));
+            string.Equals(item.SignatureQualifiedName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
+            string.Equals(item.DisplayName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
+            item.SignatureQualifiedName.EndsWith("." + parsed.SignatureQualifiedName, StringComparison.Ordinal));
         if (hit is null)
         {
             return (null, new SymbolNotFoundError(
@@ -213,7 +215,47 @@ public sealed class FSharpSymbolQueryService : IFSharpSymbolQuery
         return (hit, null);
     }
 
+    public static string CompileLibrary(string outputDll, IReadOnlyList<string> sourceFiles)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputDll);
+        var dir = Path.GetDirectoryName(outputDll);
+        if (!string.IsNullOrWhiteSpace(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var checker = FSharpChecker.Create(
+            null, FSharpOption<bool>.Some(true),
+            null, null, null, null, null, null, null, null, null, null, null, null);
+        var argv = BuildCompilerArgs(outputDll, sourceFiles).ToList();
+        argv.Insert(0, "fsc.dll");
+        var result = FSharpAsync.RunSynchronously(
+            checker.Compile(argv.ToArray(), userOpName: null),
+            timeout: null,
+            cancellationToken: null);
+        if (result.Item2 != null && OptionModule.IsSome(result.Item2))
+        {
+            throw new InvalidOperationException(result.Item2.Value.ToString());
+        }
+
+        if (!File.Exists(outputDll))
+        {
+            var errors = string.Join(" | ", result.Item1.Select(d => d.Message));
+            throw new InvalidOperationException("F# compile produced no DLL. " + errors);
+        }
+
+        return outputDll;
+    }
+
     private async Task<IReadOnlyList<FSharpCatalogItem>> CatalogAsync(
+        RoslynProject project,
+        CancellationToken cancellationToken)
+    {
+        var (items, _, _) = await CheckProjectAsync(project, cancellationToken).ConfigureAwait(false);
+        return items;
+    }
+
+    private async Task<(IReadOnlyList<FSharpCatalogItem> Items, FSharpCheckProjectResults? Check, IReadOnlyList<(string Path, string Text)> Sources)> CheckProjectAsync(
         RoslynProject project,
         CancellationToken cancellationToken)
     {
@@ -233,7 +275,7 @@ public sealed class FSharpSymbolQueryService : IFSharpSymbolQuery
 
         if (sources.Count == 0)
         {
-            return [];
+            return ([], null, sources);
         }
 
         foreach (var (path, text) in sources)
@@ -265,7 +307,7 @@ public sealed class FSharpSymbolQueryService : IFSharpSymbolQuery
         var projectId = project.Id.Id.ToString("D");
         var items = new List<FSharpCatalogItem>();
         WalkEntities(projectId, check.AssemblySignature.Entities, sources, items);
-        return items;
+        return (items, check, sources);
     }
 
     private static void WalkEntities(
@@ -307,6 +349,8 @@ public sealed class FSharpSymbolQueryService : IFSharpSymbolQuery
                     Members: []));
             }
 
+            var baseName = TryBaseTypeName(entity);
+            var interfaces = TryInterfaceNames(entity);
             sink.Add(new FSharpCatalogItem(
                 projectId,
                 fullName,
@@ -315,7 +359,10 @@ public sealed class FSharpSymbolQueryService : IFSharpSymbolQuery
                 entity.AccessPath is "." or "" ? null : entity.AccessPath,
                 IsContainer: true,
                 Locations: LocationsOf(entity.DeclarationLocation, sources),
-                Members: members));
+                Members: members,
+                BaseTypeName: baseName,
+                InterfaceNames: interfaces,
+                IsInterface: entity.IsInterface));
 
             WalkEntities(projectId, entity.NestedEntities, sources, sink);
         }
@@ -524,6 +571,47 @@ public sealed class FSharpSymbolQueryService : IFSharpSymbolQuery
         return refs;
     }
 
+    private static string? TryBaseTypeName(FSharpEntity entity)
+    {
+        try
+        {
+            if (entity.IsInterface)
+            {
+                return null;
+            }
+
+            var baseType = entity.BaseType;
+            if (!OptionModule.IsSome(baseType) || !baseType.Value.HasTypeDefinition)
+            {
+                return null;
+            }
+
+            var name = EntityFullName(baseType.Value.TypeDefinition);
+            return name is "System.Object" or "obj" ? null : name;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<string> TryInterfaceNames(FSharpEntity entity)
+    {
+        try
+        {
+            return entity.DeclaredInterfaces
+                .Where(static t => t.HasTypeDefinition)
+                .Select(static t => EntityFullName(t.TypeDefinition))
+                .Where(static n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
     private sealed record FSharpCatalogItem(
         string ProjectId,
         string SignatureQualifiedName,
@@ -532,5 +620,8 @@ public sealed class FSharpSymbolQueryService : IFSharpSymbolQuery
         string? ContainingSymbol,
         bool IsContainer,
         IReadOnlyList<SymbolLocation> Locations,
-        IReadOnlyList<FSharpCatalogItem> Members);
+        IReadOnlyList<FSharpCatalogItem> Members,
+        string? BaseTypeName = null,
+        IReadOnlyList<string>? InterfaceNames = null,
+        bool IsInterface = false);
 }

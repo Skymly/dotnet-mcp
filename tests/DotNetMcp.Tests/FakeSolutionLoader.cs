@@ -1,4 +1,5 @@
 using DotNetMcp.Server;
+using DotNetMcp.FSharp;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.VisualBasic;
@@ -86,6 +87,7 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         var fsId = ProjectId.CreateNewId();
         var csId = ProjectId.CreateNewId();
         var widgetDoc = DocumentId.CreateNewId(fsId);
+        var usesDoc = DocumentId.CreateNewId(fsId);
         var callerDoc = DocumentId.CreateNewId(csId);
 
         var fsDir = Path.Combine(root, "FsLib");
@@ -93,22 +95,40 @@ public sealed class FakeSolutionLoader : ISolutionLoader
         Directory.CreateDirectory(fsDir);
         Directory.CreateDirectory(csDir);
         var widgetPath = Path.Combine(fsDir, "Widget.fs");
+        var usesPath = Path.Combine(fsDir, "Uses.fs");
         var callerPath = Path.Combine(csDir, "Caller.cs");
 
         const string widgetSource = """
             module FsLib.Widget
 
             let ping () = "fs"
+
+            type IPingable =
+                abstract member Ping: unit -> string
+
+            type PingWidget() =
+                interface IPingable with
+                    member _.Ping() = "ok"
+
+            type SpecialPingWidget() =
+                inherit PingWidget()
+            """;
+        const string usesSource = """
+            module FsLib.Uses
+
+            let go () = Widget.ping()
             """;
         const string callerSource = """
             namespace CsLib;
             public static class Caller
             {
                 public static string Hi() => "cs";
+                public static string UseFs() => FsLib.Widget.ping();
             }
             """;
 
         File.WriteAllText(widgetPath, widgetSource);
+        File.WriteAllText(usesPath, usesSource);
         File.WriteAllText(callerPath, callerSource);
 
         var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
@@ -126,10 +146,22 @@ public sealed class FakeSolutionLoader : ISolutionLoader
             LanguageNames.CSharp,
             filePath: Path.Combine(csDir, "CsLib.csproj")));
         solution = solution.AddDocument(widgetDoc, "Widget.fs", SourceText.From(widgetSource), filePath: widgetPath);
+        solution = solution.AddDocument(usesDoc, "Uses.fs", SourceText.From(usesSource), filePath: usesPath);
+        solution = solution.AddProjectReference(fsId, new ProjectReference(csId));
         solution = solution.AddDocument(callerDoc, "Caller.cs", SourceText.From(callerSource), filePath: callerPath);
         solution = solution.WithProjectCompilationOptions(
             csId,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        try
+        {
+            var fsDll = Path.Combine(fsDir, "FsLib.dll");
+            FSharpSymbolQueryService.CompileLibrary(fsDll, [widgetPath, usesPath]);
+            solution = solution.AddMetadataReference(csId, MetadataReference.CreateFromFile(fsDll));
+        }
+        catch (Exception)
+        {
+            // Mixed C# metadata refs are best-effort; F# source analysis still works.
+        }
         foreach (var metadata in TrustedPlatformReferences())
         {
             solution = solution.AddMetadataReference(csId, metadata);

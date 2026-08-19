@@ -179,7 +179,7 @@ public class FsharpSymbolSeamTests
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
 
         WorkspaceStatusDto? last = null;
-        for (var i = 0; i < 80; i++)
+        for (var i = 0; i < 400; i++)
         {
             var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
             last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);

@@ -27,4 +27,35 @@ public interface IFSharpSymbolQuery
         int? limit = null,
         string? cursor = null,
         CancellationToken cancellationToken = default);
+
+    Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> FindReferencesAsync(
+        IWorkspaceSession session,
+        string handle,
+        bool entireSolution = false,
+        int? limit = null,
+        string? cursor = null,
+        TimeSpan? softBudget = null,
+        CancellationToken cancellationToken = default);
+
+    Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        CancellationToken cancellationToken = default);
+
+    Task<(PagedResult<HierarchyItem>? Success, SymbolQueryError? Error)> GetTypeHierarchyAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        CancellationToken cancellationToken = default);
+
+    Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        TimeSpan? softBudget = null,
+        CancellationToken cancellationToken = default);
 }
