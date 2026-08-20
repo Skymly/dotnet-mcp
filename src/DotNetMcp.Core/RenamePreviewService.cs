@@ -20,8 +20,13 @@ public sealed class RenamePreviewService
         RenameFile: false);
 
     private readonly SymbolQueryService _symbols;
+    private readonly IFSharpSymbolQuery? _fsharp;
 
-    public RenamePreviewService(SymbolQueryService symbols) => _symbols = symbols;
+    public RenamePreviewService(SymbolQueryService symbols, IFSharpSymbolQuery? fsharp = null)
+    {
+        _symbols = symbols;
+        _fsharp = fsharp;
+    }
 
     public async Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildAsync(
         IWorkspaceSession session,
@@ -42,12 +47,18 @@ public sealed class RenamePreviewService
                 parseError ?? "Handle format or checksum is invalid.",
                 "Call symbol_resolve with a name/FQN to obtain a fresh SymbolHandle; do not invent handles."));
         }
-
         if (string.Equals(parsed.Language, SymbolQueryService.FSharpLanguage, StringComparison.Ordinal))
         {
-            return (null, new RenameLanguageNotSupportedError(
-                "Rename preview for 'fsharp' handles is not available.",
-                "F# rename is out of scope; call symbol_resolve for a handwritten C# or VB symbol."));
+            if (_fsharp is null)
+            {
+                return (null, new RenameLanguageNotSupportedError(
+                    "Rename preview for 'fsharp' handles is not available.",
+                    "F# rename requires the FCS stack; call symbol_resolve for a handwritten fsharp symbol."));
+            }
+
+            return await _fsharp
+                .BuildRenamePreviewAsync(session, handle, newName, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var (project, symbol, resolveError) = await _symbols

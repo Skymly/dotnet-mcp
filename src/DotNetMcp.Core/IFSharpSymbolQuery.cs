@@ -66,5 +66,10 @@ public interface IFSharpSymbolQuery
         string? cursor = null,
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default);
-}
 
+    Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
+        IWorkspaceSession session,
+        string handle,
+        string newName,
+        CancellationToken cancellationToken = default);
+}

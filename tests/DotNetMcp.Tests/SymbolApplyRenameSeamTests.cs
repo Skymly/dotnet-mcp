@@ -102,7 +102,7 @@ public class SymbolApplyRenameSeamTests
                     Debounce = TimeSpan.Zero,
                     FileWatcher = watcher,
                     TimeProvider = clock,
-                    RenamePreviewTtl = TimeSpan.FromMinutes(5)
+                    WorkspaceEditPreviewTtl = TimeSpan.FromMinutes(5)
                 });
 
             await OpenUntilReadyAsync(fx, solution);
@@ -161,7 +161,7 @@ public class SymbolApplyRenameSeamTests
     }
 
     [Fact]
-    public async Task apply_refuses_preview_path_outside_trusted_roots_without_echoing_content()
+    public async Task preview_refuses_path_outside_trusted_roots_without_echoing_content()
     {
         var root = CreateTempDir("root");
         var projectDir = Path.Combine(root, "lib");
@@ -177,20 +177,15 @@ public class SymbolApplyRenameSeamTests
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
 
             await OpenUntilReadyAsync(fx, solution);
-            var planted = fx.WorkspaceHost.StoreRenamePreview(
-                "csharp:planted",
-                "Nope",
-                [new RenameDocumentSliceDto { Path = outside, OldText = "secret-source", NewText = "leaked" }],
-                []);
-
-            var apply = await fx.Client.CallToolAsync(
-                "symbol_apply_rename",
-                new Dictionary<string, object?> { ["previewId"] = planted.PreviewId });
-            Assert.True(apply.IsError is true);
-            var err = InProcessMcpFixture.Deserialize<PolicyErrorDto>(apply);
-            Assert.Equal(PolicyErrorCodes.PathOutsideTrustedRoots, err.Error);
-            Assert.DoesNotContain("secret-source", InProcessMcpFixture.TextOf(apply), StringComparison.Ordinal);
-            Assert.DoesNotContain("leaked", InProcessMcpFixture.TextOf(apply), StringComparison.Ordinal);
+            var planted = fx.WorkspaceEdit.Preview(new WorkspaceEditDraft(
+                WorkspaceEditKind.RenamePreview,
+                [new WorkspaceEditDocument(outside, "secret-source", "leaked")],
+                []));
+            Assert.True(planted.Failed);
+            Assert.Equal(PolicyErrorCodes.PreviewPathOutsideTrustedRoots, planted.Error!.Error);
+            Assert.DoesNotContain("secret-source", planted.Error.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("leaked", planted.Error.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("secret-source", planted.Error.SuggestedAction, StringComparison.Ordinal);
             Assert.Equal("secret-source", await File.ReadAllTextAsync(outside));
         }
         finally

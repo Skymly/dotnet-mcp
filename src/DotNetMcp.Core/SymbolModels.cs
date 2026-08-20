@@ -117,6 +117,19 @@ public static class SymbolQueryErrorCodes
     public const string GeneratedSymbolRenameRefused = "GeneratedSymbolRenameRefused";
     public const string RenameLanguageNotSupported = "RenameLanguageNotSupported";
     public const string InvalidRenameName = "InvalidRenameName";
+    public const string DiagnosticNotFound = "DiagnosticNotFound";
+    public const string DiagnosticAmbiguous = "DiagnosticAmbiguous";
+    public const string FixLanguageNotSupported = "FixLanguageNotSupported";
+    public const string FixIndexOutOfRange = "FixIndexOutOfRange";
+    public const string GeneratedDocumentFixRefused = "GeneratedDocumentFixRefused";
+    public const string FixApplyFailed = "FixApplyFailed";
+    public const string FixAllUnavailable = "FixAllUnavailable";
+    public const string FixAllBudgetExceeded = "FixAllBudgetExceeded";
+    public const string RefactoringLanguageNotSupported = "RefactoringLanguageNotSupported";
+    public const string RefactoringIndexOutOfRange = "RefactoringIndexOutOfRange";
+    public const string GeneratedSymbolRefactoringRefused = "GeneratedSymbolRefactoringRefused";
+    public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
+    public const string RefactoringApplyFailed = "RefactoringApplyFailed";
 }
 
 public static class DeclarationAvailability
@@ -135,3 +148,4 @@ public static class SymbolOrigin
     public static string FormatSourceGenerator(GeneratorIdentity identity) =>
         $"{SourceGenerator}({identity.AssemblyName}::{identity.TypeFullName}@{identity.Version})";
 }
+

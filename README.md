@@ -9,18 +9,19 @@
 
 ## 状态
 
-P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航（定义/成员/引用/实现/层级/调用者）、项目诊断、源生成器列表/生成源/诊断与符号归因。P1 Avalonia + 2.0 P2 MAUI XAML 读侧已可演示（`xaml_resolve_class` / `xaml_list_xmlns` / `xaml_resolve_name` / `xaml_resolve_binding` / `xaml_diagnostics`）。P2 VB.NET 读侧已可演示（`workspace_list_projects` 语言标记、`vb:` SymbolHandle 导航/分析、`project_diagnostics`、VB 源生成器列表/生成源/归因）。2.0 P3 读侧收口已可演示（静态 DataContext Binding、XAML+VB、`project_diagnostics` 跨项目）。P3 F#·Interop·DLR 读侧已可演示（`fsharp:` FCS 独立栈导航/分析/诊断、`interopKind` COM 包装识别、`project_list_dynamic_invocations`）。**2.0 P0–P1** 已可演示受限 Workspace Edit：C# / VB `symbol_preview_rename` → `symbol_apply_rename`（不是通用写文件）。
+P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航（定义/成员/引用/实现/层级/调用者）、项目诊断、源生成器列表/生成源/诊断与符号归因。P1 Avalonia + 2.0 P2 MAUI XAML 读侧已可演示（`xaml_resolve_class` / `xaml_list_xmlns` / `xaml_resolve_name` / `xaml_resolve_binding` / `xaml_diagnostics`）。P2 VB.NET 读侧已可演示（`workspace_list_projects` 语言标记、`vb:` SymbolHandle 导航/分析、`project_diagnostics`、VB 源生成器列表/生成源/归因）。2.0 P3 读侧收口已可演示（静态 DataContext Binding、XAML+VB、`project_diagnostics` 跨项目）。P3 F#·Interop·DLR 读侧已可演示（`fsharp:` FCS 独立栈导航/分析/诊断、`interopKind` COM 包装识别、`project_list_dynamic_invocations`）。**2.0 P0–P1** 已可演示受限 Workspace Edit：C# / VB `symbol_preview_rename` → `symbol_apply_rename`（不是通用写文件）。**3.0** 已可演示 Diagnostic fix（`diagnostics_list_fixes` → `diagnostics_preview_fix` → `diagnostics_apply_fix`）以及 `fsharp:` rename。**4.0** 已可演示 Code Refactoring（`symbol_list_refactorings` → `symbol_preview_refactoring` → `symbol_apply_refactoring`）以及 `diagnostics_preview_fix(scope=project)`。
 
 ### 当前 MCP 工具面（读 + 受限 Workspace Edit）
 
 | 分组 | 工具 |
 |------|------|
 | Workspace | `workspace_open` · `workspace_status` · `workspace_list_projects` · `workspace_check_drift` |
-| Symbol | `symbol_resolve` · `symbol_summary` · `symbol_goto_definition` · `symbol_members` · `symbol_find_references` · `symbol_find_implementations` · `symbol_find_callers` · `symbol_type_hierarchy` · `symbol_attribution` · `symbol_preview_rename` · `symbol_apply_rename` |
+| Diagnostic fix | `diagnostics_list_fixes` · `diagnostics_preview_fix` · `diagnostics_apply_fix` |
+| Symbol | `symbol_resolve` · `symbol_summary` · `symbol_goto_definition` · `symbol_members` · `symbol_find_references` · `symbol_find_implementations` · `symbol_find_callers` · `symbol_type_hierarchy` · `symbol_attribution` · `symbol_preview_rename` · `symbol_apply_rename` · `symbol_list_refactorings` · `symbol_preview_refactoring` · `symbol_apply_refactoring` |
 | Project | `project_diagnostics` · `project_list_generators` · `project_list_generated_sources` · `project_list_generator_diagnostics` · `project_list_dynamic_invocations` |
 | XAML | `xaml_resolve_class` · `xaml_list_xmlns` · `xaml_resolve_name` · `xaml_resolve_binding` · `xaml_diagnostics` |
 
-工具面由快照/守护测试约束：读工具 + 显式 rename preview/apply。禁止通用写文件、补丁、命令或网络类工具。领域词汇见根目录 [`CONTEXT.md`](CONTEXT.md)。
+工具面由快照/守护测试约束：读工具 + 显式 rename / Diagnostic fix / Code Refactoring。禁止通用写文件、补丁、命令或网络类工具。领域词汇见根目录 [`CONTEXT.md`](CONTEXT.md)。
 
 ## 安装 / 启用
 
@@ -82,6 +83,7 @@ MCP 客户端以 **stdio** 连接该进程。默认受信根为进程当前工�
 | `DOTNET_MCP_BUDGET_FIND_REFS_SCOPED_MS` | 5000 | 作用域内 Find References |
 | `DOTNET_MCP_BUDGET_FIND_REFS_ENTIRE_MS` | 20000 | 全解决方案 Find References |
 | `DOTNET_MCP_BUDGET_BATCH_DIAGNOSTICS_MS` | 15000 | 批量诊断（预留） |
+| `DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS` | 15000 | 项目级 Fix all；超时整次 preview 失败 |
 
 非法或缺失值回退到上表默认。
 
@@ -113,7 +115,7 @@ MCP 客户端以 **stdio** 连接该进程。默认受信根为进程当前工�
 
 1. **受信根**：服务器只能读受信根内的路径。多仓库场景请通过 `--roots` 或 `DOTNET_MCP_TRUSTED_ROOTS` 显式配置额外根；越界路径会被拒绝。
 2. **打开即执行**：`workspace_open` 加载解决方案时会运行 **MSBuild 求值**以及项目引用的 **analyzer / 源生成器**——等同于在该仓库执行构建逻辑。**不要对不受信任的代码库使用。** 这是 Roslyn 语义分析固有性质，无法仅靠技术手段消除，只能显式告知。
-3. **默认只读 + 受限 Workspace Edit**：读工具之外只有 C# rename 的 preview/apply。不提供通用写文件、任意命令执行或网络请求类工具（有快照/守护测试约束）。
+3. **默认只读 + 受限 Workspace Edit**：读工具之外只有 rename、Diagnostic fix 与 Code Refactoring 的 preview/apply。不提供通用写文件、任意命令执行或网络请求类工具（有快照/守护测试约束）。
 4. **日志**：已实现本地审计（默认开启）：记录工具调用与路径策略拒绝的工具名/路径元数据，不记录源码或生成源正文；写入进程本地日志（stdio 下为 stderr），可用 `DOTNET_MCP_AUDIT=0`（或 `false`/`off`/`no`）关闭；无外部遥测。
 
 ## 开发 / CI

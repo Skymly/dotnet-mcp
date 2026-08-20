@@ -8,7 +8,7 @@ namespace DotNetMcp.Server;
 /// Single active workspace coordinator (ADR-0003 §1/§4): open returns immediately; status polls.
 /// Freshness via internal FSW + debounce + epoch (ADR-0002 §3).
 /// </summary>
-public sealed class WorkspaceHost : IAsyncDisposable
+public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 {
     private readonly ISolutionLoader _loader;
     private readonly WorkspaceHostOptions _options;
@@ -34,7 +34,7 @@ public sealed class WorkspaceHost : IAsyncDisposable
     private readonly HashSet<string> _pendingPaths = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _debounceCts;
     private readonly GeneratorRunCache _generatorRunCache = new();
-    private readonly RenamePreviewStore _renamePreviews = new();
+    private long _generation;
     private CompilationLru _compilationLru;
 
     public WorkspaceHost(ISolutionLoader loader, WorkspaceHostOptions options)
@@ -56,7 +56,18 @@ public sealed class WorkspaceHost : IAsyncDisposable
 
     public WriteSuppression WriteSuppression => _options.WriteSuppression;
 
-    public RenamePreviewStore RenamePreviews => _renamePreviews;
+    public long Generation
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _generation;
+            }
+        }
+    }
+
+    public bool PathExists(string path) => File.Exists(path);
 
     public long CurrentEpoch
     {
@@ -75,10 +86,9 @@ public sealed class WorkspaceHost : IAsyncDisposable
 
         CancelInFlightUnlocked();
         StopWatcher();
-        _renamePreviews.Clear();
-
         lock (_gate)
         {
+            _generation++;
             _openedPath = Path.GetFullPath(path);
             _phase = "loading";
             _completedUnits = 0;
@@ -132,76 +142,12 @@ public sealed class WorkspaceHost : IAsyncDisposable
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
     }
 
-    public StoredRenamePreview StoreRenamePreview(
-        string oldHandle,
-        string newName,
-        IReadOnlyList<RenameDocumentSliceDto> documents,
-        IReadOnlyList<string> invalidatedHandles)
+    public WorkspaceEditOutcome<long> WriteDeclaredPaths(IReadOnlyList<WorkspaceEditDocument> documents)
     {
-        var now = _options.TimeProvider.GetUtcNow();
-        return _renamePreviews.Add(
-            CurrentEpoch,
-            now + _options.RenamePreviewTtl,
-            oldHandle,
-            newName,
-            documents,
-            invalidatedHandles);
-    }
-
-    public (StoredRenamePreview? Preview, string? ErrorCode) TryGetRenamePreview(string previewId) =>
-        _renamePreviews.TryGet(previewId, CurrentEpoch, _options.TimeProvider.GetUtcNow());
-
-    /// <summary>
-    /// Intentional apply (Spike S4 / ADR-0002): write preview documents under suppression,
-    /// backfill workspace text, advance Epoch once. No apply without a live preview.
-    /// </summary>
-    public (StoredRenamePreview? Applied, PolicyErrorDto? Error) ApplyRenamePreview(
-        string previewId,
-        TrustedRoots trustedRoots)
-    {
-        if (string.IsNullOrWhiteSpace(previewId))
-        {
-            return (null, new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.PreviewNotFound,
-                Message = "Apply requires a previewId from symbol_preview_rename.",
-                SuggestedAction = "Call symbol_preview_rename first, then pass that previewId to symbol_apply_rename."
-            });
-        }
-
-        var (preview, errorCode) = TryGetRenamePreview(previewId);
-        if (preview is null || errorCode is not null)
-        {
-            return (null, PreviewLookupError(errorCode ?? RenamePreviewErrorCodes.PreviewNotFound));
-        }
-
-        foreach (var document in preview.Documents)
-        {
-            if (!trustedRoots.Contains(document.Path))
-            {
-                return (null, new PolicyErrorDto
-                {
-                    Error = PolicyErrorCodes.PathOutsideTrustedRoots,
-                    Message = "A preview document is outside trusted roots; nothing was written.",
-                    SuggestedAction = "Re-open the workspace under a trusted root that contains every preview path."
-                });
-            }
-
-            if (!File.Exists(document.Path))
-            {
-                return (null, new PolicyErrorDto
-                {
-                    Error = PolicyErrorCodes.PreviewTargetMissing,
-                    Message = "A preview document no longer exists on disk; nothing was written.",
-                    SuggestedAction = "Call symbol_preview_rename again on the current snapshot."
-                });
-            }
-        }
-
-        var paths = preview.Documents.Select(static d => d.Path).ToArray();
+        var paths = documents.Select(static d => d.Path).ToArray();
         using (_options.WriteSuppression.Suppress(paths))
         {
-            foreach (var document in preview.Documents)
+            foreach (var document in documents)
             {
                 File.WriteAllText(document.Path, document.NewText);
             }
@@ -210,58 +156,40 @@ public sealed class WorkspaceHost : IAsyncDisposable
             {
                 if (_phase != "ready" || _loaded is null)
                 {
-                    return (null, new PolicyErrorDto
-                    {
-                        Error = PolicyErrorCodes.WorkspaceNotReady,
-                        Message = "Workspace is not ready; apply did not finish backfill.",
-                        SuggestedAction = "Call workspace_status until ready, then preview and apply again."
-                    });
+                    return new WorkspaceEditOutcome<long>(
+                        0,
+                        new PolicyErrorDto
+                        {
+                            Error = PolicyErrorCodes.WorkspaceNotReady,
+                            Message = "Workspace is not ready; apply did not finish backfill.",
+                            SuggestedAction =
+                                "Call workspace_status until ready, then preview and apply again."
+                        });
                 }
 
-                foreach (var document in preview.Documents)
+                foreach (var document in documents)
                 {
                     if (!_loaded.TryUpdateDocumentFromText(
                             document.Path,
-                            Microsoft.CodeAnalysis.Text.SourceText.From(document.NewText)))
+                            SourceText.From(document.NewText)))
                     {
-                        return (null, new PolicyErrorDto
-                        {
-                            Error = PolicyErrorCodes.PreviewTargetMissing,
-                            Message = "A preview document is not in the ready workspace; nothing further was backfilled.",
-                            SuggestedAction = "Call symbol_preview_rename again on the current snapshot."
-                        });
+                        return new WorkspaceEditOutcome<long>(
+                            0,
+                            new PolicyErrorDto
+                            {
+                                Error = PolicyErrorCodes.PreviewTargetMissing,
+                                Message =
+                                    "A preview document is not in the ready workspace; nothing further was backfilled.",
+                                SuggestedAction = "Call the matching preview tool again on the current snapshot."
+                            });
                     }
                 }
 
                 AdvanceEpochUnlocked();
+                return new WorkspaceEditOutcome<long>(_epoch, null);
             }
         }
-
-        _renamePreviews.Remove(previewId);
-        return (preview, null);
     }
-
-    private static PolicyErrorDto PreviewLookupError(string errorCode) => errorCode switch
-    {
-        RenamePreviewErrorCodes.PreviewExpired => new PolicyErrorDto
-        {
-            Error = PolicyErrorCodes.PreviewExpired,
-            Message = "The rename preview has expired.",
-            SuggestedAction = "Call symbol_preview_rename again, then apply the new previewId."
-        },
-        RenamePreviewErrorCodes.PreviewEpochMismatch => new PolicyErrorDto
-        {
-            Error = PolicyErrorCodes.PreviewEpochMismatch,
-            Message = "The rename preview is bound to a previous workspace Epoch.",
-            SuggestedAction = "Call symbol_preview_rename on the current snapshot, then apply that previewId."
-        },
-        _ => new PolicyErrorDto
-        {
-            Error = PolicyErrorCodes.PreviewNotFound,
-            Message = "Unknown rename previewId.",
-            SuggestedAction = "Call symbol_preview_rename to obtain a fresh previewId; do not invent preview ids."
-        }
-    };
 
     /// <summary>
     /// Drift fallback (ADR-0002): compare disk vs workspace; repair source mismatches; bump epoch when repaired.
@@ -753,3 +681,4 @@ public sealed class WorkspaceHost : IAsyncDisposable
         _loadMutex.Dispose();
     }
 }
+

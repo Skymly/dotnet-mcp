@@ -59,9 +59,6 @@ public class SymbolPreviewRenameSeamTests
             Assert.Equal(widgetBefore, await File.ReadAllTextAsync(Path.Combine(projectDir, "Widget.cs")));
             Assert.Equal(callerBefore, await File.ReadAllTextAsync(Path.Combine(projectDir, "Caller.cs")));
 
-            var stored = fx.WorkspaceHost.TryGetRenamePreview(body.PreviewId);
-            Assert.Null(stored.ErrorCode);
-            Assert.Equal(body.PreviewId, stored.Preview!.PreviewId);
         }
         finally
         {
@@ -100,68 +97,6 @@ public class SymbolPreviewRenameSeamTests
             var err = InProcessMcpFixture.Deserialize<PolicyErrorDto>(preview);
             Assert.Equal(PolicyErrorCodes.GeneratedSymbolRenameRefused, err.Error);
             Assert.False(string.IsNullOrWhiteSpace(err.SuggestedAction));
-            Assert.Equal((null, RenamePreviewErrorCodes.PreviewNotFound),
-                fx.WorkspaceHost.TryGetRenamePreview("no-preview-should-exist"));
-        }
-        finally
-        {
-            TryDelete(root);
-        }
-    }
-
-    [Fact]
-    public async Task expired_and_epoch_mismatch_are_distinct_from_unknown_preview_id()
-    {
-        var root = CreateTempDir("root");
-        var projectDir = Path.Combine(root, "lib");
-        var solution = Path.Combine(root, "App.slnx");
-        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
-        var watcher = new ManualWorkspaceFileWatcher();
-        var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-08-19T00:00:00Z"));
-
-        try
-        {
-            await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
-                FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir),
-                new WorkspaceHostOptions
-                {
-                    Debounce = TimeSpan.Zero,
-                    FileWatcher = watcher,
-                    TimeProvider = clock,
-                    RenamePreviewTtl = TimeSpan.FromMinutes(5)
-                });
-
-            await OpenUntilReadyAsync(fx, solution);
-            var resolved = await fx.Client.CallToolAsync(
-                "symbol_resolve",
-                new Dictionary<string, object?> { ["name"] = "RenameApp.Widget.Ping" });
-            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
-            var preview = await fx.Client.CallToolAsync(
-                "symbol_preview_rename",
-                new Dictionary<string, object?>
-                {
-                    ["handle"] = handle,
-                    ["newName"] = "Pong"
-                });
-            var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
-
-            Assert.Equal(
-                RenamePreviewErrorCodes.PreviewNotFound,
-                fx.WorkspaceHost.TryGetRenamePreview("deadbeefdeadbeef").ErrorCode);
-
-            clock.Advance(TimeSpan.FromMinutes(6));
-            Assert.Equal(
-                RenamePreviewErrorCodes.PreviewExpired,
-                fx.WorkspaceHost.TryGetRenamePreview(body.PreviewId).ErrorCode);
-
-            clock.Advance(TimeSpan.FromMinutes(-6));
-            var widget = Path.Combine(projectDir, "Widget.cs");
-            await File.WriteAllTextAsync(widget, (await File.ReadAllTextAsync(widget)) + "\n");
-            watcher.Raise(widget);
-            Assert.Equal(
-                RenamePreviewErrorCodes.PreviewEpochMismatch,
-                fx.WorkspaceHost.TryGetRenamePreview(body.PreviewId).ErrorCode);
         }
         finally
         {

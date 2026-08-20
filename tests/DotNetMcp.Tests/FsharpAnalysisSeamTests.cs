@@ -66,7 +66,7 @@ public class FsharpAnalysisSeamTests
             Assert.True(callers.IsError is not true, InProcessMcpFixture.TextOf(callers));
             var callerBody = InProcessMcpFixture.Deserialize<SymbolFindCallersResultDto>(callers);
             Assert.Contains(callerBody.Items, i =>
-                (i.FilePath ?? string.Empty).Contains("Caller.cs", StringComparison.OrdinalIgnoreCase));
+                (i.FilePath ?? string.Empty).Contains("Uses.fs", StringComparison.OrdinalIgnoreCase));
         }
         finally
         {

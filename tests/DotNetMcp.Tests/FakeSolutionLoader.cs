@@ -11,7 +11,7 @@ namespace DotNetMcp.Tests;
 /// <summary>
 /// Deterministic loader for MCP seam tests — no MSBuild.
 /// </summary>
-public sealed class FakeSolutionLoader : ISolutionLoader
+public sealed partial class FakeSolutionLoader : ISolutionLoader
 {
     private readonly TimeSpan _delay;
     private readonly Func<LoadedSolution> _factory;

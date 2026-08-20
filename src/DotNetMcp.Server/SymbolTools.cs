@@ -10,22 +10,22 @@ namespace DotNetMcp.Server;
 public sealed class SymbolTools
 {
     private readonly WorkspaceHost _workspaceHost;
+    private readonly WorkspaceEdit _workspaceEdit;
     private readonly SymbolQueryService _symbols;
     private readonly RenamePreviewService _renames;
-    private readonly TrustedRoots _trustedRoots;
     private readonly IAuditLogger _audit;
 
     public SymbolTools(
         WorkspaceHost workspaceHost,
+        WorkspaceEdit workspaceEdit,
         SymbolQueryService symbols,
         RenamePreviewService renames,
-        TrustedRoots trustedRoots,
         IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
+        _workspaceEdit = workspaceEdit;
         _symbols = symbols;
         _renames = renames;
-        _trustedRoots = trustedRoots;
         _audit = audit;
     }
 
@@ -320,11 +320,11 @@ public sealed class SymbolTools
     }
 
     [McpServerTool(Name = "symbol_preview_rename"), Description(
-        "Preview renaming a handwritten C# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
+        "Preview renaming a handwritten C# / VB / F# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
         "handles that will become invalid) and an opaque previewId bound to the current workspace Epoch + TTL. " +
         "Does not write disk. SourceGenerator Origin is refused. There is no generic apply_edit / write / shell.")]
     public async Task<CallToolResult> SymbolPreviewRename(
-        [Description("Handwritten C# SymbolHandle from symbol_resolve.")]
+        [Description("Handwritten C# / VB / F# SymbolHandle from symbol_resolve.")]
         string handle,
         [Description("New identifier (unqualified).")]
         string newName,
@@ -346,46 +346,29 @@ public sealed class SymbolTools
             return ErrorResult(ToPolicyError(error));
         }
 
-        foreach (var slice in draft!.Documents)
+        var held = _workspaceEdit.Preview(new WorkspaceEditDraft(
+            WorkspaceEditKind.RenamePreview,
+            draft!.Documents.Select(d => new WorkspaceEditDocument(d.Path, d.OldText, d.NewText)).ToArray(),
+            draft.InvalidatedHandles));
+        if (held.Error is not null)
         {
-            if (!_trustedRoots.Contains(slice.Path))
-            {
-                return ErrorResult(new PolicyErrorDto
-                {
-                    Error = PolicyErrorCodes.PreviewPathOutsideTrustedRoots,
-                    Message = "Rename preview includes a path outside trusted roots; the preview was not stored.",
-                    SuggestedAction = "Open a workspace whose documents all sit under a trusted root, then retry."
-                });
-            }
+            return ErrorResult(held.Error);
         }
-
-        var documents = draft.Documents.Select(d => new RenameDocumentSliceDto
-        {
-            Path = d.Path,
-            OldText = d.OldText,
-            NewText = d.NewText
-        }).ToArray();
-
-        var stored = _workspaceHost.StoreRenamePreview(
-            draft.OldHandle,
-            draft.NewName,
-            documents,
-            draft.InvalidatedHandles);
 
         return OkResult(new SymbolPreviewRenameResultDto
         {
-            PreviewId = stored.PreviewId,
-            Epoch = stored.Epoch,
-            ExpiresAt = stored.ExpiresAt,
-            OldHandle = stored.OldHandle,
-            NewName = stored.NewName,
-            Documents = stored.Documents,
-            InvalidatedHandles = stored.InvalidatedHandles
+            PreviewId = held.Value!.PreviewId,
+            Epoch = held.Value.Epoch,
+            ExpiresAt = held.Value.ExpiresAt,
+            OldHandle = draft.OldHandle,
+            NewName = draft.NewName,
+            Documents = ToDocumentDtos(held.Value.Documents),
+            InvalidatedHandles = held.Value.InvalidatedHandles
         });
     }
 
     [McpServerTool(Name = "symbol_apply_rename"), Description(
-        "Apply a still-valid C# rename preview. Writes only the documents listed in that preview, all of which " +
+        "Apply a still-valid C# / VB / F# rename preview. Writes only the documents listed in that preview, all of which " +
         "must already exist inside a trusted root. Uses WriteSuppression and advances the workspace Epoch. " +
         "There is no apply path that skips preview. Not a generic write / patch / shell tool.")]
     public Task<CallToolResult> SymbolApplyRename(
@@ -401,20 +384,29 @@ public sealed class SymbolTools
             return Task.FromResult(notReady!);
         }
 
-        var (applied, error) = _workspaceHost.ApplyRenamePreview(previewId, _trustedRoots);
-        if (error is not null)
+        var applied = _workspaceEdit.Apply(previewId, WorkspaceEditKind.RenamePreview);
+        if (applied.Error is not null)
         {
-            return Task.FromResult(ErrorResult(error));
+            return Task.FromResult(ErrorResult(applied.Error));
         }
 
         return Task.FromResult(OkResult(new SymbolApplyRenameResultDto
         {
-            PreviewId = applied!.PreviewId,
-            Epoch = _workspaceHost.CurrentEpoch,
-            WrittenPaths = applied.Documents.Select(static d => d.Path).ToArray(),
-            InvalidatedHandles = applied.InvalidatedHandles
+            PreviewId = applied.Value!.PreviewId,
+            Epoch = applied.Value.Epoch,
+            WrittenPaths = applied.Value.WrittenPaths,
+            InvalidatedHandles = applied.Value.InvalidatedHandles
         }));
     }
+
+    private static IReadOnlyList<RenameDocumentSliceDto> ToDocumentDtos(
+        IReadOnlyList<WorkspaceEditDocument> documents) =>
+        documents.Select(d => new RenameDocumentSliceDto
+        {
+            Path = d.Path,
+            OldText = d.OldText,
+            NewText = d.NewText
+        }).ToArray();
 
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
 

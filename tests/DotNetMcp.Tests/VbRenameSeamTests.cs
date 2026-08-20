@@ -62,7 +62,7 @@ public class VbRenameSeamTests
     }
 
     [Fact]
-    public async Task fsharp_handle_rename_is_still_refused()
+    public async Task fsharp_handle_rename_without_fsharp_project_is_not_found()
     {
         var handle = DotNetMcp.Core.SymbolHandle.Create("fsharp", Guid.NewGuid().ToString("D"), "FsLib.Widget").Format();
         var root = CreateTempDir("root");
@@ -84,7 +84,7 @@ public class VbRenameSeamTests
                 });
             Assert.True(preview.IsError is true);
             Assert.Equal(
-                PolicyErrorCodes.RenameLanguageNotSupported,
+                PolicyErrorCodes.SymbolNotFound,
                 InProcessMcpFixture.Deserialize<PolicyErrorDto>(preview).Error);
         }
         finally

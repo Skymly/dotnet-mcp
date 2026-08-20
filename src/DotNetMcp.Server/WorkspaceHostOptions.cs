@@ -22,8 +22,8 @@ public sealed class WorkspaceHostOptions
     /// </summary>
     public int CompilationLruCapacity { get; init; } = WorkspaceSession.DefaultCompilationLruCapacity;
 
-    /// <summary>TTL for stored rename previews (Spike S4). Default 5 minutes.</summary>
-    public TimeSpan RenamePreviewTtl { get; init; } = TimeSpan.FromMinutes(5);
+    /// <summary>TTL for stored Workspace Edit previews (ADR-0005). Default 5 minutes.</summary>
+    public TimeSpan WorkspaceEditPreviewTtl { get; init; } = TimeSpan.FromMinutes(5);
 
     public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 }

@@ -36,9 +36,21 @@ public static class ServerHost
         }
 
         services.AddSingleton<WorkspaceHost>();
+        services.AddSingleton<IWorkspaceEditWriter>(sp => sp.GetRequiredService<WorkspaceHost>());
+        services.AddSingleton(sp =>
+        {
+            var options = sp.GetRequiredService<WorkspaceHostOptions>();
+            return new WorkspaceEdit(
+                sp.GetRequiredService<IWorkspaceEditWriter>(),
+                sp.GetRequiredService<TrustedRoots>(),
+                options.TimeProvider,
+                options.WorkspaceEditPreviewTtl);
+        });
         services.AddSingleton<IFSharpSymbolQuery, FSharpSymbolQueryService>();
         services.AddSingleton<SymbolQueryService>();
         services.AddSingleton<RenamePreviewService>();
+        services.AddSingleton<DiagnosticFixService>();
+        services.AddSingleton<CodeRefactoringService>();
         services.AddSingleton<DiagnosticQueryService>();
         services.AddSingleton<DynamicInvocationQueryService>();
         services.AddSingleton<GeneratorQueryService>();
@@ -46,6 +58,8 @@ public static class ServerHost
         services.AddSingleton<WorkspaceTools>();
         services.AddSingleton<SymbolTools>();
         services.AddSingleton<ProjectTools>();
+        services.AddSingleton<DiagnosticTools>();
+        services.AddSingleton<SymbolRefactoringTools>();
         services.AddSingleton<XamlTools>();
     }
 
