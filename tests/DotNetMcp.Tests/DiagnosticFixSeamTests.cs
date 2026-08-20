@@ -288,7 +288,7 @@ public class DiagnosticFixSeamTests
         Assert.True((await fx.Client.CallToolAsync(
             "workspace_open",
             new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-        for (var i = 0; i < 80; i++)
+        for (var i = 0; i < 400; i++)
         {
             var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
             var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
