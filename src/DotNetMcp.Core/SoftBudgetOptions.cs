@@ -12,6 +12,7 @@ public sealed class SoftBudgetOptions
     public const string FindRefsScopedEnvName = "DOTNET_MCP_BUDGET_FIND_REFS_SCOPED_MS";
     public const string FindRefsEntireSolutionEnvName = "DOTNET_MCP_BUDGET_FIND_REFS_ENTIRE_MS";
     public const string BatchDiagnosticsEnvName = "DOTNET_MCP_BUDGET_BATCH_DIAGNOSTICS_MS";
+    public const string FixAllProjectEnvName = "DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS";
 
     public static SoftBudgetOptions Default { get; } = new();
 
@@ -26,6 +27,12 @@ public sealed class SoftBudgetOptions
 
     /// <summary>Batch diagnostics (multi-project). ADR default: 15s. Used when project_diagnostics omits projectId.</summary>
     public TimeSpan BatchDiagnostics { get; init; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>Project-scope Fix all preview. ADR default: 15s. Over-budget fails the whole preview.</summary>
+    public TimeSpan FixAllProject { get; init; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>Hard cap on CodeFix applications in one project-scope preview.</summary>
+    public int FixAllProjectMaxApplications { get; init; } = 64;
 
     public static SoftBudgetOptions FromEnvironment() =>
         FromEnvironment(Environment.GetEnvironmentVariable);
@@ -51,7 +58,10 @@ public sealed class SoftBudgetOptions
                 Default.FindRefsEntireSolution),
             BatchDiagnostics = ParseMilliseconds(
                 getEnvironmentVariable(BatchDiagnosticsEnvName),
-                Default.BatchDiagnostics)
+                Default.BatchDiagnostics),
+            FixAllProject = ParseMilliseconds(
+                getEnvironmentVariable(FixAllProjectEnvName),
+                Default.FixAllProject)
         };
     }
 

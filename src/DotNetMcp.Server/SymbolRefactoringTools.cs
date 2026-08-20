@@ -7,130 +7,82 @@ using ModelContextProtocol.Server;
 namespace DotNetMcp.Server;
 
 [McpServerToolType]
-public sealed class DiagnosticTools
+public sealed class SymbolRefactoringTools
 {
     private readonly WorkspaceHost _workspaceHost;
-    private readonly DiagnosticFixService _fixes;
+    private readonly CodeRefactoringService _refactorings;
     private readonly TrustedRoots _trustedRoots;
     private readonly IAuditLogger _audit;
 
-    public DiagnosticTools(
+    public SymbolRefactoringTools(
         WorkspaceHost workspaceHost,
-        DiagnosticFixService fixes,
+        CodeRefactoringService refactorings,
         TrustedRoots trustedRoots,
         IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
-        _fixes = fixes;
+        _refactorings = refactorings;
         _trustedRoots = trustedRoots;
         _audit = audit;
     }
 
-    [McpServerTool(Name = "diagnostics_list_fixes"), Description(
-        "List first-party / project-loaded CodeFixes for one project_diagnostics occurrence. " +
-        "Locator is projectId + diagnosticId + optional filePath/span (1-based lines, 0-based characters). " +
-        "Zero fixes is success with an empty list. F# projects return FixLanguageNotSupported. " +
-        "Does not write disk.")]
-    public async Task<CallToolResult> DiagnosticsListFixes(
-        [Description("Roslyn projectId from workspace_list_projects / project_diagnostics.")]
-        string projectId,
-        [Description("Diagnostic Id from project_diagnostics (for example CS0246).")]
-        string diagnosticId,
-        [Description("Optional source file path from project_diagnostics.")]
-        string? filePath = null,
-        [Description("Optional 1-based start line from project_diagnostics.")]
-        int? startLine = null,
-        [Description("Optional 0-based start character from project_diagnostics.")]
-        int? startCharacter = null,
-        [Description("Optional 1-based end line from project_diagnostics.")]
-        int? endLine = null,
-        [Description("Optional 0-based end character from project_diagnostics.")]
-        int? endCharacter = null,
+    [McpServerTool(Name = "symbol_list_refactorings"), Description(
+        "List first-party / project-loaded Code Refactorings at a handwritten SymbolHandle identifier. " +
+        "Zero refactorings is success with an empty list. F# handles return RefactoringLanguageNotSupported. " +
+        "SourceGenerator Origin is refused. Does not write disk.")]
+    public async Task<CallToolResult> SymbolListRefactorings(
+        [Description("Handwritten C# / VB SymbolHandle from symbol_resolve.")]
+        string handle,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _audit.ToolInvoked("diagnostics_list_fixes");
+        _audit.ToolInvoked("symbol_list_refactorings");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
             return notReady!;
         }
 
-        var (success, error) = await _fixes
-            .ListFixesAsync(
-                session!,
-                projectId,
-                diagnosticId,
-                filePath,
-                startLine,
-                startCharacter,
-                endLine,
-                endCharacter,
-                cancellationToken)
+        var (success, error) = await _refactorings
+            .ListAsync(session!, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
             return ErrorResult(ToPolicyError(error));
         }
 
-        return OkResult(new DiagnosticsListFixesResultDto
+        return OkResult(new SymbolListRefactoringsResultDto
         {
-            Items = success!.Items.Select(i => new DiagnosticFixItemDto
+            Items = success!.Items.Select(i => new CodeRefactoringItemDto
             {
-                FixIndex = i.FixIndex,
+                RefactoringIndex = i.RefactoringIndex,
                 Title = i.Title,
                 EquivalenceKey = i.EquivalenceKey
             }).ToArray()
         });
     }
 
-    [McpServerTool(Name = "diagnostics_preview_fix"), Description(
-        "Preview applying one Diagnostic fix as a Workspace Edit. " +
+    [McpServerTool(Name = "symbol_preview_refactoring"), Description(
+        "Preview applying one Code Refactoring as a Workspace Edit. " +
         "Returns previewId bound to the current Epoch + TTL. Does not write disk. " +
-        "scope=occurrence (default), scope=document, or scope=project for Fix all with the same EquivalenceKey. " +
         "Generated documents are refused. Not a generic apply_edit / write / shell.")]
-    public async Task<CallToolResult> DiagnosticsPreviewFix(
-        [Description("Roslyn projectId from workspace_list_projects / project_diagnostics.")]
-        string projectId,
-        [Description("Diagnostic Id from project_diagnostics.")]
-        string diagnosticId,
-        [Description("fixIndex from diagnostics_list_fixes on the current snapshot.")]
-        int fixIndex,
-        [Description("Optional source file path from project_diagnostics.")]
-        string? filePath = null,
-        [Description("Optional 1-based start line from project_diagnostics.")]
-        int? startLine = null,
-        [Description("Optional 0-based start character from project_diagnostics.")]
-        int? startCharacter = null,
-        [Description("Optional 1-based end line from project_diagnostics.")]
-        int? endLine = null,
-        [Description("Optional 0-based end character from project_diagnostics.")]
-        int? endCharacter = null,
-        [Description("occurrence (default), document (this file), or project (this project) for the same EquivalenceKey.")]
-        string? scope = null,
+    public async Task<CallToolResult> SymbolPreviewRefactoring(
+        [Description("Handwritten C# / VB SymbolHandle from symbol_resolve.")]
+        string handle,
+        [Description("refactoringIndex from symbol_list_refactorings on the current snapshot.")]
+        int refactoringIndex,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _audit.ToolInvoked("diagnostics_preview_fix");
+        _audit.ToolInvoked("symbol_preview_refactoring");
 
         if (!TryGetReadySession(out var session, out var notReady))
         {
             return notReady!;
         }
 
-        var (draft, error) = await _fixes
-            .BuildPreviewAsync(
-                session!,
-                projectId,
-                diagnosticId,
-                filePath,
-                startLine,
-                startCharacter,
-                endLine,
-                endCharacter,
-                fixIndex,
-                scope,
-                cancellationToken)
+        var (draft, error) = await _refactorings
+            .BuildPreviewAsync(session!, handle, refactoringIndex, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -144,7 +96,7 @@ public sealed class DiagnosticTools
                 return ErrorResult(new PolicyErrorDto
                 {
                     Error = PolicyErrorCodes.PreviewPathOutsideTrustedRoots,
-                    Message = "Diagnostic fix preview includes a path outside trusted roots; the preview was not stored.",
+                    Message = "Code Refactoring preview includes a path outside trusted roots; the preview was not stored.",
                     SuggestedAction = "Open a workspace whose documents all sit under a trusted root, then retry."
                 });
             }
@@ -158,35 +110,35 @@ public sealed class DiagnosticTools
         }).ToArray();
 
         var stored = _workspaceHost.StoreRenamePreview(
-            oldHandle: $"fix:{projectId}:{diagnosticId}:{draft.Scope}",
+            oldHandle: draft.Handle,
             newName: draft.Title,
             documents,
             draft.InvalidatedHandles);
 
-        return OkResult(new DiagnosticsPreviewFixResultDto
+        return OkResult(new SymbolPreviewRefactoringResultDto
         {
             PreviewId = stored.PreviewId,
             Epoch = stored.Epoch,
             ExpiresAt = stored.ExpiresAt,
             Title = draft.Title,
             EquivalenceKey = draft.EquivalenceKey,
-            Scope = draft.Scope,
+            Handle = draft.Handle,
             Documents = stored.Documents,
             InvalidatedHandles = stored.InvalidatedHandles
         });
     }
 
-    [McpServerTool(Name = "diagnostics_apply_fix"), Description(
-        "Apply a still-valid Diagnostic fix preview. Writes only the documents listed in that preview, " +
+    [McpServerTool(Name = "symbol_apply_refactoring"), Description(
+        "Apply a still-valid Code Refactoring preview. Writes only the documents listed in that preview, " +
         "all of which must already exist inside a trusted root. Uses WriteSuppression and advances Epoch. " +
         "There is no apply path that skips preview. Not a generic write / patch / shell tool.")]
-    public Task<CallToolResult> DiagnosticsApplyFix(
-        [Description("previewId from diagnostics_preview_fix (current Epoch, unexpired).")]
+    public Task<CallToolResult> SymbolApplyRefactoring(
+        [Description("previewId from symbol_preview_refactoring (current Epoch, unexpired).")]
         string previewId,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _audit.ToolInvoked("diagnostics_apply_fix");
+        _audit.ToolInvoked("symbol_apply_refactoring");
 
         if (!TryGetReadySession(out _, out var notReady))
         {
@@ -196,14 +148,14 @@ public sealed class DiagnosticTools
         var (applied, error) = _workspaceHost.ApplyRenamePreview(
             previewId,
             _trustedRoots,
-            previewTool: "diagnostics_preview_fix",
-            applyTool: "diagnostics_apply_fix");
+            previewTool: "symbol_preview_refactoring",
+            applyTool: "symbol_apply_refactoring");
         if (error is not null)
         {
             return Task.FromResult(ErrorResult(error));
         }
 
-        return Task.FromResult(OkResult(new DiagnosticsApplyFixResultDto
+        return Task.FromResult(OkResult(new SymbolApplyRefactoringResultDto
         {
             PreviewId = applied!.PreviewId,
             Epoch = _workspaceHost.CurrentEpoch,

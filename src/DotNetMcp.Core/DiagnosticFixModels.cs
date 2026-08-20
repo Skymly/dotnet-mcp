@@ -35,8 +35,12 @@ public sealed record FixApplyFailedError(string Message, string SuggestedAction)
 public sealed record FixAllUnavailableError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.FixAllUnavailable, Message, SuggestedAction);
 
+public sealed record FixAllBudgetExceededError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.FixAllBudgetExceeded, Message, SuggestedAction);
+
 public static class DiagnosticFixScopes
 {
     public const string Occurrence = "occurrence";
     public const string Document = "document";
+    public const string Project = "project";
 }

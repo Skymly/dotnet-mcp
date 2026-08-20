@@ -45,7 +45,7 @@ _Avoid_: stale cache (without the drift/check semantics)
 _Avoid_: treating the whole server as read-only after 2.0; apply_edit / patch_file / write / shell
 
 **Workspace Edit**:
-一次受限写操作的 preview / apply 合同：按文件的路径 + 旧/新文本 + 将失效的 SymbolHandle。必须先 preview。
+一次受限写操作的 preview / apply 合同：按文件的路径 + 旧/新文本 + 将失效的 SymbolHandle。必须先 preview。覆盖 rename、Diagnostic fix、Code Refactoring 三类命名写。
 _Avoid_: apply_edit, patch_file, generic write
 
 **Rename preview**:
@@ -75,14 +75,23 @@ _Avoid_: MetadataGenerated, COM-in-Origin
 **Dynamic invocation site**:
 `dynamic` 调用点（IOperation），带可选的静态接收者/参数类型；不是符号归因。
 _Avoid_: treating dynamic as SymbolAttribution
+
 **Diagnostic fix**:
 针对一条 `project_diagnostics` 出现的、由 first-party 或项目已加载 CodeFixProvider 提供的修复动作。
 _Avoid_: invented patch, generic apply_edit, analyzer downloaded just-in-time
 
 **Fix preview**:
-一次 Diagnostic fix（或单文档 Fix all）的 Workspace Edit 预览；带 Epoch + TTL 的 previewId，apply 前不得写盘。
+一次 Diagnostic fix（或 document / project Fix all）的 Workspace Edit 预览；带 Epoch + TTL 的 previewId，apply 前不得写盘。
 _Avoid_: applying a CodeFix without preview
 
 **Fix equivalence key**:
-Roslyn CodeAction.EquivalenceKey，用于把同一文档内的等价诊断收成一次 Fix all。
+Roslyn CodeAction.EquivalenceKey，用于把同一文档或同一项目内的等价诊断收成一次 Fix all。
 _Avoid_: fix-all-in-solution
+
+**Code Refactoring**:
+针对手写符号标识符处、由 first-party 或项目已加载 CodeRefactoringProvider 提供的命名写操作；与 Diagnostic fix 正交（无诊断定位）。
+_Avoid_: invented patch, extract method selection, change-signature UI, generic apply_edit
+
+**Refactoring preview**:
+一次 Code Refactoring 的 Workspace Edit 预览；带 Epoch + TTL 的 previewId，apply 前不得写盘。
+_Avoid_: applying a refactoring without preview

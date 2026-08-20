@@ -13,6 +13,12 @@ namespace DotNetMcp.Core;
 public sealed class DiagnosticFixService
 {
     private static readonly ConcurrentDictionary<string, IReadOnlyList<CodeFixProvider>> ProvidersByLanguage = new(StringComparer.Ordinal);
+    private readonly SoftBudgetOptions _budgets;
+
+    public DiagnosticFixService(SoftBudgetOptions? budgets = null)
+    {
+        _budgets = budgets ?? SoftBudgetOptions.Default;
+    }
 
     public async Task<(DiagnosticFixListSuccess? Success, SymbolQueryError? Error)> ListFixesAsync(
         IWorkspaceSession session,
@@ -77,18 +83,33 @@ public sealed class DiagnosticFixService
 
         var chosen = actions[fixIndex];
         Solution? changed;
-        if (normalizedScope == DiagnosticFixScopes.Document)
+        if (normalizedScope == DiagnosticFixScopes.Document || normalizedScope == DiagnosticFixScopes.Project)
         {
             if (string.IsNullOrWhiteSpace(chosen.EquivalenceKey))
             {
                 return (null, new FixAllUnavailableError(
-                    "This fix has no EquivalenceKey, so document-scope Fix all is unavailable.",
+                    $"This fix has no EquivalenceKey, so {normalizedScope}-scope Fix all is unavailable.",
                     "Call diagnostics_preview_fix with scope=occurrence, or pick a fix that reports an EquivalenceKey."));
             }
 
-            changed = await ApplyDocumentScopeAsync(
-                    document!, diagnostic!.Id, chosen.EquivalenceKey, cancellationToken)
-                .ConfigureAwait(false);
+            if (normalizedScope == DiagnosticFixScopes.Project)
+            {
+                var (projectSolution, projectError) = await ApplyProjectScopeAsync(
+                        document!, diagnostic!.Id, chosen.EquivalenceKey, cancellationToken)
+                    .ConfigureAwait(false);
+                if (projectError is not null)
+                {
+                    return (null, projectError);
+                }
+
+                changed = projectSolution;
+            }
+            else
+            {
+                changed = await ApplyDocumentScopeAsync(
+                        document!, diagnostic!.Id, chosen.EquivalenceKey, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
         else
         {
@@ -312,9 +333,14 @@ public sealed class DiagnosticFixService
             return DiagnosticFixScopes.Document;
         }
 
+        if (string.Equals(scope, DiagnosticFixScopes.Project, StringComparison.OrdinalIgnoreCase))
+        {
+            return DiagnosticFixScopes.Project;
+        }
+
         error = new FixAllUnavailableError(
             $"Unknown scope '{scope}'.",
-            "Pass scope=occurrence or scope=document.");
+            "Pass scope=occurrence, scope=document, or scope=project.");
         return DiagnosticFixScopes.Occurrence;
     }
 
@@ -491,6 +517,138 @@ public sealed class DiagnosticFixService
         }
 
         return applied ? currentSolution : null;
+    }
+
+    private async Task<(Solution? Solution, SymbolQueryError? Error)> ApplyProjectScopeAsync(
+        Document document,
+        string diagnosticId,
+        string equivalenceKey,
+        CancellationToken cancellationToken)
+    {
+        var currentSolution = document.Project.Solution;
+        var projectId = document.Project.Id;
+        var applied = 0;
+        var deadline = DateTime.UtcNow + _budgets.FixAllProject;
+        var cap = Math.Max(1, _budgets.FixAllProjectMaxApplications);
+
+        while (applied < cap)
+        {
+            if (DateTime.UtcNow >= deadline)
+            {
+                return (null, new FixAllBudgetExceededError(
+                    "Project-scope Fix all exceeded its time budget before every occurrence could be applied.",
+                    "Retry with a longer DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS, or apply scope=document per file."));
+            }
+
+            var project = currentSolution.GetProject(projectId);
+            if (project is null)
+            {
+                break;
+            }
+
+            var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
+            if (compilation is null)
+            {
+                break;
+            }
+
+            Document? nextDoc = null;
+            Diagnostic? nextOccurrence = null;
+            foreach (var candidate in project.Documents)
+            {
+                var tree = await candidate.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+                if (tree is null)
+                {
+                    continue;
+                }
+
+                var hit = compilation.GetDiagnostics()
+                    .Where(d => d.Location.SourceTree == tree &&
+                                string.Equals(d.Id, diagnosticId, StringComparison.Ordinal))
+                    .OrderByDescending(d => d.Location.SourceSpan.Start)
+                    .FirstOrDefault();
+                if (hit is null)
+                {
+                    continue;
+                }
+
+                nextDoc = candidate;
+                nextOccurrence = hit;
+                break;
+            }
+
+            if (nextDoc is null || nextOccurrence is null)
+            {
+                break;
+            }
+
+            var actions = await CollectActionsAsync(nextDoc, nextOccurrence, cancellationToken).ConfigureAwait(false);
+            var match = actions.FirstOrDefault(a =>
+                string.Equals(a.EquivalenceKey, equivalenceKey, StringComparison.Ordinal));
+            if (match is null)
+            {
+                break;
+            }
+
+            var next = await ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
+            if (next is null)
+            {
+                break;
+            }
+
+            currentSolution = next;
+            applied++;
+        }
+
+        if (applied >= cap)
+        {
+            var leftover = await ProjectHasRemainingAsync(
+                    currentSolution.GetProject(projectId), diagnosticId, cancellationToken)
+                .ConfigureAwait(false);
+            if (leftover)
+            {
+                return (null, new FixAllBudgetExceededError(
+                    $"Project-scope Fix all hit the application cap ({cap}) before every occurrence could be applied.",
+                    "Apply scope=document per file, or raise the host FixAllProjectMaxApplications cap."));
+            }
+        }
+
+        return applied > 0 ? (currentSolution, null) : (null, null);
+    }
+
+    private static async Task<bool> ProjectHasRemainingAsync(
+        Project? project,
+        string diagnosticId,
+        CancellationToken cancellationToken)
+    {
+        if (project is null)
+        {
+            return false;
+        }
+
+        var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
+        if (compilation is null)
+        {
+            return false;
+        }
+
+        foreach (var candidate in project.Documents)
+        {
+            var tree = await candidate.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+            if (tree is null)
+            {
+                continue;
+            }
+
+            if (compilation.GetDiagnostics().Any(d =>
+                    d.Location.SourceTree == tree &&
+                    string.Equals(d.Id, diagnosticId, StringComparison.Ordinal)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static async Task<(IReadOnlyList<RenameDocumentSlice> Slices, bool TouchedGenerated)> DiffAsync(

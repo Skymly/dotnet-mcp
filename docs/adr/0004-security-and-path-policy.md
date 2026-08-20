@@ -71,3 +71,9 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 证据：`spikes/s6-codefix/CONCLUSIONS.md`、Spec #104。
 
 §3 允许名单从 rename 两步扩为 rename 两步 + `diagnostics_list_fixes` / `diagnostics_preview_fix` / `diagnostics_apply_fix`。仍禁止通用写 / 补丁 / shell / 网络。受信根、打开即执行、审计不记源码正文不变。
+
+## Amendment 3（2026-08-20）：Code Refactoring
+
+证据：`spikes/s8-refactoring/CONCLUSIONS.md`、Spec #116。
+
+§3 允许名单从 rename 两步 + Diagnostic fix 三步扩为再加 `symbol_list_refactorings` / `symbol_preview_refactoring` / `symbol_apply_refactoring`。仍禁止通用写 / 补丁 / shell / 网络。受信根、打开即执行、审计不记源码正文不变。

@@ -40,6 +40,7 @@ public static class ServerHost
         services.AddSingleton<SymbolQueryService>();
         services.AddSingleton<RenamePreviewService>();
         services.AddSingleton<DiagnosticFixService>();
+        services.AddSingleton<CodeRefactoringService>();
         services.AddSingleton<DiagnosticQueryService>();
         services.AddSingleton<DynamicInvocationQueryService>();
         services.AddSingleton<GeneratorQueryService>();
@@ -48,6 +49,7 @@ public static class ServerHost
         services.AddSingleton<SymbolTools>();
         services.AddSingleton<ProjectTools>();
         services.AddSingleton<DiagnosticTools>();
+        services.AddSingleton<SymbolRefactoringTools>();
         services.AddSingleton<XamlTools>();
     }
 

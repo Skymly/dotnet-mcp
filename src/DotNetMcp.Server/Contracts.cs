@@ -51,6 +51,12 @@ public static class PolicyErrorCodes
     public const string GeneratedDocumentFixRefused = "GeneratedDocumentFixRefused";
     public const string FixApplyFailed = "FixApplyFailed";
     public const string FixAllUnavailable = "FixAllUnavailable";
+    public const string FixAllBudgetExceeded = "FixAllBudgetExceeded";
+    public const string RefactoringLanguageNotSupported = "RefactoringLanguageNotSupported";
+    public const string RefactoringIndexOutOfRange = "RefactoringIndexOutOfRange";
+    public const string GeneratedSymbolRefactoringRefused = "GeneratedSymbolRefactoringRefused";
+    public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
+    public const string RefactoringApplyFailed = "RefactoringApplyFailed";
 }
 
 public sealed record XamlBindingSegmentDto
@@ -425,6 +431,38 @@ public sealed record DiagnosticsPreviewFixResultDto
 }
 
 public sealed record DiagnosticsApplyFixResultDto
+{
+    public required string PreviewId { get; init; }
+    public required long Epoch { get; init; }
+    public required IReadOnlyList<string> WrittenPaths { get; init; }
+    public required IReadOnlyList<string> InvalidatedHandles { get; init; }
+}
+
+public sealed record CodeRefactoringItemDto
+{
+    public required int RefactoringIndex { get; init; }
+    public required string Title { get; init; }
+    public string? EquivalenceKey { get; init; }
+}
+
+public sealed record SymbolListRefactoringsResultDto
+{
+    public required IReadOnlyList<CodeRefactoringItemDto> Items { get; init; }
+}
+
+public sealed record SymbolPreviewRefactoringResultDto
+{
+    public required string PreviewId { get; init; }
+    public required long Epoch { get; init; }
+    public required DateTimeOffset ExpiresAt { get; init; }
+    public required string Title { get; init; }
+    public string? EquivalenceKey { get; init; }
+    public required string Handle { get; init; }
+    public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
+    public required IReadOnlyList<string> InvalidatedHandles { get; init; }
+}
+
+public sealed record SymbolApplyRefactoringResultDto
 {
     public required string PreviewId { get; init; }
     public required long Epoch { get; init; }
