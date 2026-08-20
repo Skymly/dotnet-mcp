@@ -1,0 +1,244 @@
+using DotNetMcp.Server;
+
+namespace DotNetMcp.Tests;
+
+public class WorkspaceEditSeamTests
+{
+    [Fact]
+    public void preview_refuses_outside_root_without_storing()
+    {
+        var root = CreateTempDir();
+        var outside = Path.Combine(Path.GetTempPath(), "dotnet-mcp-we-out-" + Guid.NewGuid().ToString("N") + ".cs");
+        var writer = new FakeWorkspaceEditWriter();
+        var edits = new WorkspaceEdit(writer, TrustedRoots.Create([root]), TimeProvider.System, TimeSpan.FromMinutes(5));
+
+        try
+        {
+            var outcome = edits.Preview(new WorkspaceEditDraft(
+                WorkspaceEditKind.RenamePreview,
+                [new WorkspaceEditDocument(outside, "secret-source", "leaked")],
+                []));
+
+            Assert.True(outcome.Failed, outcome.Error?.Error);
+            Assert.Equal(PolicyErrorCodes.PreviewPathOutsideTrustedRoots, outcome.Error!.Error);
+            Assert.DoesNotContain("secret-source", outcome.Error.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("leaked", outcome.Error.SuggestedAction, StringComparison.Ordinal);
+            Assert.Empty(writer.Writes);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public void apply_rejects_cross_kind_without_writing()
+    {
+        var root = CreateTempDir();
+        var path = Path.Combine(root, "Widget.cs");
+        var writer = new FakeWorkspaceEditWriter { CurrentEpoch = 3 };
+        writer.Existing.Add(path);
+        var edits = new WorkspaceEdit(writer, TrustedRoots.Create([root]), TimeProvider.System, TimeSpan.FromMinutes(5));
+
+        try
+        {
+            var held = edits.Preview(new WorkspaceEditDraft(
+                WorkspaceEditKind.RenamePreview,
+                [new WorkspaceEditDocument(path, "old", "new")],
+                ["csharp:old"]));
+            Assert.False(held.Failed, held.Error?.Message);
+
+            var crossed = edits.Apply(held.Value!.PreviewId, WorkspaceEditKind.FixPreview);
+            Assert.True(crossed.Failed);
+            Assert.Equal(PolicyErrorCodes.PreviewKindMismatch, crossed.Error!.Error);
+            Assert.DoesNotContain("old", crossed.Error.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("new", crossed.Error.SuggestedAction, StringComparison.Ordinal);
+            Assert.Empty(writer.Writes);
+
+            var applied = edits.Apply(held.Value.PreviewId, WorkspaceEditKind.RenamePreview);
+            Assert.False(applied.Failed, applied.Error?.Message);
+            Assert.Equal(4, applied.Value!.Epoch);
+            Assert.Single(writer.Writes);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public void apply_expired_is_distinct_from_unknown_id()
+    {
+        var root = CreateTempDir();
+        var path = Path.Combine(root, "Widget.cs");
+        var writer = new FakeWorkspaceEditWriter();
+        writer.Existing.Add(path);
+        var clock = new FakeTimeProvider(DateTimeOffset.Parse("2026-08-20T00:00:00Z"));
+        var edits = new WorkspaceEdit(writer, TrustedRoots.Create([root]), clock, TimeSpan.FromMinutes(5));
+
+        try
+        {
+            var held = edits.Preview(new WorkspaceEditDraft(
+                WorkspaceEditKind.FixPreview,
+                [new WorkspaceEditDocument(path, "old", "new")],
+                []));
+            Assert.False(held.Failed, held.Error?.Message);
+
+            var unknown = edits.Apply("deadbeefdeadbeef", WorkspaceEditKind.FixPreview);
+            Assert.Equal(PolicyErrorCodes.PreviewNotFound, unknown.Error!.Error);
+
+            clock.Advance(TimeSpan.FromMinutes(6));
+            var expired = edits.Apply(held.Value!.PreviewId, WorkspaceEditKind.FixPreview);
+            Assert.Equal(PolicyErrorCodes.PreviewExpired, expired.Error!.Error);
+            Assert.Empty(writer.Writes);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public void generation_change_makes_preview_not_found()
+    {
+        var root = CreateTempDir();
+        var path = Path.Combine(root, "Widget.cs");
+        var writer = new FakeWorkspaceEditWriter();
+        writer.Existing.Add(path);
+        var edits = new WorkspaceEdit(
+            writer,
+            TrustedRoots.Create([root]),
+            TimeProvider.System,
+            TimeSpan.FromMinutes(5));
+
+        try
+        {
+            var held = edits.Preview(new WorkspaceEditDraft(
+                WorkspaceEditKind.RefactoringPreview,
+                [new WorkspaceEditDocument(path, "old", "new")],
+                []));
+            Assert.False(held.Failed, held.Error?.Message);
+            writer.Generation++;
+
+            var missing = edits.Apply(held.Value!.PreviewId, WorkspaceEditKind.RefactoringPreview);
+            Assert.Equal(PolicyErrorCodes.PreviewNotFound, missing.Error!.Error);
+            Assert.Empty(writer.Writes);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task mcp_cross_kind_apply_is_preview_kind_mismatch()
+    {
+        var root = CreateTempDir();
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = solution });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+            for (var i = 0; i < 80; i++)
+            {
+                var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
+                if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
+                {
+                    break;
+                }
+
+                await Task.Delay(25);
+            }
+
+            var resolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "RenameApp.Widget.Ping" });
+            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+            var preview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = handle,
+                    ["newName"] = "Pong"
+                });
+            Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
+            var previewId = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview).PreviewId;
+
+            var crossed = await fx.Client.CallToolAsync(
+                "diagnostics_apply_fix",
+                new Dictionary<string, object?> { ["previewId"] = previewId });
+            Assert.True(crossed.IsError is true);
+            Assert.Equal(
+                PolicyErrorCodes.PreviewKindMismatch,
+                InProcessMcpFixture.Deserialize<PolicyErrorDto>(crossed).Error);
+
+            var stillRename = await fx.Client.CallToolAsync(
+                "symbol_apply_rename",
+                new Dictionary<string, object?> { ["previewId"] = previewId });
+            Assert.True(stillRename.IsError is not true, InProcessMcpFixture.TextOf(stillRename));
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private static string CreateTempDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-we-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    private static void TryDelete(string dir)
+    {
+        try
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private sealed class FakeWorkspaceEditWriter : IWorkspaceEditWriter
+    {
+        public long CurrentEpoch { get; set; }
+
+        public long Generation { get; set; }
+
+        public HashSet<string> Existing { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public List<IReadOnlyList<WorkspaceEditDocument>> Writes { get; } = [];
+
+        public bool PathExists(string path) => Existing.Contains(path);
+
+        public WorkspaceEditOutcome<long> WriteDeclaredPaths(IReadOnlyList<WorkspaceEditDocument> documents)
+        {
+            Writes.Add(documents);
+            CurrentEpoch++;
+            return new WorkspaceEditOutcome<long>(CurrentEpoch, null);
+        }
+    }
+}

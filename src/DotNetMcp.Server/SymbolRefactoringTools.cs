@@ -10,19 +10,19 @@ namespace DotNetMcp.Server;
 public sealed class SymbolRefactoringTools
 {
     private readonly WorkspaceHost _workspaceHost;
+    private readonly WorkspaceEdit _workspaceEdit;
     private readonly CodeRefactoringService _refactorings;
-    private readonly TrustedRoots _trustedRoots;
     private readonly IAuditLogger _audit;
 
     public SymbolRefactoringTools(
         WorkspaceHost workspaceHost,
+        WorkspaceEdit workspaceEdit,
         CodeRefactoringService refactorings,
-        TrustedRoots trustedRoots,
         IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
+        _workspaceEdit = workspaceEdit;
         _refactorings = refactorings;
-        _trustedRoots = trustedRoots;
         _audit = audit;
     }
 
@@ -89,42 +89,25 @@ public sealed class SymbolRefactoringTools
             return ErrorResult(ToPolicyError(error));
         }
 
-        foreach (var slice in draft!.Documents)
+        var held = _workspaceEdit.Preview(new WorkspaceEditDraft(
+            WorkspaceEditKind.RefactoringPreview,
+            draft!.Documents.Select(d => new WorkspaceEditDocument(d.Path, d.OldText, d.NewText)).ToArray(),
+            draft.InvalidatedHandles));
+        if (held.Error is not null)
         {
-            if (!_trustedRoots.Contains(slice.Path))
-            {
-                return ErrorResult(new PolicyErrorDto
-                {
-                    Error = PolicyErrorCodes.PreviewPathOutsideTrustedRoots,
-                    Message = "Code Refactoring preview includes a path outside trusted roots; the preview was not stored.",
-                    SuggestedAction = "Open a workspace whose documents all sit under a trusted root, then retry."
-                });
-            }
+            return ErrorResult(held.Error);
         }
-
-        var documents = draft.Documents.Select(d => new RenameDocumentSliceDto
-        {
-            Path = d.Path,
-            OldText = d.OldText,
-            NewText = d.NewText
-        }).ToArray();
-
-        var stored = _workspaceHost.StoreRenamePreview(
-            oldHandle: draft.Handle,
-            newName: draft.Title,
-            documents,
-            draft.InvalidatedHandles);
 
         return OkResult(new SymbolPreviewRefactoringResultDto
         {
-            PreviewId = stored.PreviewId,
-            Epoch = stored.Epoch,
-            ExpiresAt = stored.ExpiresAt,
+            PreviewId = held.Value!.PreviewId,
+            Epoch = held.Value.Epoch,
+            ExpiresAt = held.Value.ExpiresAt,
             Title = draft.Title,
             EquivalenceKey = draft.EquivalenceKey,
             Handle = draft.Handle,
-            Documents = stored.Documents,
-            InvalidatedHandles = stored.InvalidatedHandles
+            Documents = ToDocumentDtos(held.Value.Documents),
+            InvalidatedHandles = held.Value.InvalidatedHandles
         });
     }
 
@@ -145,24 +128,29 @@ public sealed class SymbolRefactoringTools
             return Task.FromResult(notReady!);
         }
 
-        var (applied, error) = _workspaceHost.ApplyRenamePreview(
-            previewId,
-            _trustedRoots,
-            previewTool: "symbol_preview_refactoring",
-            applyTool: "symbol_apply_refactoring");
-        if (error is not null)
+        var applied = _workspaceEdit.Apply(previewId, WorkspaceEditKind.RefactoringPreview);
+        if (applied.Error is not null)
         {
-            return Task.FromResult(ErrorResult(error));
+            return Task.FromResult(ErrorResult(applied.Error));
         }
 
         return Task.FromResult(OkResult(new SymbolApplyRefactoringResultDto
         {
-            PreviewId = applied!.PreviewId,
-            Epoch = _workspaceHost.CurrentEpoch,
-            WrittenPaths = applied.Documents.Select(static d => d.Path).ToArray(),
-            InvalidatedHandles = applied.InvalidatedHandles
+            PreviewId = applied.Value!.PreviewId,
+            Epoch = applied.Value.Epoch,
+            WrittenPaths = applied.Value.WrittenPaths,
+            InvalidatedHandles = applied.Value.InvalidatedHandles
         }));
     }
+
+    private static IReadOnlyList<RenameDocumentSliceDto> ToDocumentDtos(
+        IReadOnlyList<WorkspaceEditDocument> documents) =>
+        documents.Select(d => new RenameDocumentSliceDto
+        {
+            Path = d.Path,
+            OldText = d.OldText,
+            NewText = d.NewText
+        }).ToArray();
 
     private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
     {

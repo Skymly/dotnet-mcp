@@ -72,6 +72,7 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
         _services = services.BuildServiceProvider();
         _server = _services.GetRequiredService<McpServer>();
         WorkspaceHost = _services.GetRequiredService<WorkspaceHost>();
+        WorkspaceEdit = _services.GetRequiredService<WorkspaceEdit>();
         _serverTask = _server.RunAsync(_serverCts.Token);
 
         Client = McpClient.CreateAsync(
@@ -101,6 +102,8 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
     public McpClient Client { get; }
 
     public WorkspaceHost WorkspaceHost { get; }
+
+    public WorkspaceEdit WorkspaceEdit { get; }
 
     public T GetRequiredService<T>()
         where T : notnull =>

@@ -147,7 +147,7 @@ public class DiagnosticFixSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithMissingUsingOnDisk(projectDir),
-                new WorkspaceHostOptions { TimeProvider = clock, RenamePreviewTtl = TimeSpan.FromMinutes(5) });
+                new WorkspaceHostOptions { TimeProvider = clock, WorkspaceEditPreviewTtl = TimeSpan.FromMinutes(5) });
 
             await OpenUntilReadyAsync(fx, solution);
             var occurrence = await FirstCs0246Async(fx);

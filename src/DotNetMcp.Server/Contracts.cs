@@ -42,6 +42,7 @@ public static class PolicyErrorCodes
     public const string PreviewNotFound = "PreviewNotFound";
     public const string PreviewExpired = "PreviewExpired";
     public const string PreviewEpochMismatch = "PreviewEpochMismatch";
+    public const string PreviewKindMismatch = "PreviewKindMismatch";
     public const string PreviewPathOutsideTrustedRoots = "PreviewPathOutsideTrustedRoots";
     public const string PreviewTargetMissing = "PreviewTargetMissing";
     public const string DiagnosticNotFound = "DiagnosticNotFound";

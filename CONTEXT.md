@@ -45,8 +45,8 @@ _Avoid_: stale cache (without the drift/check semantics)
 _Avoid_: treating the whole server as read-only after 2.0; apply_edit / patch_file / write / shell
 
 **Workspace Edit**:
-一次受限写操作的 preview / apply 合同：按文件的路径 + 旧/新文本 + 将失效的 SymbolHandle。必须先 preview。覆盖 rename、Diagnostic fix、Code Refactoring 三类命名写。
-_Avoid_: apply_edit, patch_file, generic write
+一次受限写操作的 preview / apply 合同：路径 + 旧/新文本 + 失效 SymbolHandle，外加 kind（Rename preview / Fix preview / Refactoring preview）。apply 必须匹配 kind；newName / Title / scope 不是入库合同。必须先 preview。
+_Avoid_: apply_edit, patch_file, generic write; applying a preview under a different kind; RenamePreviewStore as the contract
 
 **Rename preview**:
 针对手写符号的 Workspace Edit 预览（`symbol_preview_rename`）。带 Epoch + TTL 的不透明 previewId；`Origin = SourceGenerator` 拒绝。apply 走自写抑制并推进 Epoch。
