@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
@@ -12,8 +10,6 @@ namespace DotNetMcp.Core;
 /// </summary>
 public sealed class CodeRefactoringService
 {
-    private static readonly ConcurrentDictionary<string, IReadOnlyList<CodeRefactoringProvider>> ProvidersByLanguage = new(StringComparer.Ordinal);
-
     private readonly SymbolQueryService _symbols;
     private readonly LanguageAdapters _languages;
 
@@ -62,7 +58,7 @@ public sealed class CodeRefactoringService
         }
 
         var chosen = actions[refactoringIndex];
-        var changed = await ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
+        var changed = await CodeActionDocuments.ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
         if (changed is null)
         {
             return (null, new RefactoringApplyFailedError(
@@ -161,7 +157,7 @@ public sealed class CodeRefactoringService
         TextSpan span,
         CancellationToken cancellationToken)
     {
-        var providers = GetProviders(document.Project.Language);
+        var providers = CodeActionDocuments.GetProviders<CodeRefactoringProvider>(document.Project.Language);
         var actions = new List<CodeAction>();
         foreach (var provider in providers)
         {
@@ -170,7 +166,7 @@ public sealed class CodeRefactoringService
                 var context = new CodeRefactoringContext(
                     document,
                     span,
-                    action => actions.AddRange(Flatten(action)),
+                    action => actions.AddRange(CodeActionDocuments.Flatten(action)),
                     cancellationToken);
                 await provider.ComputeRefactoringsAsync(context).ConfigureAwait(false);
             }
@@ -184,70 +180,6 @@ public sealed class CodeRefactoringService
             .OrderBy(static a => a.Title, StringComparer.Ordinal)
             .ThenBy(static a => a.EquivalenceKey ?? string.Empty, StringComparer.Ordinal)
             .ToArray();
-    }
-
-    private static IReadOnlyList<CodeRefactoringProvider> GetProviders(string language)
-    {
-        return ProvidersByLanguage.GetOrAdd(language, static lang =>
-        {
-            var assemblyName = lang switch
-            {
-                LanguageNames.CSharp => "Microsoft.CodeAnalysis.CSharp.Features",
-                LanguageNames.VisualBasic => "Microsoft.CodeAnalysis.VisualBasic.Features",
-                _ => null
-            };
-            if (assemblyName is null)
-            {
-                return [];
-            }
-
-            var list = new List<CodeRefactoringProvider>();
-            foreach (var type in Assembly.Load(assemblyName).GetTypes())
-            {
-                if (type.IsAbstract || !typeof(CodeRefactoringProvider).IsAssignableFrom(type))
-                {
-                    continue;
-                }
-
-                if (type.GetConstructor(Type.EmptyTypes) is null)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    if (Activator.CreateInstance(type) is CodeRefactoringProvider provider)
-                    {
-                        list.Add(provider);
-                    }
-                }
-                catch (Exception)
-                {
-                    // Some parameterless types still throw in the ctor.
-                }
-            }
-
-            return list;
-        });
-    }
-
-    private static IEnumerable<CodeAction> Flatten(CodeAction action)
-    {
-        var nested = action.NestedActions;
-        return nested.Length == 0 ? [action] : nested.SelectMany(Flatten);
-    }
-
-    private static async Task<Solution?> ApplyActionAsync(CodeAction action, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var operations = await action.GetOperationsAsync(cancellationToken).ConfigureAwait(false);
-            return operations.OfType<ApplyChangesOperation>().FirstOrDefault()?.ChangedSolution;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
     }
 
     private static bool PathsEqual(string? left, string? right)
