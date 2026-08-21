@@ -35,6 +35,7 @@ public readonly record struct WorkspaceEditOutcome<T>(T? Value, PolicyErrorDto? 
 
 /// <summary>
 /// Deep Workspace Edit module (ADR-0005): one store, kind-tagged previews, apply must match kind.
+/// Apply is single-flight per previewId; write/backfill/Epoch is one outcome (ADR-0002).
 /// </summary>
 public sealed class WorkspaceEdit
 {
@@ -106,95 +107,93 @@ public sealed class WorkspaceEdit
                 "Call " + tools.Preview + " first, then pass that previewId to " + tools.Apply + ".");
         }
 
-        Stored stored;
         lock (_gate)
         {
             DropIfGenerationChangedUnlocked();
-            if (!_items.TryGetValue(previewId, out stored!))
+            if (!_items.TryGetValue(previewId, out var stored))
             {
                 return Fail<WorkspaceEditApplied>(
                     PolicyErrorCodes.PreviewNotFound,
                     "Unknown previewId.",
                     "Call " + tools.Preview + " to obtain a fresh previewId; do not invent preview ids.");
             }
-        }
 
-        var now = _time.GetUtcNow();
-        if (stored.Preview.ExpiresAt <= now)
-        {
-            return Fail<WorkspaceEditApplied>(
-                PolicyErrorCodes.PreviewExpired,
-                "The preview has expired.",
-                "Call " + tools.Preview + " again, then apply the new previewId.");
-        }
-
-        if (stored.Preview.Epoch != _writer.CurrentEpoch)
-        {
-            return Fail<WorkspaceEditApplied>(
-                PolicyErrorCodes.PreviewEpochMismatch,
-                "The preview is bound to a previous workspace Epoch.",
-                "Call " + tools.Preview + " on the current snapshot, then apply that previewId.");
-        }
-
-        if (stored.Preview.Kind != kind)
-        {
-            var storedTools = Tools(stored.Preview.Kind);
-            return Fail<WorkspaceEditApplied>(
-                PolicyErrorCodes.PreviewKindMismatch,
-                "This previewId was stored under a different Workspace Edit kind.",
-                "Call " + storedTools.Apply + " with this previewId, or call " + tools.Preview + " for a " + KindNoun(kind) + ".");
-        }
-
-        foreach (var document in stored.Preview.Documents)
-        {
-            if (!_trustedRoots.Contains(document.Path))
+            var now = _time.GetUtcNow();
+            if (stored.Preview.ExpiresAt <= now)
             {
                 return Fail<WorkspaceEditApplied>(
-                    PolicyErrorCodes.PathOutsideTrustedRoots,
-                    "A preview document is outside trusted roots; nothing was written.",
-                    "Re-open the workspace under a trusted root that contains every preview path.");
+                    PolicyErrorCodes.PreviewExpired,
+                    "The preview has expired.",
+                    "Call " + tools.Preview + " again, then apply the new previewId.");
             }
 
-            if (!_writer.PathExists(document.Path))
+            if (stored.Preview.Epoch != _writer.CurrentEpoch)
             {
                 return Fail<WorkspaceEditApplied>(
-                    PolicyErrorCodes.PreviewTargetMissing,
-                    "A preview document no longer exists on disk; nothing was written.",
-                    "Call " + tools.Preview + " again on the current snapshot.");
+                    PolicyErrorCodes.PreviewEpochMismatch,
+                    "The preview is bound to a previous workspace Epoch.",
+                    "Call " + tools.Preview + " on the current snapshot, then apply that previewId.");
             }
-        }
 
-        var written = _writer.WriteDeclaredPaths(stored.Preview.Documents);
-        if (written.Error is not null)
-        {
-            var error = written.Error;
-            if (error.Error is PolicyErrorCodes.WorkspaceNotReady or PolicyErrorCodes.PreviewTargetMissing)
+            if (stored.Preview.Kind != kind)
             {
-                error = new PolicyErrorDto
+                var storedTools = Tools(stored.Preview.Kind);
+                return Fail<WorkspaceEditApplied>(
+                    PolicyErrorCodes.PreviewKindMismatch,
+                    "This previewId was stored under a different Workspace Edit kind.",
+                    "Call " + storedTools.Apply + " with this previewId, or call " + tools.Preview + " for a " + KindNoun(kind) + ".");
+            }
+
+            foreach (var document in stored.Preview.Documents)
+            {
+                if (!_trustedRoots.Contains(document.Path))
                 {
-                    Error = error.Error,
-                    Message = error.Message,
-                    SuggestedAction = error.Error == PolicyErrorCodes.WorkspaceNotReady
-                        ? "Call workspace_status until ready, then preview and apply again."
-                        : "Call " + tools.Preview + " again on the current snapshot."
-                };
+                    return Fail<WorkspaceEditApplied>(
+                        PolicyErrorCodes.PathOutsideTrustedRoots,
+                        "A preview document is outside trusted roots; nothing was written.",
+                        "Re-open the workspace under a trusted root that contains every preview path.");
+                }
+
+                if (!_writer.PathExists(document.Path))
+                {
+                    return Fail<WorkspaceEditApplied>(
+                        PolicyErrorCodes.PreviewTargetMissing,
+                        "A preview document no longer exists on disk; nothing was written.",
+                        "Call " + tools.Preview + " again on the current snapshot.");
+                }
             }
 
-            return new WorkspaceEditOutcome<WorkspaceEditApplied>(null, error);
-        }
+            var written = _writer.WriteDeclaredPaths(stored.Preview.Documents);
+            if (written.Error is not null)
+            {
+                var error = written.Error;
+                if (error.Error is PolicyErrorCodes.WorkspaceNotReady
+                    or PolicyErrorCodes.PreviewTargetMissing
+                    or PolicyErrorCodes.PreviewTextMismatch)
+                {
+                    error = new PolicyErrorDto
+                    {
+                        Error = error.Error,
+                        Message = error.Message,
+                        SuggestedAction = error.Error == PolicyErrorCodes.WorkspaceNotReady
+                            ? "Call workspace_status until ready, then preview and apply again."
+                            : "Call " + tools.Preview + " again on the current snapshot."
+                    };
+                }
 
-        lock (_gate)
-        {
+                return new WorkspaceEditOutcome<WorkspaceEditApplied>(null, error);
+            }
+
             _items.Remove(previewId);
-        }
 
-        return new WorkspaceEditOutcome<WorkspaceEditApplied>(
-            new WorkspaceEditApplied(
-                stored.Preview.PreviewId,
-                written.Value,
-                stored.Preview.Documents.Select(static d => d.Path).ToArray(),
-                stored.Preview.InvalidatedHandles),
-            null);
+            return new WorkspaceEditOutcome<WorkspaceEditApplied>(
+                new WorkspaceEditApplied(
+                    stored.Preview.PreviewId,
+                    written.Value,
+                    stored.Preview.Documents.Select(static d => d.Path).ToArray(),
+                    stored.Preview.InvalidatedHandles),
+                null);
+        }
     }
 
     private void DropIfGenerationChangedUnlocked()

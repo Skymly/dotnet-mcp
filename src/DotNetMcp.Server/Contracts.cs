@@ -45,6 +45,7 @@ public static class PolicyErrorCodes
     public const string PreviewKindMismatch = "PreviewKindMismatch";
     public const string PreviewPathOutsideTrustedRoots = "PreviewPathOutsideTrustedRoots";
     public const string PreviewTargetMissing = "PreviewTargetMissing";
+    public const string PreviewTextMismatch = "PreviewTextMismatch";
     public const string DiagnosticNotFound = "DiagnosticNotFound";
     public const string DiagnosticAmbiguous = "DiagnosticAmbiguous";
     public const string FixLanguageNotSupported = "FixLanguageNotSupported";

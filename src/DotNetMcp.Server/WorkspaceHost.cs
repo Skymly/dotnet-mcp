@@ -144,50 +144,120 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
     public WorkspaceEditOutcome<long> WriteDeclaredPaths(IReadOnlyList<WorkspaceEditDocument> documents)
     {
-        var paths = documents.Select(static d => d.Path).ToArray();
-        using (_options.WriteSuppression.Suppress(paths))
+        ArgumentNullException.ThrowIfNull(documents);
+
+        lock (_gate)
         {
+            if (_phase != "ready" || _loaded is null)
+            {
+                return FailWrite(
+                    PolicyErrorCodes.WorkspaceNotReady,
+                    "Workspace is not ready; apply did not write.",
+                    "Call workspace_status until ready, then preview and apply again.");
+            }
+
+            var loaded = _loaded;
             foreach (var document in documents)
             {
-                File.WriteAllText(document.Path, document.NewText);
+                if (!TryReadSnapshotText(loaded, document.Path, out var snapshotText)
+                    || !File.Exists(document.Path))
+                {
+                    return FailWrite(
+                        PolicyErrorCodes.PreviewTargetMissing,
+                        "A preview document is not in the ready workspace; nothing was written.",
+                        "Call the matching preview tool again on the current snapshot.");
+                }
+
+                var diskText = File.ReadAllText(document.Path);
+                if (!string.Equals(snapshotText, document.OldText, StringComparison.Ordinal)
+                    || !string.Equals(diskText, document.OldText, StringComparison.Ordinal))
+                {
+                    return FailWrite(
+                        PolicyErrorCodes.PreviewTextMismatch,
+                        "A preview document no longer matches OldText; nothing was written.",
+                        "Call the matching preview tool again on the current snapshot.");
+                }
             }
 
-            lock (_gate)
+            var paths = documents.Select(static d => d.Path).ToArray();
+            using (_options.WriteSuppression.Suppress(paths))
             {
-                if (_phase != "ready" || _loaded is null)
+                var writtenCount = 0;
+                try
                 {
-                    return new WorkspaceEditOutcome<long>(
-                        0,
-                        new PolicyErrorDto
-                        {
-                            Error = PolicyErrorCodes.WorkspaceNotReady,
-                            Message = "Workspace is not ready; apply did not finish backfill.",
-                            SuggestedAction =
-                                "Call workspace_status until ready, then preview and apply again."
-                        });
-                }
-
-                foreach (var document in documents)
-                {
-                    if (!_loaded.TryUpdateDocumentFromText(
-                            document.Path,
-                            SourceText.From(document.NewText)))
+                    foreach (var document in documents)
                     {
-                        return new WorkspaceEditOutcome<long>(
-                            0,
-                            new PolicyErrorDto
-                            {
-                                Error = PolicyErrorCodes.PreviewTargetMissing,
-                                Message =
-                                    "A preview document is not in the ready workspace; nothing further was backfilled.",
-                                SuggestedAction = "Call the matching preview tool again on the current snapshot."
-                            });
+                        File.WriteAllText(document.Path, document.NewText);
+                        writtenCount++;
                     }
-                }
 
-                AdvanceEpochUnlocked();
-                return new WorkspaceEditOutcome<long>(_epoch, null);
+                    foreach (var document in documents)
+                    {
+                        if (!loaded.TryUpdateDocumentFromText(
+                                document.Path,
+                                SourceText.From(document.NewText)))
+                        {
+                            RollbackDeclaredPaths(loaded, documents, writtenCount);
+                            return FailWrite(
+                                PolicyErrorCodes.PreviewTargetMissing,
+                                "A preview document is not in the ready workspace; nothing was written.",
+                                "Call the matching preview tool again on the current snapshot.");
+                        }
+                    }
+
+                    AdvanceEpochUnlocked();
+                    return new WorkspaceEditOutcome<long>(_epoch, null);
+                }
+                catch
+                {
+                    RollbackDeclaredPaths(loaded, documents, writtenCount);
+                    throw;
+                }
             }
+        }
+    }
+
+    private static WorkspaceEditOutcome<long> FailWrite(string error, string message, string suggested) =>
+        new(
+            0,
+            new PolicyErrorDto
+            {
+                Error = error,
+                Message = message,
+                SuggestedAction = suggested
+            });
+
+    private static bool TryReadSnapshotText(LoadedSolution loaded, string path, out string text)
+    {
+        text = string.Empty;
+        if (!loaded.TryGetDocumentId(path, out var documentId))
+        {
+            return false;
+        }
+
+        var document = loaded.Solution.GetDocument(documentId);
+        if (document is null)
+        {
+            return false;
+        }
+
+        text = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult().ToString();
+        return true;
+    }
+
+    private static void RollbackDeclaredPaths(
+        LoadedSolution loaded,
+        IReadOnlyList<WorkspaceEditDocument> documents,
+        int writtenCount)
+    {
+        for (var i = 0; i < writtenCount && i < documents.Count; i++)
+        {
+            File.WriteAllText(documents[i].Path, documents[i].OldText);
+        }
+
+        foreach (var document in documents)
+        {
+            loaded.TryUpdateDocumentFromText(document.Path, SourceText.From(document.OldText));
         }
     }
 

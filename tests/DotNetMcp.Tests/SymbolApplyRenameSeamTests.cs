@@ -83,6 +83,129 @@ public class SymbolApplyRenameSeamTests
     }
 
     [Fact]
+    public async Task apply_old_text_mismatch_keeps_disk_and_epoch()
+    {
+        var root = CreateTempDir("root");
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        var watcher = new ManualWorkspaceFileWatcher();
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir),
+                new WorkspaceHostOptions
+                {
+                    Debounce = TimeSpan.Zero,
+                    FileWatcher = watcher
+                });
+
+            await OpenUntilReadyAsync(fx, solution);
+            var widget = Path.Combine(projectDir, "Widget.cs");
+            var resolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "RenameApp.Widget.Ping" });
+            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+            var preview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = handle,
+                    ["newName"] = "Pong"
+                });
+            Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
+            var previewId = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview).PreviewId;
+            var epochBefore = fx.WorkspaceHost.CurrentEpoch;
+            var mutated = (await File.ReadAllTextAsync(widget)) + Environment.NewLine;
+            await File.WriteAllTextAsync(widget, mutated);
+
+            var apply = await fx.Client.CallToolAsync(
+                "symbol_apply_rename",
+                new Dictionary<string, object?> { ["previewId"] = previewId });
+            Assert.True(apply.IsError is true);
+            var error = InProcessMcpFixture.Deserialize<PolicyErrorDto>(apply);
+            Assert.Equal(PolicyErrorCodes.PreviewTextMismatch, error.Error);
+            Assert.DoesNotContain("Pong", error.Message, StringComparison.Ordinal);
+            Assert.Equal(mutated, await File.ReadAllTextAsync(widget));
+            Assert.Equal(epochBefore, fx.WorkspaceHost.CurrentEpoch);
+
+            watcher.Raise(widget);
+            Assert.True(fx.WorkspaceHost.CurrentEpoch > epochBefore);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task apply_same_preview_id_concurrently_writes_at_most_once()
+    {
+        var root = CreateTempDir("root");
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
+
+            await OpenUntilReadyAsync(fx, solution);
+            var widget = Path.Combine(projectDir, "Widget.cs");
+            var before = await File.ReadAllTextAsync(widget);
+            var resolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "RenameApp.Widget.Ping" });
+            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+            var preview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = handle,
+                    ["newName"] = "Pong"
+                });
+            Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
+            var previewId = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview).PreviewId;
+            var epochBefore = fx.WorkspaceHost.CurrentEpoch;
+
+            var first = fx.Client.CallToolAsync(
+                "symbol_apply_rename",
+                new Dictionary<string, object?> { ["previewId"] = previewId }).AsTask();
+            var second = fx.Client.CallToolAsync(
+                "symbol_apply_rename",
+                new Dictionary<string, object?> { ["previewId"] = previewId }).AsTask();
+            var results = await Task.WhenAll(first, second);
+            var successes = results.Count(static r => r.IsError is not true);
+            Assert.True(successes <= 1);
+            if (successes == 1)
+            {
+                var applied = InProcessMcpFixture.Deserialize<SymbolApplyRenameResultDto>(
+                    results.Single(static r => r.IsError is not true));
+                Assert.Equal(epochBefore + 1, applied.Epoch);
+                Assert.Equal(epochBefore + 1, fx.WorkspaceHost.CurrentEpoch);
+                Assert.Contains("Pong", await File.ReadAllTextAsync(widget), StringComparison.Ordinal);
+                Assert.Equal(
+                    PolicyErrorCodes.PreviewNotFound,
+                    InProcessMcpFixture.Deserialize<PolicyErrorDto>(
+                        results.Single(static r => r.IsError is true)).Error);
+            }
+            else
+            {
+                Assert.Equal(before, await File.ReadAllTextAsync(widget));
+                Assert.Equal(epochBefore, fx.WorkspaceHost.CurrentEpoch);
+            }
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task apply_rejects_missing_expired_and_stale_epoch_previews()
     {
         var root = CreateTempDir("root");
