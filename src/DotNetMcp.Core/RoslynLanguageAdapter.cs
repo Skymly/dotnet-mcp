@@ -354,55 +354,27 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         }
 
         var pageLimit = ClampLimit(limit);
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
-        {
-            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call symbol_members again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call symbol_members again without a cursor; do not retry with the stale cursor."));
-            }
-        }
-
-        var members = type.GetMembers()
+        var items = type.GetMembers()
             .Where(m => m.Kind is not SymbolKind.NamedType and not SymbolKind.Namespace)
             .Where(m => !m.IsImplicitlyDeclared)
             .OrderBy(SymbolKey, StringComparer.Ordinal)
+            .Select(m =>
+            {
+                var success = ToSuccess(project!, m);
+                return new MemberListItem(success.Handle, success.Summary);
+            })
             .ToList();
 
-        if (offset > members.Count)
-        {
-            return (null, new StaleCursorError(
-                "Cursor offset is past the end of the member list.",
-                "Call symbol_members again without a cursor to start a fresh page."));
-        }
-
-        var slice = members.Skip(offset).Take(pageLimit).ToList();
-        var nextOffset = offset + slice.Count;
-        var truncated = nextOffset < members.Count;
-        string? nextCursor = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
-
-        var items = slice.Select(m =>
-        {
-            var success = ToSuccess(project!, m);
-            return new MemberListItem(success.Handle, success.Summary);
-        }).ToList();
-
-        var message = truncated
-            ? "Results truncated; pass nextCursor to symbol_members to continue (do not restart from the first page)."
-            : members.Count == 0
-                ? "Type has no listable members."
-                : "Member page complete.";
-
-        return (new PagedResult<MemberListItem>(items, truncated, nextCursor, message), null);
+        return SoftBudgetPage.Page(
+            items,
+            epoch,
+            budgetHit: false,
+            cursor,
+            pageLimit,
+            "symbol_members",
+            "Type has no listable members.",
+            "Member page complete.",
+            "the member list");
     }
 
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
@@ -422,22 +394,14 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         }
 
         var pageLimit = ClampLimit(limit);
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
+        if (!SoftBudgetPage.TryReadOffset(
+                cursor,
+                epoch,
+                "symbol_find_implementations",
+                out var offset,
+                out var cursorError))
         {
-            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call symbol_find_implementations again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call symbol_find_implementations again without a cursor; do not retry with the stale cursor."));
-            }
+            return (null, cursorError);
         }
 
         var found = new List<ISymbol>();
@@ -483,16 +447,10 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
 
         if (offset > ordered.Count)
         {
-            return (null, new StaleCursorError(
-                "Cursor offset is past the end of the implementation list.",
-                "Call symbol_find_implementations again without a cursor to start a fresh page."));
+            return (null, SoftBudgetPage.PastEnd("symbol_find_implementations", "the implementation list"));
         }
 
         var slice = ordered.Skip(offset).Take(pageLimit).ToList();
-        var nextOffset = offset + slice.Count;
-        var truncated = nextOffset < ordered.Count;
-        string? nextCursor = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
-
         var items = new List<ImplementationItem>(slice.Count);
         foreach (var (impl, owner) in slice)
         {
@@ -506,13 +464,16 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
             items.Add(item!);
         }
 
-        var message = truncated
-            ? "Results truncated; pass nextCursor to symbol_find_implementations to continue (do not restart from the first page)."
-            : items.Count == 0
+        var nextOffset = offset + items.Count;
+        return (SoftBudgetPage.Finish(
+            items,
+            moreItems: nextOffset < ordered.Count,
+            budgetHit: false,
+            () => MemberPageCursor.Encode(epoch, nextOffset),
+            "symbol_find_implementations",
+            ordered.Count == 0
                 ? "No implementations or derived types found."
-                : "Implementation page complete.";
-
-        return (new PagedResult<ImplementationItem>(items, truncated, nextCursor, message), null);
+                : "Implementation page complete."), null);
     }
 
     public async Task<(PagedResult<HierarchyItem>? Success, SymbolQueryError? Error)> GetTypeHierarchyAsync(
@@ -539,24 +500,6 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         }
 
         var pageLimit = ClampLimit(limit);
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
-        {
-            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call symbol_type_hierarchy again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call symbol_type_hierarchy again without a cursor; do not retry with the stale cursor."));
-            }
-        }
-
         var chain = new List<HierarchyItem>();
         for (var current = type.BaseType; current is not null; current = current.BaseType)
         {
@@ -572,25 +515,16 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
             chain.Add(new HierarchyItem(HierarchyRelationKind.Interface, success.Handle, success.Summary));
         }
 
-        if (offset > chain.Count)
-        {
-            return (null, new StaleCursorError(
-                "Cursor offset is past the end of the type hierarchy.",
-                "Call symbol_type_hierarchy again without a cursor to start a fresh page."));
-        }
-
-        var slice = chain.Skip(offset).Take(pageLimit).ToList();
-        var nextOffset = offset + slice.Count;
-        var truncated = nextOffset < chain.Count;
-        string? nextCursor = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
-
-        var message = truncated
-            ? "Results truncated; pass nextCursor to symbol_type_hierarchy to continue (do not restart from the first page)."
-            : chain.Count == 0
-                ? "Type has no base types or interfaces."
-                : "Type hierarchy page complete.";
-
-        return (new PagedResult<HierarchyItem>(slice, truncated, nextCursor, message), null);
+        return SoftBudgetPage.Page(
+            chain,
+            epoch,
+            budgetHit: false,
+            cursor,
+            pageLimit,
+            "symbol_type_hierarchy",
+            "Type has no base types or interfaces.",
+            "Type hierarchy page complete.",
+            "the type hierarchy");
     }
 
     public async Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(
@@ -623,29 +557,17 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         var docIndex = 0;
         var locOffset = 0;
 
-        if (!string.IsNullOrWhiteSpace(cursor))
+        if (!SoftBudgetPage.TryReadFindRefs(
+                cursor,
+                epoch,
+                entireSolution: false,
+                "symbol_find_callers",
+                out docIndex,
+                out locOffset,
+                out var cursorError,
+                scopeMismatchMessage: "Cursor payload is invalid."))
         {
-            if (!FindRefsPageCursor.TryDecode(
-                    cursor,
-                    out var cursorEpoch,
-                    out var cursorEntireSolution,
-                    out docIndex,
-                    out locOffset,
-                    out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call symbol_find_callers again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch || cursorEntireSolution)
-            {
-                return (null, new StaleCursorError(
-                    cursorEpoch != epoch
-                        ? $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}."
-                        : "Cursor payload is invalid.",
-                    "Call symbol_find_callers again without a cursor; do not retry with the stale cursor."));
-            }
+            return (null, cursorError);
         }
 
         var documents = solution.Projects
@@ -748,20 +670,13 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
             }
         }
 
-        var truncated = !exhausted;
-        string? nextCursor = truncated
-            ? FindRefsPageCursor.Encode(epoch, entireSolution: false, nextDocIndex, nextLocOffset)
-            : null;
-
-        var message = truncated
-            ? truncatedByBudget
-                ? $"Soft budget reached after {page.Count} item(s). Pass nextCursor to continue; do not retry from scratch."
-                : "Results truncated; pass nextCursor to symbol_find_callers to continue (do not restart from the first page)."
-            : page.Count == 0
-                ? "No direct callers found."
-                : "Caller page complete.";
-
-        return (new PagedResult<CallerLocationItem>(page, truncated, nextCursor, message), null);
+        return (SoftBudgetPage.Finish(
+            page,
+            moreItems: !exhausted,
+            budgetHit: truncatedByBudget,
+            () => FindRefsPageCursor.Encode(epoch, entireSolution: false, nextDocIndex, nextLocOffset),
+            "symbol_find_callers",
+            page.Count == 0 ? "No direct callers found." : "Caller page complete."), null);
     }
 
     public async Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> FindReferencesAsync(
@@ -790,34 +705,17 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         var docIndex = 0;
         var locOffset = 0;
 
-        if (!string.IsNullOrWhiteSpace(cursor))
+        if (!SoftBudgetPage.TryReadFindRefs(
+                cursor,
+                epoch,
+                entireSolution,
+                "symbol_find_references",
+                out docIndex,
+                out locOffset,
+                out var cursorError,
+                scopeMismatchMessage: "Cursor scope does not match the entireSolution parameter for this request."))
         {
-            if (!FindRefsPageCursor.TryDecode(
-                    cursor,
-                    out var cursorEpoch,
-                    out var cursorEntireSolution,
-                    out docIndex,
-                    out locOffset,
-                    out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call symbol_find_references again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call symbol_find_references again without a cursor; do not retry with the stale cursor."));
-            }
-
-            if (cursorEntireSolution != entireSolution)
-            {
-                return (null, new StaleCursorError(
-                    "Cursor scope does not match the entireSolution parameter for this request.",
-                    "Call symbol_find_references again without a cursor; do not retry with the stale cursor."));
-            }
+            return (null, cursorError);
         }
 
         var scope = entireSolution
@@ -924,20 +822,15 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
             }
         }
 
-        var truncated = !exhausted;
-        string? nextCursor = truncated
-            ? FindRefsPageCursor.Encode(epoch, entireSolution, nextDocIndex, nextLocOffset)
-            : null;
-
-        var message = truncated
-            ? truncatedByBudget
-                ? $"Soft budget reached after {page.Count} item(s). Pass nextCursor to continue; do not retry from scratch."
-                : "Results truncated; pass nextCursor to symbol_find_references to continue (do not restart from the first page)."
-            : page.Count == 0
+        return (SoftBudgetPage.Finish(
+            page,
+            moreItems: !exhausted,
+            budgetHit: truncatedByBudget,
+            () => FindRefsPageCursor.Encode(epoch, entireSolution, nextDocIndex, nextLocOffset),
+            "symbol_find_references",
+            page.Count == 0
                 ? "No references found in the selected scope."
-                : "Reference page complete.";
-
-        return (new PagedResult<ReferenceLocationItem>(page, truncated, nextCursor, message), null);
+                : "Reference page complete."), null);
     }
 
     private async Task<(ImplementationItem? Item, SymbolQueryError? Error)> ToImplementationItemAsync(
@@ -1326,22 +1219,14 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
 
         var epoch = session.Epoch;
         var pageLimit = ClampLimit(limit);
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
+        if (!SoftBudgetPage.TryReadOffset(
+                cursor,
+                epoch,
+                "project_diagnostics",
+                out var offset,
+                out var cursorError))
         {
-            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call project_diagnostics again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call project_diagnostics again without a cursor; do not retry with the stale cursor."));
-            }
+            return (null, cursorError);
         }
 
         var budget = softBudget ?? _softBudgets.SingleProjectCompile;
@@ -1364,13 +1249,13 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                var softMessage =
-                    $"Soft budget reached after 0 item(s). Pass nextCursor to continue; do not retry from scratch.";
-                return (new PagedResult<DiagnosticItem>(
+                return (SoftBudgetPage.Finish(
                     Array.Empty<DiagnosticItem>(),
-                    Truncated: true,
-                    NextCursor: MemberPageCursor.Encode(epoch, offset),
-                    Message: softMessage), null);
+                    moreItems: false,
+                    budgetHit: true,
+                    () => MemberPageCursor.Encode(epoch, offset),
+                    "project_diagnostics",
+                    "Project has no error or warning diagnostics."), null);
             }
             catch (InvalidOperationException ex)
             {
@@ -1398,25 +1283,16 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
             .ThenBy(d => d.Message, StringComparer.Ordinal)
             .ToList();
 
-        if (offset > diagnostics.Count)
-        {
-            return (null, new StaleCursorError(
-                "Cursor offset is past the end of the diagnostics list.",
-                "Call project_diagnostics again without a cursor to start a fresh page."));
-        }
-
-        var slice = diagnostics.Skip(offset).Take(pageLimit).ToList();
-        var nextOffset = offset + slice.Count;
-        var truncated = nextOffset < diagnostics.Count;
-        string? nextCursor = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
-
-        var message = truncated
-            ? "Results truncated; pass nextCursor to project_diagnostics to continue (do not restart from the first page)."
-            : diagnostics.Count == 0
-                ? "Project has no error or warning diagnostics."
-                : "Diagnostics page complete.";
-
-        return (new PagedResult<DiagnosticItem>(slice, truncated, nextCursor, message), null);
+        return SoftBudgetPage.Page(
+            diagnostics,
+            epoch,
+            budgetHit: false,
+            cursor,
+            pageLimit,
+            "project_diagnostics",
+            "Project has no error or warning diagnostics.",
+            "Diagnostics page complete.",
+            "the diagnostics list");
     }
 
     public async Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
