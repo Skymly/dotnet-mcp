@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using DotNetMcp.Core;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -38,7 +37,7 @@ public sealed class SymbolRefactoringTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_list_refactorings");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -48,10 +47,10 @@ public sealed class SymbolRefactoringTools
             .ConfigureAwait(false);
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(new SymbolListRefactoringsResultDto
+        return McpToolEnvelope.OkResult(new SymbolListRefactoringsResultDto
         {
             Items = success!.Items.Select(i => new CodeRefactoringItemDto
             {
@@ -76,7 +75,7 @@ public sealed class SymbolRefactoringTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_preview_refactoring");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -86,7 +85,7 @@ public sealed class SymbolRefactoringTools
             .ConfigureAwait(false);
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
         var held = _workspaceEdit.Preview(new WorkspaceEditDraft(
@@ -95,10 +94,10 @@ public sealed class SymbolRefactoringTools
             draft.InvalidatedHandles));
         if (held.Error is not null)
         {
-            return ErrorResult(held.Error);
+            return McpToolEnvelope.ErrorResult(held.Error);
         }
 
-        return OkResult(new SymbolPreviewRefactoringResultDto
+        return McpToolEnvelope.OkResult(new SymbolPreviewRefactoringResultDto
         {
             PreviewId = held.Value!.PreviewId,
             Epoch = held.Value.Epoch,
@@ -123,7 +122,7 @@ public sealed class SymbolRefactoringTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_apply_refactoring");
 
-        if (!TryGetReadySession(out _, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out _, out var notReady))
         {
             return Task.FromResult(notReady!);
         }
@@ -131,10 +130,10 @@ public sealed class SymbolRefactoringTools
         var applied = _workspaceEdit.Apply(previewId, WorkspaceEditKind.RefactoringPreview);
         if (applied.Error is not null)
         {
-            return Task.FromResult(ErrorResult(applied.Error));
+            return Task.FromResult(McpToolEnvelope.ErrorResult(applied.Error));
         }
 
-        return Task.FromResult(OkResult(new SymbolApplyRefactoringResultDto
+        return Task.FromResult(McpToolEnvelope.OkResult(new SymbolApplyRefactoringResultDto
         {
             PreviewId = applied.Value!.PreviewId,
             Epoch = applied.Value.Epoch,
@@ -151,54 +150,4 @@ public sealed class SymbolRefactoringTools
             OldText = d.OldText,
             NewText = d.NewText
         }).ToArray();
-
-    private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
-    {
-        if (_workspaceHost.TryGetReadySession(out session) && session is not null)
-        {
-            errorResult = null;
-            return true;
-        }
-
-        var status = _workspaceHost.GetStatus();
-        errorResult = ErrorResult(new PolicyErrorDto
-        {
-            Error = PolicyErrorCodes.WorkspaceNotReady,
-            Message =
-                $"Workspace is not ready (phase={status.Phase}). Query tools cannot run until load completes.",
-            SuggestedAction =
-                "Call workspace_status to poll until phase is ready; do not retry workspace_open while loading."
-        });
-        return false;
-    }
-
-    private static PolicyErrorDto ToPolicyError(SymbolQueryError error) => new()
-    {
-        Error = error.Code,
-        Message = error.Message,
-        SuggestedAction = error.SuggestedAction
-    };
-
-    private static CallToolResult OkResult<T>(T payload) => new()
-    {
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(payload, JsonOptions.Default)
-            }
-        ]
-    };
-
-    private static CallToolResult ErrorResult(PolicyErrorDto error) => new()
-    {
-        IsError = true,
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(error, JsonOptions.Default)
-            }
-        ]
-    };
 }
