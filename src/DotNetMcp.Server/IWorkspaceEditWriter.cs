@@ -13,6 +13,9 @@ public interface IWorkspaceEditWriter
 
     bool PathExists(string path);
 
-    /// <summary>WriteSuppression → write declared paths → backfill → Epoch++. No previewId, kind, or TTL.</summary>
+    /// <summary>
+    /// Match OldText, then WriteSuppression → write declared paths → backfill → Epoch++ as one outcome.
+    /// Failure writes nothing and must not suppress. No previewId, kind, or TTL.
+    /// </summary>
     WorkspaceEditOutcome<long> WriteDeclaredPaths(IReadOnlyList<WorkspaceEditDocument> documents);
 }
