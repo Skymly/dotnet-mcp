@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using DotNetMcp.Core;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -46,7 +45,7 @@ public sealed class ProjectTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("project_diagnostics");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -63,10 +62,10 @@ public sealed class ProjectTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToDto(success!));
+        return McpToolEnvelope.OkResult(ToDto(success!));
     }
 
     [McpServerTool(Name = "project_list_generators"), Description(
@@ -82,7 +81,7 @@ public sealed class ProjectTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("project_list_generators");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -96,10 +95,10 @@ public sealed class ProjectTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(new ProjectListGeneratorsResultDto
+        return McpToolEnvelope.OkResult(new ProjectListGeneratorsResultDto
         {
             Generators = success!.Select(g => new GeneratorIdentityDto
             {
@@ -131,7 +130,7 @@ public sealed class ProjectTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("project_list_generated_sources");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -149,10 +148,10 @@ public sealed class ProjectTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(new ProjectListGeneratedSourcesResultDto
+        return McpToolEnvelope.OkResult(new ProjectListGeneratedSourcesResultDto
         {
             Items = success!.Items.Select(i => new GeneratedSourceItemDto
             {
@@ -186,7 +185,7 @@ public sealed class ProjectTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("project_list_generator_diagnostics");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -204,11 +203,11 @@ public sealed class ProjectTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
         var page = success!.Page;
-        return OkResult(new ProjectListGeneratorDiagnosticsResultDto
+        return McpToolEnvelope.OkResult(new ProjectListGeneratorDiagnosticsResultDto
         {
             Generator = new GeneratorIdentityDto
             {
@@ -229,7 +228,6 @@ public sealed class ProjectTools
         });
     }
 
-
     [McpServerTool(Name = "project_list_dynamic_invocations"), Description(
         "List dynamic invocation / member / indexer sites in a C# or VB project, with static receiver and argument types when Roslyn knows them. " +
         "This is an IOperation call-site listing — not SymbolAttribution. Soft budget and epoch cursors apply.")]
@@ -245,7 +243,7 @@ public sealed class ProjectTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("project_list_dynamic_invocations");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -255,10 +253,10 @@ public sealed class ProjectTools
             .ConfigureAwait(false);
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(new ProjectListDynamicInvocationsResultDto
+        return McpToolEnvelope.OkResult(new ProjectListDynamicInvocationsResultDto
         {
             Items = success!.Items.Select(i => new DynamicInvocationItemDto
             {
@@ -274,26 +272,6 @@ public sealed class ProjectTools
             NextCursor = success.NextCursor,
             Message = success.Message
         });
-    }
-
-    private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
-    {
-        if (_workspaceHost.TryGetReadySession(out session) && session is not null)
-        {
-            errorResult = null;
-            return true;
-        }
-
-        var status = _workspaceHost.GetStatus();
-        errorResult = ErrorResult(new PolicyErrorDto
-        {
-            Error = PolicyErrorCodes.WorkspaceNotReady,
-            Message =
-                $"Workspace is not ready (phase={status.Phase}). Query tools cannot run until load completes.",
-            SuggestedAction =
-                "Call workspace_status to poll until phase is ready; do not retry workspace_open while loading."
-        });
-        return false;
     }
 
     private static ProjectDiagnosticsResultDto ToDto(PagedResult<DiagnosticItem> page) => new()
@@ -313,35 +291,5 @@ public sealed class ProjectTools
         Truncated = page.Truncated,
         NextCursor = page.NextCursor,
         Message = page.Message
-    };
-
-    private static PolicyErrorDto ToPolicyError(SymbolQueryError error) => new()
-    {
-        Error = error.Code,
-        Message = error.Message,
-        SuggestedAction = error.SuggestedAction
-    };
-
-    private static CallToolResult OkResult<T>(T payload) => new()
-    {
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(payload, JsonOptions.Default)
-            }
-        ]
-    };
-
-    private static CallToolResult ErrorResult(PolicyErrorDto error) => new()
-    {
-        IsError = true,
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(error, JsonOptions.Default)
-            }
-        ]
     };
 }

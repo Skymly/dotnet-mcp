@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using DotNetMcp.Core;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -42,7 +41,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_resolve");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -53,10 +52,10 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToDto(success!));
+        return McpToolEnvelope.OkResult(ToDto(success!));
     }
 
     [McpServerTool(Name = "symbol_summary"), Description(
@@ -70,7 +69,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_summary");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -81,10 +80,10 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToDto(success!));
+        return McpToolEnvelope.OkResult(ToDto(success!));
     }
 
     [McpServerTool(Name = "symbol_goto_definition"), Description(
@@ -98,7 +97,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_goto_definition");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -109,10 +108,10 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToDefinitionDto(success!));
+        return McpToolEnvelope.OkResult(ToDefinitionDto(success!));
     }
 
     [McpServerTool(Name = "symbol_attribution"), Description(
@@ -127,7 +126,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_attribution");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -138,10 +137,10 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToAttributionDto(success!));
+        return McpToolEnvelope.OkResult(ToAttributionDto(success!));
     }
 
     [McpServerTool(Name = "symbol_members"), Description(
@@ -159,7 +158,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_members");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -175,10 +174,10 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToMembersDto(success!));
+        return McpToolEnvelope.OkResult(ToMembersDto(success!));
     }
 
     [McpServerTool(Name = "symbol_find_references"), Description(
@@ -199,7 +198,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_find_references");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -217,10 +216,10 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToFindReferencesDto(success!));
+        return McpToolEnvelope.OkResult(ToFindReferencesDto(success!));
     }
 
     [McpServerTool(Name = "symbol_find_implementations"), Description(
@@ -238,7 +237,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_find_implementations");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -249,10 +248,10 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToImplementationsDto(success!));
+        return McpToolEnvelope.OkResult(ToImplementationsDto(success!));
     }
 
     [McpServerTool(Name = "symbol_type_hierarchy"), Description(
@@ -270,7 +269,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_type_hierarchy");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -281,10 +280,10 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToHierarchyDto(success!));
+        return McpToolEnvelope.OkResult(ToHierarchyDto(success!));
     }
 
     [McpServerTool(Name = "symbol_find_callers"), Description(
@@ -302,7 +301,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_find_callers");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -313,10 +312,10 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(ToCallersDto(success!));
+        return McpToolEnvelope.OkResult(ToCallersDto(success!));
     }
 
     [McpServerTool(Name = "symbol_preview_rename"), Description(
@@ -333,7 +332,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_preview_rename");
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -343,7 +342,7 @@ public sealed class SymbolTools
             .ConfigureAwait(false);
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
         var held = _workspaceEdit.Preview(new WorkspaceEditDraft(
@@ -352,10 +351,10 @@ public sealed class SymbolTools
             draft.InvalidatedHandles));
         if (held.Error is not null)
         {
-            return ErrorResult(held.Error);
+            return McpToolEnvelope.ErrorResult(held.Error);
         }
 
-        return OkResult(new SymbolPreviewRenameResultDto
+        return McpToolEnvelope.OkResult(new SymbolPreviewRenameResultDto
         {
             PreviewId = held.Value!.PreviewId,
             Epoch = held.Value.Epoch,
@@ -379,7 +378,7 @@ public sealed class SymbolTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("symbol_apply_rename");
 
-        if (!TryGetReadySession(out _, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out _, out var notReady))
         {
             return Task.FromResult(notReady!);
         }
@@ -387,10 +386,10 @@ public sealed class SymbolTools
         var applied = _workspaceEdit.Apply(previewId, WorkspaceEditKind.RenamePreview);
         if (applied.Error is not null)
         {
-            return Task.FromResult(ErrorResult(applied.Error));
+            return Task.FromResult(McpToolEnvelope.ErrorResult(applied.Error));
         }
 
-        return Task.FromResult(OkResult(new SymbolApplyRenameResultDto
+        return Task.FromResult(McpToolEnvelope.OkResult(new SymbolApplyRenameResultDto
         {
             PreviewId = applied.Value!.PreviewId,
             Epoch = applied.Value.Epoch,
@@ -407,27 +406,6 @@ public sealed class SymbolTools
             OldText = d.OldText,
             NewText = d.NewText
         }).ToArray();
-
-    private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
-
-    {
-        if (_workspaceHost.TryGetReadySession(out session) && session is not null)
-        {
-            errorResult = null;
-            return true;
-        }
-
-        var status = _workspaceHost.GetStatus();
-        errorResult = ErrorResult(new PolicyErrorDto
-        {
-            Error = PolicyErrorCodes.WorkspaceNotReady,
-            Message =
-                $"Workspace is not ready (phase={status.Phase}). Query tools cannot run until load completes.",
-            SuggestedAction =
-                "Call workspace_status to poll until phase is ready; do not retry workspace_open while loading."
-        });
-        return false;
-    }
 
     private static SymbolResolveResultDto ToDto(SymbolResolveSuccess success) => new()
     {
@@ -566,35 +544,5 @@ public sealed class SymbolTools
         ProjectId = summary.ProjectId,
         Language = summary.Language,
         InteropKind = summary.InteropKind
-    };
-
-    private static PolicyErrorDto ToPolicyError(SymbolQueryError error) => new()
-    {
-        Error = error.Code,
-        Message = error.Message,
-        SuggestedAction = error.SuggestedAction
-    };
-
-    private static CallToolResult OkResult<T>(T payload) => new()
-    {
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(payload, JsonOptions.Default)
-            }
-        ]
-    };
-
-    private static CallToolResult ErrorResult(PolicyErrorDto error) => new()
-    {
-        IsError = true,
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(error, JsonOptions.Default)
-            }
-        ]
     };
 }

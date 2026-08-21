@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using DotNetMcp.Core;
 using DotNetMcp.Xaml;
 using ModelContextProtocol.Protocol;
@@ -42,7 +41,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_resolve_class", path);
-            return ErrorResult(new PolicyErrorDto
+            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.PathOutsideTrustedRoots,
                 Message = "The requested path is outside the configured trusted roots and was rejected.",
@@ -52,7 +51,7 @@ public sealed class XamlTools
             });
         }
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -63,15 +62,15 @@ public sealed class XamlTools
 
         if (xamlError is not null)
         {
-            return ErrorResult(ToPolicyError(xamlError));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(xamlError));
         }
 
         if (symbolError is not null)
         {
-            return ErrorResult(ToPolicyError(symbolError));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(symbolError));
         }
 
-        return OkResult(new SymbolResolveResultDto
+        return McpToolEnvelope.OkResult(new SymbolResolveResultDto
         {
             Handle = success!.Handle,
             Summary = new SymbolSummaryDto
@@ -103,7 +102,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_list_xmlns", path);
-            return ErrorResult(new PolicyErrorDto
+            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.PathOutsideTrustedRoots,
                 Message = "The requested path is outside the configured trusted roots and was rejected.",
@@ -113,7 +112,7 @@ public sealed class XamlTools
             });
         }
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -123,10 +122,10 @@ public sealed class XamlTools
             .ConfigureAwait(false);
         if (error is not null)
         {
-            return ErrorResult(ToPolicyError(error));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return OkResult(new XamlListXmlnsResultDto
+        return McpToolEnvelope.OkResult(new XamlListXmlnsResultDto
         {
             Items = success!.Select(m => new XamlXmlnsMappingDto
             {
@@ -155,7 +154,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_resolve_name", path);
-            return ErrorResult(new PolicyErrorDto
+            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.PathOutsideTrustedRoots,
                 Message = "The requested path is outside the configured trusted roots and was rejected.",
@@ -165,7 +164,7 @@ public sealed class XamlTools
             });
         }
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -175,15 +174,15 @@ public sealed class XamlTools
             .ConfigureAwait(false);
         if (xamlError is not null)
         {
-            return ErrorResult(ToPolicyError(xamlError));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(xamlError));
         }
 
         if (symbolError is not null)
         {
-            return ErrorResult(ToPolicyError(symbolError));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(symbolError));
         }
 
-        return OkResult(new SymbolResolveResultDto
+        return McpToolEnvelope.OkResult(new SymbolResolveResultDto
         {
             Handle = success!.Handle,
             Summary = new SymbolSummaryDto
@@ -217,7 +216,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_resolve_binding", path);
-            return ErrorResult(new PolicyErrorDto
+            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.PathOutsideTrustedRoots,
                 Message = "The requested path is outside the configured trusted roots and was rejected.",
@@ -227,7 +226,7 @@ public sealed class XamlTools
             });
         }
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -237,15 +236,15 @@ public sealed class XamlTools
             .ConfigureAwait(false);
         if (xamlError is not null)
         {
-            return ErrorResult(ToPolicyError(xamlError));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(xamlError));
         }
 
         if (symbolError is not null)
         {
-            return ErrorResult(ToPolicyError(symbolError));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(symbolError));
         }
 
-        return OkResult(new XamlResolveBindingResultDto
+        return McpToolEnvelope.OkResult(new XamlResolveBindingResultDto
         {
             Items = success!.Select(s => new XamlBindingSegmentDto
             {
@@ -282,7 +281,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_diagnostics", path);
-            return ErrorResult(new PolicyErrorDto
+            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.PathOutsideTrustedRoots,
                 Message = "The requested path is outside the configured trusted roots and was rejected.",
@@ -292,7 +291,7 @@ public sealed class XamlTools
             });
         }
 
-        if (!TryGetReadySession(out var session, out var notReady))
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
         }
@@ -302,15 +301,15 @@ public sealed class XamlTools
             .ConfigureAwait(false);
         if (xamlError is not null)
         {
-            return ErrorResult(ToPolicyError(xamlError));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(xamlError));
         }
 
         if (symbolError is not null)
         {
-            return ErrorResult(ToPolicyError(symbolError));
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(symbolError));
         }
 
-        return OkResult(new ProjectDiagnosticsResultDto
+        return McpToolEnvelope.OkResult(new ProjectDiagnosticsResultDto
         {
             Items = success!.Items.Select(i => new DiagnosticItemDto
             {
@@ -329,61 +328,4 @@ public sealed class XamlTools
             Message = success.Message
         });
     }
-
-    private bool TryGetReadySession(out IWorkspaceSession? session, out CallToolResult? errorResult)
-    {
-        if (_workspaceHost.TryGetReadySession(out session) && session is not null)
-        {
-            errorResult = null;
-            return true;
-        }
-
-        var status = _workspaceHost.GetStatus();
-        errorResult = ErrorResult(new PolicyErrorDto
-        {
-            Error = PolicyErrorCodes.WorkspaceNotReady,
-            Message =
-                $"Workspace is not ready (phase={status.Phase}). Query tools cannot run until load completes.",
-            SuggestedAction =
-                "Call workspace_status to poll until phase is ready; do not retry workspace_open while loading."
-        });
-        return false;
-    }
-
-    private static PolicyErrorDto ToPolicyError(XamlQueryError error) => new()
-    {
-        Error = error.Code,
-        Message = error.Message,
-        SuggestedAction = error.SuggestedAction
-    };
-
-    private static PolicyErrorDto ToPolicyError(SymbolQueryError error) => new()
-    {
-        Error = error.Code,
-        Message = error.Message,
-        SuggestedAction = error.SuggestedAction
-    };
-
-    private static CallToolResult OkResult<T>(T payload) => new()
-    {
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(payload, JsonOptions.Default)
-            }
-        ]
-    };
-
-    private static CallToolResult ErrorResult(PolicyErrorDto error) => new()
-    {
-        IsError = true,
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(error, JsonOptions.Default)
-            }
-        ]
-    };
 }

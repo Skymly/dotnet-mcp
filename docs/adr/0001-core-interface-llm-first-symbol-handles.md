@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S1；2026-08-21 Amendment 3）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正；S1 实证细化了 FilePath 启发式与 Adhoc/反射取舍。Amendment 3 兑现 §5 的 ILanguageAdapter 接缝。以「决策」小节的现行内容为准。
+Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S1；2026-08-21 Amendment 3；2026-08-21 Amendment 4）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正；S1 实证细化了 FilePath 启发式与 Adhoc/反射取舍。Amendment 3 兑现 §5 的 ILanguageAdapter 接缝。Amendment 4 把 MCP tool envelope 收成一处。以「决策」小节的现行内容为准。
 
 ## 上下文
 
@@ -130,3 +130,7 @@ DotNetMcp.FSharp      — P3，FCS 栈（ILanguageAdapter 第二适配器）
 ## Amendment 3（2026-08-21）：兑现 ILanguageAdapter
 
 §5 名称与两个 adapter 的决定不变。代码长出 `ILanguageAdapter`：`LanguageAdapters` 按 `SymbolHandle.Language` / project language 选一次；Roslyn adapter（C#/VB）与 FCS adapter（F#）是两个真实 adapter。XAML 仍不是 adapter。F# 仍从 `WorkspaceSession` 快照读项目（移出 session 是后续项）。
+
+## Amendment 4（2026-08-21）：收拢 MCP tool envelope
+
+「后果」里 Tools 是薄适配器（参数校验 + 句柄透传 + 序列化）的决定不变。ready session 与 JSON 信封（`TryGetReadySession` / `OkResult` / `ErrorResult` / `ToPolicyError`）收成 `McpToolEnvelope` 一处；六个 tool class 只留 MCP 工具名与参数映射。不把 tool 并进 Core。

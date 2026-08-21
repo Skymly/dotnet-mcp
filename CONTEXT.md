@@ -72,6 +72,10 @@ _Avoid_: LSP proxy, stuffing F# into Roslyn ISymbol
 Core 语言接缝（ADR-0001 §5）。`SymbolHandle.Language` / project language 选一次。两个真实 adapter：Roslyn（C#/VB）与 FCS（F#）。XAML 是 Core 内层 API 的调用者，不是 adapter。
 _Avoid_: per-module `if (fsharp:)`; treating XAML as a third adapter
 
+**MCP tool envelope**:
+MCP 工具面的 ready session 与 JSON 信封（`TryGetReadySession` / `OkResult` / `ErrorResult` / `ToPolicyError`）。六个 tool class 只留 MCP 工具名与参数映射。
+_Avoid_: merging tools into Core; copying the envelope into each tool class; generic apply_edit
+
 **InteropKind**:
 符号是否为 COM 互操作包装的正交标记（`None` / `ComImport` / `ComInteropWrapper`），不进入 Origin/Attribution。
 _Avoid_: MetadataGenerated, COM-in-Origin

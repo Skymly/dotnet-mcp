@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -36,7 +35,7 @@ public sealed class WorkspaceTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("workspace_open", path);
-            return ErrorResult(new PolicyErrorDto
+            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.PathOutsideTrustedRoots,
                 Message = "The requested path is outside the configured trusted roots and was rejected. " +
@@ -54,7 +53,7 @@ public sealed class WorkspaceTools
         }
         catch (Exception)
         {
-            return ErrorResult(new PolicyErrorDto
+            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.InvalidWorkspacePath,
                 Message = "The path could not be resolved.",
@@ -64,7 +63,7 @@ public sealed class WorkspaceTools
 
         if (!File.Exists(fullPath))
         {
-            return ErrorResult(new PolicyErrorDto
+            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
             {
                 Error = PolicyErrorCodes.InvalidWorkspacePath,
                 Message = "The workspace path does not exist or is not a file.",
@@ -78,7 +77,7 @@ public sealed class WorkspaceTools
         // Background load is intentionally NOT tied to this request token (ADR-0003 §1 non-blocking).
         var status = _workspaceHost.BeginOpen(fullPath);
         var open = WorkspaceOpenResultDto.FromStatus(status);
-        return OkResult(open);
+        return McpToolEnvelope.OkResult(open);
     }
 
     [McpServerTool(Name = "workspace_status"), Description(
@@ -88,7 +87,7 @@ public sealed class WorkspaceTools
     {
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("workspace_status");
-        return OkResult(_workspaceHost.GetStatus());
+        return McpToolEnvelope.OkResult(_workspaceHost.GetStatus());
     }
 
     [McpServerTool(Name = "workspace_list_projects"), Description(
@@ -99,24 +98,16 @@ public sealed class WorkspaceTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("workspace_list_projects");
 
-        if (!_workspaceHost.TryGetReadySession(out var session) || session is null)
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
-            var status = _workspaceHost.GetStatus();
-            return ErrorResult(new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.WorkspaceNotReady,
-                Message =
-                    $"Workspace is not ready (phase={status.Phase}). Query tools cannot run until load completes.",
-                SuggestedAction =
-                    "Call workspace_status to poll until phase is ready; do not retry workspace_open while loading."
-            });
+            return notReady!;
         }
 
         var result = new WorkspaceListProjectsResultDto
         {
             Projects = ProjectSummary.FromSolution(session.Solution)
         };
-        return OkResult(result);
+        return McpToolEnvelope.OkResult(result);
     }
 
     [McpServerTool(Name = "workspace_check_drift"), Description(
@@ -128,42 +119,11 @@ public sealed class WorkspaceTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("workspace_check_drift");
 
-        var status = _workspaceHost.GetStatus();
-        if (status.Phase != "ready")
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out _, out var notReady))
         {
-            return ErrorResult(new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.WorkspaceNotReady,
-                Message =
-                    $"Workspace is not ready (phase={status.Phase}). Drift check cannot run until load completes.",
-                SuggestedAction =
-                    "Call workspace_status to poll until phase is ready; do not retry workspace_open while loading."
-            });
+            return notReady!;
         }
 
-        return OkResult(_workspaceHost.CheckDrift());
+        return McpToolEnvelope.OkResult(_workspaceHost.CheckDrift());
     }
-
-    private static CallToolResult OkResult<T>(T payload) => new()
-    {
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(payload, JsonOptions.Default)
-            }
-        ]
-    };
-
-    private static CallToolResult ErrorResult(PolicyErrorDto error) => new()
-    {
-        IsError = true,
-        Content =
-        [
-            new TextContentBlock
-            {
-                Text = JsonSerializer.Serialize(error, JsonOptions.Default)
-            }
-        ]
-    };
 }
