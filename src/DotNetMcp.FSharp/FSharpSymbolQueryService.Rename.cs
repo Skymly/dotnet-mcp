@@ -122,7 +122,17 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        return (new RenamePreviewDraft(handle, newName, documents, [handle]), null);
+        var (slices, generated) = await HandwrittenDocumentDiff
+            .FromDocumentPairsAsync(session.Solution, documents, cancellationToken)
+            .ConfigureAwait(false);
+        if (generated && slices.Count == 0)
+        {
+            return (null, new GeneratedSymbolRenameRefusedError(
+                "Type-provider or generated F# declarations cannot be renamed.",
+                "Rename the handwritten input instead of the generated/provided symbol."));
+        }
+
+        return (new RenamePreviewDraft(handle, newName, slices, [handle]), null);
     }
 
     private static bool IsProvided(FSharpSymbol symbol) =>

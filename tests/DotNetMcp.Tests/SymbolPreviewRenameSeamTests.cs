@@ -1,4 +1,5 @@
 using DotNetMcp.Server;
+using Microsoft.CodeAnalysis;
 
 namespace DotNetMcp.Tests;
 
@@ -97,6 +98,65 @@ public class SymbolPreviewRenameSeamTests
             var err = InProcessMcpFixture.Deserialize<PolicyErrorDto>(preview);
             Assert.Equal(PolicyErrorCodes.GeneratedSymbolRenameRefused, err.Error);
             Assert.False(string.IsNullOrWhiteSpace(err.SuggestedAction));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task preview_rename_omits_source_generator_document_slices()
+    {
+        var root = CreateTempDir("root");
+        var projectDir = Path.Combine(root, "lib");
+        Directory.CreateDirectory(projectDir);
+        var projectPath = Path.Combine(projectDir, "GeneratorHost.csproj");
+        await File.WriteAllTextAsync(projectPath, "<Project></Project>");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithGenerators(projectPath));
+
+            await OpenUntilReadyAsync(fx, solution);
+            Assert.True(fx.WorkspaceHost.TryGetReadySession(out var session));
+            var handwritten = Assert.Single(session!.Solution.Projects.Single().Documents);
+            await File.WriteAllTextAsync(
+                handwritten.FilePath!,
+                (await handwritten.GetTextAsync()).ToString());
+
+            var resolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "GeneratorHost.PartialThing" });
+            Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+
+            var preview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = handle,
+                    ["newName"] = "RenamedThing"
+                });
+            Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
+            var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.NotEmpty(body.Documents);
+            Assert.All(body.Documents, d =>
+                Assert.DoesNotContain(".g.cs", Path.GetFileName(d.Path), StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(body.Documents, d =>
+                d.Path.EndsWith("Host.cs", StringComparison.OrdinalIgnoreCase) &&
+                d.NewText.Contains("RenamedThing", StringComparison.Ordinal));
+
+            var apply = await fx.Client.CallToolAsync(
+                "symbol_apply_rename",
+                new Dictionary<string, object?> { ["previewId"] = body.PreviewId });
+            Assert.True(apply.IsError is not true, InProcessMcpFixture.TextOf(apply));
+            var written = await File.ReadAllTextAsync(handwritten.FilePath!);
+            Assert.Contains("RenamedThing", written, StringComparison.Ordinal);
         }
         finally
         {

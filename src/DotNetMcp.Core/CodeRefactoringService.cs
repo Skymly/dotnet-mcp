@@ -68,7 +68,7 @@ public sealed class CodeRefactoringService
                 "Pick another refactoringIndex from symbol_list_refactorings, or change the code without this tool."));
         }
 
-        var (slices, generated) = await DiffAsync(session.Solution, changed, cancellationToken).ConfigureAwait(false);
+        var (slices, generated) = await HandwrittenDocumentDiff.FromSolutionsAsync(session.Solution, changed, cancellationToken).ConfigureAwait(false);
         if (generated)
         {
             return (null, new GeneratedDocumentRefactoringRefusedError(
@@ -259,64 +259,5 @@ public sealed class CodeRefactoringService
             Path.GetFullPath(left),
             Path.GetFullPath(right),
             StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static async Task<(IReadOnlyList<RenameDocumentSlice> Slices, bool TouchedGenerated)> DiffAsync(
-        Solution before,
-        Solution after,
-        CancellationToken cancellationToken)
-    {
-        var slices = new List<RenameDocumentSlice>();
-        var changes = after.GetChanges(before);
-        if (changes.GetAddedProjects().Any() || changes.GetRemovedProjects().Any())
-        {
-            return (slices, true);
-        }
-
-        foreach (var projectChange in changes.GetProjectChanges())
-        {
-            if (projectChange.GetAddedDocuments().Any() || projectChange.GetRemovedDocuments().Any())
-            {
-                return (slices, true);
-            }
-
-            var oldProject = before.GetProject(projectChange.ProjectId);
-            var generated = oldProject is null
-                ? []
-                : await oldProject.GetSourceGeneratedDocumentsAsync(cancellationToken).ConfigureAwait(false);
-            var generatedIds = generated.Select(g => g.Id).ToHashSet();
-
-            foreach (var docId in projectChange.GetChangedDocuments())
-            {
-                if (generatedIds.Contains(docId))
-                {
-                    return (slices, true);
-                }
-
-                var oldDoc = before.GetDocument(docId);
-                var newDoc = after.GetDocument(docId);
-                if (oldDoc is null || newDoc is null)
-                {
-                    return (slices, true);
-                }
-
-                var path = oldDoc.FilePath;
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    return (slices, true);
-                }
-
-                var oldText = (await oldDoc.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
-                var newText = (await newDoc.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
-                if (oldText == newText)
-                {
-                    continue;
-                }
-
-                slices.Add(new RenameDocumentSlice(path, oldText, newText));
-            }
-        }
-
-        return (slices, false);
     }
 }
