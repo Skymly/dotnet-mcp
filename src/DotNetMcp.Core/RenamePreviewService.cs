@@ -98,33 +98,14 @@ public sealed class RenamePreviewService
             newName,
             cancellationToken).ConfigureAwait(false);
 
-        var slices = new List<RenameDocumentSlice>();
-        foreach (var projectChange in renamed.GetChanges(session.Solution).GetProjectChanges())
+        var (slices, generated) = await HandwrittenDocumentDiff
+            .FromSolutionsAsync(session.Solution, renamed, cancellationToken)
+            .ConfigureAwait(false);
+        if (generated && slices.Count == 0)
         {
-            foreach (var docId in projectChange.GetChangedDocuments())
-            {
-                var oldDoc = session.Solution.GetDocument(docId);
-                var newDoc = renamed.GetDocument(docId);
-                if (oldDoc is null || newDoc is null)
-                {
-                    continue;
-                }
-
-                var oldText = (await oldDoc.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
-                var newText = (await newDoc.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
-                if (oldText == newText)
-                {
-                    continue;
-                }
-
-                var path = oldDoc.FilePath;
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    continue;
-                }
-
-                slices.Add(new RenameDocumentSlice(path, oldText, newText));
-            }
+            return (null, new GeneratedSymbolRenameRefusedError(
+                "This rename would only change generated documents.",
+                "Change the generator input (handwritten partial / attribute) and call symbol_preview_rename on that symbol."));
         }
 
         var invalidated = new List<string> { handle };
