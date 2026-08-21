@@ -50,22 +50,9 @@ public sealed class DiagnosticQueryService
     {
         var epoch = session.Epoch;
         var pageLimit = ClampLimit(limit);
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
+        if (!SoftBudgetPage.TryReadOffset(cursor, epoch, "project_diagnostics", out _, out var cursorError))
         {
-            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call project_diagnostics again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call project_diagnostics again without a cursor; do not retry with the stale cursor."));
-            }
+            return (null, cursorError);
         }
 
         var budget = softBudget ?? _softBudgets.BatchDiagnostics;
@@ -104,23 +91,16 @@ public sealed class DiagnosticQueryService
             collected.AddRange(page!.Items);
         }
 
-        if (offset > collected.Count)
-        {
-            return (null, new StaleCursorError(
-                "Cursor offset is past the end of the diagnostics list.",
-                "Call project_diagnostics again without a cursor to start a fresh page."));
-        }
-
-        var slice = collected.Skip(offset).Take(pageLimit).ToList();
-        var nextOffset = offset + slice.Count;
-        var truncated = nextOffset < collected.Count || stoppedEarly;
-        string? nextCursor = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
-        var message = truncated
-            ? "Batch diagnostics truncated; pass nextCursor to project_diagnostics to continue (do not restart from the first page)."
-            : collected.Count == 0
-                ? "Workspace has no error or warning diagnostics."
-                : "Batch diagnostics page complete.";
-        return (new PagedResult<DiagnosticItem>(slice, truncated, nextCursor, message), null);
+        return SoftBudgetPage.Page(
+            collected,
+            epoch,
+            budgetHit: stoppedEarly,
+            cursor,
+            pageLimit,
+            "project_diagnostics",
+            "Workspace has no error or warning diagnostics.",
+            "Batch diagnostics page complete.",
+            "the diagnostics list");
     }
 
     private static int ClampLimit(int? limit)

@@ -399,44 +399,15 @@ public sealed partial class FSharpSymbolQueryService
         var limit = pageLimit is null or < 1
             ? SymbolQueryService.DefaultMemberPageLimit
             : Math.Min(pageLimit.Value, SymbolQueryService.MaxMemberPageLimit);
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
-        {
-            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    $"Call {tool} again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    $"Call {tool} again without a cursor; do not retry with the stale cursor."));
-            }
-        }
-
-        if (offset > items.Count)
-        {
-            return (null, new StaleCursorError(
-                "Cursor offset is past the end of the result list.",
-                $"Call {tool} again without a cursor to start a fresh page."));
-        }
-
-        var slice = items.Skip(offset).Take(limit).ToList();
-        var next = offset + slice.Count;
-        var truncated = next < items.Count || truncatedByBudget;
-        var message = truncated
-            ? truncatedByBudget
-                ? $"Soft budget reached after {slice.Count} item(s). Pass nextCursor to {tool} to continue; do not retry from scratch."
-                : $"Results truncated; pass nextCursor to {tool} to continue (do not restart from the first page)."
-            : items.Count == 0 ? emptyMessage : "Page complete.";
-        return (new PagedResult<T>(
-            slice,
-            truncated,
-            truncated ? MemberPageCursor.Encode(epoch, next) : null,
-            message), null);
+        return SoftBudgetPage.Page(
+            items,
+            epoch,
+            truncatedByBudget,
+            cursor,
+            limit,
+            tool,
+            emptyMessage,
+            "Page complete.");
     }
 
     private static (PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error) Page(
@@ -448,45 +419,15 @@ public sealed partial class FSharpSymbolQueryService
         string tool,
         bool truncatedByBudget = false)
     {
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
-        {
-            if (!FindRefsPageCursor.TryDecode(cursor, out var cursorEpoch, out var cursorEntire, out var docIndex, out var locOffset, out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    $"Call {tool} again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch || cursorEntire != entireSolution)
-            {
-                return (null, new StaleCursorError(
-                    "Cursor does not match the current workspace epoch or scope.",
-                    $"Call {tool} again without a cursor; do not retry with the stale cursor."));
-            }
-
-            offset = docIndex + locOffset;
-        }
-
-        if (offset > items.Count)
-        {
-            return (null, new StaleCursorError(
-                "Cursor offset is past the end of the result list.",
-                $"Call {tool} again without a cursor to start a fresh page."));
-        }
-
-        var slice = items.Skip(offset).Take(pageLimit).ToList();
-        var next = offset + slice.Count;
-        var truncated = next < items.Count || truncatedByBudget;
-        var message = truncated
-            ? truncatedByBudget
-                ? $"Soft budget reached after {slice.Count} item(s). Pass nextCursor to {tool} to continue; do not retry from scratch."
-                : $"Results truncated; pass nextCursor to {tool} to continue (do not restart from the first page)."
-            : items.Count == 0 ? "No references were found." : "Page complete.";
-        return (new PagedResult<ReferenceLocationItem>(
-            slice,
-            truncated,
-            truncated ? FindRefsPageCursor.Encode(epoch, entireSolution, next, 0) : null,
-            message), null);
+        return SoftBudgetPage.PageFindRefs(
+            items,
+            epoch,
+            entireSolution,
+            truncatedByBudget,
+            cursor,
+            pageLimit,
+            tool,
+            "No references were found.",
+            "Page complete.");
     }
 }

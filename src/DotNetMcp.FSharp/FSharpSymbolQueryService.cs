@@ -153,52 +153,25 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         var pageLimit = limit is null or < 1
             ? SymbolQueryService.DefaultMemberPageLimit
             : Math.Min(limit.Value, SymbolQueryService.MaxMemberPageLimit);
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
-        {
-            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call symbol_members again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call symbol_members again without a cursor; do not retry with the stale cursor."));
-            }
-        }
-
-        var members = item.Members
+        var items = item.Members
             .OrderBy(m => m.SignatureQualifiedName, StringComparer.Ordinal)
+            .Select(m =>
+            {
+                var success = ToSuccess(m);
+                return new MemberListItem(success.Handle, success.Summary);
+            })
             .ToList();
 
-        if (offset > members.Count)
-        {
-            return (null, new StaleCursorError(
-                "Cursor offset is past the end of the member list.",
-                "Call symbol_members again without a cursor to start a fresh page."));
-        }
-
-        var slice = members.Skip(offset).Take(pageLimit).ToList();
-        var nextOffset = offset + slice.Count;
-        var truncated = nextOffset < members.Count;
-        string? nextCursor = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
-        var items = slice.Select(m =>
-        {
-            var success = ToSuccess(m);
-            return new MemberListItem(success.Handle, success.Summary);
-        }).ToList();
-
-        var message = truncated
-            ? "Results truncated; pass nextCursor to symbol_members to continue (do not restart from the first page)."
-            : members.Count == 0
-                ? "Type has no members."
-                : "Member page complete.";
-
-        return (new PagedResult<MemberListItem>(items, truncated, nextCursor, message), null);
+        return SoftBudgetPage.Page(
+            items,
+            epoch,
+            budgetHit: false,
+            cursor,
+            pageLimit,
+            "symbol_members",
+            "Type has no members.",
+            "Member page complete.",
+            "the member list");
     }
 
     private async Task<(FSharpCatalogItem? Item, SymbolQueryError? Error)> TryResolveHandleAsync(

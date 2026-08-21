@@ -245,22 +245,9 @@ public sealed class XamlDocumentService
 
         var epoch = session.Epoch;
         var pageLimit = limit is null or <= 0 ? 50 : Math.Min(limit.Value, 100);
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
+        if (!SoftBudgetPage.TryReadOffset(cursor, epoch, "xaml_diagnostics", out _, out var cursorError))
         {
-            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
-            {
-                return (null, null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call xaml_diagnostics again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call xaml_diagnostics again without a cursor; do not retry with the stale cursor."));
-            }
+            return (null, null, cursorError);
         }
 
         var (xmlns, xmlnsError) = await ListXmlnsAsync(session, path, prefix: null, cancellationToken)
@@ -276,25 +263,17 @@ public sealed class XamlDocumentService
                 session, path, root!, xmlns!, clock, budget, cancellationToken)
             .ConfigureAwait(false);
 
-        if (offset > all.Count)
-        {
-            return (null, null, new StaleCursorError(
-                "Cursor offset is past the end of the diagnostic list.",
-                "Call xaml_diagnostics again without a cursor to start a fresh page."));
-        }
-
-        var truncatedByBudget = clock.Elapsed >= budget && budget >= TimeSpan.Zero;
-        var slice = all.Skip(offset).Take(pageLimit).ToList();
-        var nextOffset = offset + slice.Count;
-        var truncated = nextOffset < all.Count || truncatedByBudget;
-        string? next = truncated ? MemberPageCursor.Encode(epoch, nextOffset) : null;
-        var message = truncated
-            ? "Results truncated; pass nextCursor to xaml_diagnostics to continue (do not restart from the first page)."
-            : all.Count == 0
-                ? "No semantic XAML diagnostics."
-                : "XAML diagnostic page complete.";
-
-        return (new PagedResult<DiagnosticItem>(slice, truncated, next, message), null, null);
+        var (page, pageError) = SoftBudgetPage.Page(
+            all,
+            epoch,
+            budgetHit: clock.Elapsed >= budget && budget >= TimeSpan.Zero,
+            cursor,
+            pageLimit,
+            "xaml_diagnostics",
+            "No semantic XAML diagnostics.",
+            "XAML diagnostic page complete.",
+            "the diagnostic list");
+        return (page, null, pageError);
     }
 
     public async Task<(IReadOnlyList<XamlXmlnsMapping>? Success, XamlQueryError? Error)> ListXmlnsAsync(
