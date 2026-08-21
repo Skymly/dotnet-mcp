@@ -73,6 +73,49 @@ public class P3ReadSideSeamTests
     }
 
     [Fact]
+    public async Task xaml_diagnostics_resolves_vb_element_types()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        var axaml = Path.Combine(root, "MainWindow.axaml");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        await File.WriteAllTextAsync(axaml, """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:SampleControls"
+                    x:Class="MainWindow">
+                <local:FancyPanel />
+                <local:MissingPanel />
+            </Window>
+            """);
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithVbXaml());
+            await OpenUntilReadyAsync(fx, solution);
+
+            var cls = await fx.Client.CallToolAsync(
+                "xaml_resolve_class",
+                new Dictionary<string, object?> { ["path"] = axaml });
+            Assert.True(cls.IsError is not true, InProcessMcpFixture.TextOf(cls));
+            Assert.StartsWith("vb:", InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(cls).Handle, StringComparison.Ordinal);
+
+            var diagnostics = await fx.Client.CallToolAsync(
+                "xaml_diagnostics",
+                new Dictionary<string, object?> { ["path"] = axaml });
+            Assert.True(diagnostics.IsError is not true, InProcessMcpFixture.TextOf(diagnostics));
+            var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(diagnostics);
+            Assert.Contains(body.Items, i => i.Id == "XAML0001" && i.Message.Contains("MissingPanel", StringComparison.Ordinal));
+            Assert.DoesNotContain(body.Items, i => i.Message.Contains("FancyPanel", StringComparison.Ordinal));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task project_diagnostics_without_project_id_pages_across_projects()
     {
         var root = CreateTempDir("root");
