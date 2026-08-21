@@ -24,6 +24,7 @@ public sealed class WorkspaceSession : IWorkspaceSession
         // Freeze snapshot at request start so FSW updates cannot cross a mid-request boundary (ADR-0002).
         Solution = loaded.Solution;
         Epoch = epoch;
+        FSharpSnapshot = CaptureFSharp(loaded.Solution, epoch);
         _compilationLru = compilationLru ?? new CompilationLru(compilationLruCapacity);
         _generatorRunCache = generatorRunCache ?? new GeneratorRunCache();
     }
@@ -31,6 +32,8 @@ public sealed class WorkspaceSession : IWorkspaceSession
     public long Epoch { get; }
 
     public Solution Solution { get; }
+
+    public FSharpWorkspaceSnapshot FSharpSnapshot { get; }
 
     /// <summary>Test/observability hook for the compilation LRU (host-shared when injected).</summary>
     public CompilationLru CompilationCache => _compilationLru;
@@ -104,5 +107,44 @@ public sealed class WorkspaceSession : IWorkspaceSession
         var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Compilation was null for project '{project.Name}'.");
         return compilation;
+    }
+
+    private static FSharpWorkspaceSnapshot CaptureFSharp(Solution solution, long epoch)
+    {
+        var projects = new List<FSharpProjectSnapshot>();
+        foreach (var project in solution.Projects)
+        {
+            if (project.Language != LanguageNames.FSharp)
+            {
+                continue;
+            }
+
+            var documents = new List<FSharpDocumentSnapshot>();
+            foreach (var document in project.Documents)
+            {
+                if (document.FilePath is null ||
+                    !document.FilePath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!document.TryGetText(out var sourceText))
+                {
+                    sourceText = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult();
+                }
+
+                documents.Add(new FSharpDocumentSnapshot(
+                    Path.GetFullPath(document.FilePath),
+                    sourceText.ToString()));
+            }
+
+            projects.Add(new FSharpProjectSnapshot(
+                project.Id.Id.ToString("D"),
+                project.Name,
+                project.FilePath,
+                documents));
+        }
+
+        return new FSharpWorkspaceSnapshot(epoch, projects);
     }
 }

@@ -3,14 +3,21 @@ using Microsoft.CodeAnalysis;
 namespace DotNetMcp.Core;
 
 /// <summary>
-/// Request-scoped workspace snapshot (ADR-0002): one epoch, frozen <see cref="Solution"/>,
-/// and pull-based compilation / generator attribution APIs.
+/// Request-scoped workspace snapshot (ADR-0002): one epoch, frozen Roslyn
+/// <see cref="Solution"/> beside an F# source snapshot, and pull-based
+/// compilation / generator attribution APIs.
 /// </summary>
 public interface IWorkspaceSession : IDisposable
 {
     long Epoch { get; }
 
     Solution Solution { get; }
+
+    /// <summary>
+    /// F# project/source snapshot frozen with <see cref="Epoch"/>.
+    /// FCS adapter uses this, not <see cref="Solution"/>.
+    /// </summary>
+    FSharpWorkspaceSnapshot FSharpSnapshot { get; }
 
     /// <summary>Lazy compilation including workspace-run generated trees.</summary>
     Task<Compilation> GetCompilationAsync(ProjectId projectId, CancellationToken cancellationToken = default);

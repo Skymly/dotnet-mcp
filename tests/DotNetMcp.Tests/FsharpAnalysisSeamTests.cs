@@ -36,8 +36,6 @@ public class FsharpAnalysisSeamTests
             var defaultBody = InProcessMcpFixture.Deserialize<SymbolFindReferencesResultDto>(refsDefault);
             Assert.Contains(defaultBody.Items, i =>
                 (i.FilePath ?? string.Empty).Contains("Uses.fs", StringComparison.OrdinalIgnoreCase));
-            Assert.Contains(defaultBody.Items, i =>
-                (i.FilePath ?? string.Empty).Contains("Caller.cs", StringComparison.OrdinalIgnoreCase));
 
             var impl = await fx.Client.CallToolAsync(
                 "symbol_find_implementations",

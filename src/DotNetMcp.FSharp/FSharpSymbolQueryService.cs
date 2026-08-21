@@ -62,7 +62,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
         var query = name.Trim();
         var matches = new List<FSharpCatalogItem>();
-        foreach (var project in FSharpProjects(session.Solution, projectId, out var filterError))
+        foreach (var project in FSharpProjects(session.FSharpSnapshot, projectId, out var filterError))
         {
             if (filterError is not null)
             {
@@ -193,9 +193,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 "Call symbol_resolve for an F# symbol to obtain a fsharp handle."));
         }
 
-        var project = session.Solution.Projects.FirstOrDefault(p =>
-            string.Equals(p.Id.Id.ToString("D"), parsed.ProjectId, StringComparison.OrdinalIgnoreCase));
-        if (project is null || project.Language != LanguageNames.FSharp)
+        var project = session.FSharpSnapshot.FindProject(parsed.ProjectId);
+        if (project is null)
         {
             return (null, new SymbolNotFoundError(
                 $"No F# project '{parsed.ProjectId}' is in the ready workspace.",
@@ -250,7 +249,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     }
 
     private async Task<IReadOnlyList<FSharpCatalogItem>> CatalogAsync(
-        RoslynProject project,
+        FSharpProjectSnapshot project,
         CancellationToken cancellationToken)
     {
         var (items, _, _) = await CheckProjectAsync(project, cancellationToken).ConfigureAwait(false);
@@ -258,21 +257,14 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     }
 
     private async Task<(IReadOnlyList<FSharpCatalogItem> Items, FSharpCheckProjectResults? Check, IReadOnlyList<(string Path, string Text)> Sources)> CheckProjectAsync(
-        RoslynProject project,
+        FSharpProjectSnapshot project,
         CancellationToken cancellationToken)
     {
         var sources = new List<(string Path, string Text)>();
         foreach (var document in project.Documents)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (document.FilePath is null ||
-                !document.FilePath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var text = (await document.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
-            sources.Add((Path.GetFullPath(document.FilePath), text));
+            sources.Add((document.Path, document.Text));
         }
 
         if (sources.Count == 0)
@@ -303,7 +295,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        var projectId = project.Id.Id.ToString("D");
+        var projectId = project.ProjectId;
         var items = new List<FSharpCatalogItem>();
         WalkEntities(projectId, check.AssemblySignature.Entities, sources, items);
         return (items, check, sources);
@@ -367,20 +359,20 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         }
     }
 
-    private static IReadOnlyList<RoslynProject> FSharpProjects(
-        Solution solution,
+    private static IReadOnlyList<FSharpProjectSnapshot> FSharpProjects(
+        FSharpWorkspaceSnapshot snapshot,
         string? projectId,
         out SymbolQueryError? error)
     {
         error = null;
-        var all = solution.Projects.Where(p => p.Language == LanguageNames.FSharp).ToArray();
+        var all = snapshot.Projects.ToArray();
         if (string.IsNullOrWhiteSpace(projectId))
         {
             return all;
         }
 
         var match = all
-            .Where(p => string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase))
+            .Where(p => string.Equals(p.ProjectId, projectId, StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if (match.Length == 0)
         {

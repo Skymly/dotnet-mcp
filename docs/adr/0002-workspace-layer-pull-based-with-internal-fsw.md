@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S2；2026-08-19 Amendment 3 / Spike S4）** —— 拉取式方向不变，但接口签名、新鲜度语义、快照一致性与解决方案格式支持均被修正。以「决策」小节的现行内容为准。
+Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S2；2026-08-19 Amendment 3 / Spike S4；2026-08-22 Amendment 4）** —— 拉取式方向不变，但接口签名、新鲜度语义、快照一致性与解决方案格式支持均被修正。Amendment 4 把 F# 快照并列在 Epoch 旁。以「决策」小节的现行内容为准。
 
 ## 上下文
 
@@ -68,7 +68,7 @@ public interface IWorkspaceSession : IDisposable
 
 7. **测试接缝**：内部工厂接口，生产返回 MSBuildWorkspace 实现，测试返回 AdhocWorkspace fixture 实现。注意 AdhocWorkspace 下源生成器行为需在 S1 一并验证。
 
-8. **F# 预留**：本接口返回 Roslyn 类型；P3 时 F#（FCS）经 Core 的 `ILanguageAdapter` 独立成栈，不经由此接口。
+8. **F# 预留**：本接口的 Roslyn 成员（`Solution` / `GetCompilationAsync`）仍只服务 C#/VB。P3 时 F#（FCS）经 Core 的 `ILanguageAdapter` 独立成栈；Host 在同一 Epoch 冻结并列的 `FSharpWorkspaceSnapshot`，FCS 读该快照，不读 `Solution`。
 
 ## 后果
 
@@ -120,3 +120,7 @@ public interface IWorkspaceSession : IDisposable
 证据：[spikes/s4-rename/CONCLUSIONS.md](../../spikes/s4-rename/CONCLUSIONS.md)、#87。
 
 §3 已预留自写抑制与文本回填。Apply 是 **intentional**：WriteSuppression + WithDocumentText + 主动推进 Epoch **一次**。不得把 apply 实现成 FSW / workspace_check_drift 的 drift-repair。句柄仍不随 Epoch 失效。
+
+## Amendment 4（2026-08-22）：F# 快照并列
+
+§8 兑现：FCS 不经 `IWorkspaceSession.Solution` / `GetCompilationAsync`。`WorkspaceSession` 冻结时捕获 `FSharpWorkspaceSnapshot`（同一 Epoch）。语言接缝仍是 `ILanguageAdapter`，不另开第三条接缝。
