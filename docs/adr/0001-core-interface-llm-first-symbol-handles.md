@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S1）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正；S1 实证细化了 FilePath 启发式与 Adhoc/反射取舍。以「决策」小节的现行内容为准。
+Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S1；2026-08-21 Amendment 3）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正；S1 实证细化了 FilePath 启发式与 Adhoc/反射取舍。Amendment 3 兑现 §5 的 ILanguageAdapter 接缝。以「决策」小节的现行内容为准。
 
 ## 上下文
 
@@ -59,7 +59,7 @@ partial 类型逐成员归因，字典键须含签名以区分重载。
 
 ### 5. ILanguageAdapter 接缝
 
-今日仅 Roslyn 适配器（C#/VB）；F#（FCS）为 P3 第二适配器。XAML 层是 Core 内层 API 的调用者，不是适配器。
+今日仅 Roslyn 适配器（C#/VB）；F#（FCS）为 P3 第二适配器。XAML 层是 Core 内层 API 的调用者，不是适配器。`SymbolHandle.Language`（或 project language）选一次；Core query module 不各自 `if (fsharp:)`。
 
 ### 6. 生成器归因技术路线（重大修正，见 Amendment 1 / F1、F2）
 
@@ -125,3 +125,8 @@ DotNetMcp.FSharp      — P3，FCS 栈（ILanguageAdapter 第二适配器）
 | S1-F5 | 反射 Identity 取舍未决 | **可行但私有**：`Identity` 非公开；可读 Assembly/Type/Version；须守护测试 | 主路径用公开 driver；反射可选加速，文档化私有 API 风险 |
 
 决策不变：主路径 = strip + 自建 driver + 内容对账；FilePath / 反射为辅助。细节与耗时见 spike `CONCLUSIONS.md`。
+
+
+## Amendment 3（2026-08-21）：兑现 ILanguageAdapter
+
+§5 名称与两个 adapter 的决定不变。代码长出 `ILanguageAdapter`：`LanguageAdapters` 按 `SymbolHandle.Language` / project language 选一次；Roslyn adapter（C#/VB）与 FCS adapter（F#）是两个真实 adapter。XAML 仍不是 adapter。F# 仍从 `WorkspaceSession` 快照读项目（移出 session 是后续项）。

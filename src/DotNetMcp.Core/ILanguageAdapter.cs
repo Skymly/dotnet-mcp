@@ -1,10 +1,19 @@
+using Microsoft.CodeAnalysis;
+
 namespace DotNetMcp.Core;
 
 /// <summary>
-/// Independent FCS stack (ADR-0001). Roslyn ISymbol APIs must not be used for F#.
+/// Language seam (ADR-0001 §5). Roslyn (C#/VB) and FCS (F#) are the two adapters.
+/// XAML is a caller of Core inner APIs, not an adapter.
 /// </summary>
-public interface IFSharpSymbolQuery
+public interface ILanguageAdapter
 {
+    bool OwnsLanguage(string languageToken);
+
+    bool OwnsProject(Project project);
+
+    bool SupportsCodeRefactoring { get; }
+
     Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
         IWorkspaceSession session,
         string name,

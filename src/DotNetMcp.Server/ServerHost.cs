@@ -46,8 +46,16 @@ public static class ServerHost
                 options.TimeProvider,
                 options.WorkspaceEditPreviewTtl);
         });
-        services.AddSingleton<IFSharpSymbolQuery, FSharpSymbolQueryService>();
-        services.AddSingleton<SymbolQueryService>();
+        services.AddSingleton<RoslynLanguageAdapter>();
+        services.AddSingleton<FSharpSymbolQueryService>();
+        services.AddSingleton(sp => new LanguageAdapters(
+        [
+            sp.GetRequiredService<RoslynLanguageAdapter>(),
+            sp.GetRequiredService<FSharpSymbolQueryService>(),
+        ]));
+        services.AddSingleton(sp => new SymbolQueryService(
+            sp.GetRequiredService<LanguageAdapters>(),
+            sp.GetRequiredService<RoslynLanguageAdapter>()));
         services.AddSingleton<RenamePreviewService>();
         services.AddSingleton<DiagnosticFixService>();
         services.AddSingleton<CodeRefactoringService>();
