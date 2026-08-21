@@ -15,10 +15,12 @@ public sealed class CodeRefactoringService
     private static readonly ConcurrentDictionary<string, IReadOnlyList<CodeRefactoringProvider>> ProvidersByLanguage = new(StringComparer.Ordinal);
 
     private readonly SymbolQueryService _symbols;
+    private readonly LanguageAdapters _languages;
 
-    public CodeRefactoringService(SymbolQueryService symbols)
+    public CodeRefactoringService(SymbolQueryService symbols, LanguageAdapters? languages = null)
     {
         _symbols = symbols;
+        _languages = languages ?? symbols.Languages;
     }
 
     public async Task<(CodeRefactoringListSuccess? Success, SymbolQueryError? Error)> ListAsync(
@@ -103,10 +105,10 @@ public sealed class CodeRefactoringService
                 "Call symbol_resolve with a name/FQN to obtain a fresh SymbolHandle; do not invent handles."));
         }
 
-        if (string.Equals(parsed.Language, SymbolQueryService.FSharpLanguage, StringComparison.Ordinal))
+        if (_languages.TryGet(parsed.Language, out var adapter) && !adapter.SupportsCodeRefactoring)
         {
             return (null, default, new RefactoringLanguageNotSupportedError(
-                "Code Refactoring is not available for fsharp handles.",
+                "Code Refactoring is not available for this language.",
                 "Call symbol_list_refactorings on a handwritten csharp or vb SymbolHandle."));
         }
 

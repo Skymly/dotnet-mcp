@@ -11,12 +11,20 @@ using RoslynProject = Microsoft.CodeAnalysis.Project;
 
 namespace DotNetMcp.FSharp;
 
-public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
+public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 {
     private readonly SoftBudgetOptions _softBudgets;
     private readonly ConcurrentDictionary<string, string> _snapshotTexts =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly FSharpChecker _checker;
+
+    public bool OwnsLanguage(string languageToken) =>
+        string.Equals(languageToken, SymbolQueryService.FSharpLanguage, StringComparison.Ordinal);
+
+    public bool OwnsProject(RoslynProject project) =>
+        project.Language == LanguageNames.FSharp;
+
+    public bool SupportsCodeRefactoring => false;
 
     public FSharpSymbolQueryService(SoftBudgetOptions? softBudgets = null)
     {
