@@ -66,10 +66,7 @@ public sealed partial class FSharpSymbolQueryService
 
             var source = session.Solution.Projects
                 .SelectMany(p => p.Documents)
-                .FirstOrDefault(d =>
-                    d.FilePath is not null &&
-                    (string.Equals(d.FilePath, use.FileName, StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(Path.GetFileName(d.FilePath), Path.GetFileName(use.FileName), StringComparison.OrdinalIgnoreCase)));
+                .FirstOrDefault(d => SameDocumentPath(d.FilePath, use.FileName));
             if (source?.FilePath is null)
             {
                 continue;

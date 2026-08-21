@@ -340,6 +340,52 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+
+    public static FakeSolutionLoader ImmediateWithFsharpCollidingFileNames(string root) =>
+        new(TimeSpan.Zero, () => CreateFsharpCollidingFileNamesLoaded(root));
+
+    public static LoadedSolution CreateFsharpCollidingFileNamesLoaded(string root)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var alphaDoc = DocumentId.CreateNewId(projectId);
+        var betaDoc = DocumentId.CreateNewId(projectId);
+        var alphaDir = Path.Combine(root, "A");
+        var betaDir = Path.Combine(root, "B");
+        Directory.CreateDirectory(alphaDir);
+        Directory.CreateDirectory(betaDir);
+        var alphaPath = Path.Combine(alphaDir, "Widget.fs");
+        var betaPath = Path.Combine(betaDir, "Widget.fs");
+        const string alphaSource = """
+            module Collide.Alpha
+
+            let ping () = "alpha"
+            """;
+        const string betaSource = """
+            module Collide.Beta
+
+            let ping () = "beta"
+            """;
+        File.WriteAllText(alphaPath, alphaSource);
+        File.WriteAllText(betaPath, betaSource);
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "CollideFs",
+            "CollideFs",
+            LanguageNames.FSharp,
+            filePath: Path.Combine(root, "CollideFs.fsproj")));
+        solution = solution.AddDocument(alphaDoc, "A/Widget.fs", SourceText.From(alphaSource), filePath: alphaPath);
+        solution = solution.AddDocument(betaDoc, "B/Widget.fs", SourceText.From(betaSource), filePath: betaPath);
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace F# colliding-filename fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
     public static FakeSolutionLoader ImmediateWithFsharpAndCSharp(
         string csharpProjectFilePath = @"C:\fake\CsLib.csproj",
         string fsharpProjectFilePath = @"C:\fake\FsLib.fsproj") =>
