@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
@@ -12,7 +10,6 @@ namespace DotNetMcp.Core;
 /// </summary>
 public sealed class DiagnosticFixService
 {
-    private static readonly ConcurrentDictionary<string, IReadOnlyList<CodeFixProvider>> ProvidersByLanguage = new(StringComparer.Ordinal);
     private readonly SoftBudgetOptions _budgets;
 
     public DiagnosticFixService(SoftBudgetOptions? budgets = null)
@@ -113,7 +110,7 @@ public sealed class DiagnosticFixService
         }
         else
         {
-            changed = await ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
+            changed = await CodeActionDocuments.ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
         }
 
         if (changed is null)
@@ -349,7 +346,7 @@ public sealed class DiagnosticFixService
         Diagnostic diagnostic,
         CancellationToken cancellationToken)
     {
-        var providers = GetProviders(document.Project.Language);
+        var providers = CodeActionDocuments.GetProviders<CodeFixProvider>(document.Project.Language);
         var actions = new List<CodeAction>();
         foreach (var provider in providers)
         {
@@ -363,7 +360,7 @@ public sealed class DiagnosticFixService
                 var context = new CodeFixContext(
                     document,
                     diagnostic,
-                    (action, _) => actions.AddRange(Flatten(action)),
+                    (action, _) => actions.AddRange(CodeActionDocuments.Flatten(action)),
                     cancellationToken);
                 await provider.RegisterCodeFixesAsync(context).ConfigureAwait(false);
             }
@@ -378,90 +375,6 @@ public sealed class DiagnosticFixService
             .OrderBy(a => a.Title, StringComparer.Ordinal)
             .ThenBy(a => a.EquivalenceKey ?? string.Empty, StringComparer.Ordinal)
             .ToArray();
-    }
-
-    private static IEnumerable<CodeAction> Flatten(CodeAction action)
-    {
-        var nested = action.NestedActions;
-        return nested.Length == 0 ? [action] : nested.SelectMany(Flatten);
-    }
-
-    private static IReadOnlyList<CodeFixProvider> GetProviders(string language)
-    {
-        return ProvidersByLanguage.GetOrAdd(language, static lang =>
-        {
-            var assemblyName = lang switch
-            {
-                LanguageNames.CSharp => "Microsoft.CodeAnalysis.CSharp.Features",
-                LanguageNames.VisualBasic => "Microsoft.CodeAnalysis.VisualBasic.Features",
-                _ => null
-            };
-            if (assemblyName is null)
-            {
-                return [];
-            }
-
-            Assembly assembly;
-            try
-            {
-                assembly = Assembly.Load(assemblyName);
-            }
-            catch (Exception)
-            {
-                return [];
-            }
-
-            Type[] types;
-            try
-            {
-                types = assembly.GetTypes();
-            }
-            catch (ReflectionTypeLoadException ex)
-            {
-                types = ex.Types.Where(static t => t is not null).Cast<Type>().ToArray();
-            }
-
-            var list = new List<CodeFixProvider>();
-            foreach (var type in types)
-            {
-                if (type.IsAbstract || !typeof(CodeFixProvider).IsAssignableFrom(type))
-                {
-                    continue;
-                }
-
-                if (type.GetConstructor(Type.EmptyTypes) is null)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    if (Activator.CreateInstance(type) is CodeFixProvider provider)
-                    {
-                        list.Add(provider);
-                    }
-                }
-                catch
-                {
-                    // Skip providers that throw from a parameterless ctor.
-                }
-            }
-
-            return list;
-        });
-    }
-
-    private static async Task<Solution?> ApplyActionAsync(CodeAction action, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var operations = await action.GetOperationsAsync(cancellationToken).ConfigureAwait(false);
-            return operations.OfType<ApplyChangesOperation>().FirstOrDefault()?.ChangedSolution;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
     }
 
     private static async Task<Solution?> ApplyDocumentScopeAsync(
@@ -506,7 +419,7 @@ public sealed class DiagnosticFixService
                 break;
             }
 
-            var next = await ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
+            var next = await CodeActionDocuments.ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
             if (next is null)
             {
                 break;
@@ -590,7 +503,7 @@ public sealed class DiagnosticFixService
                 break;
             }
 
-            var next = await ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
+            var next = await CodeActionDocuments.ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
             if (next is null)
             {
                 break;
