@@ -28,7 +28,7 @@ public sealed class XamlDocumentService
             string path,
             CancellationToken cancellationToken = default)
     {
-        var (root, xamlError) = ReadDocument(path);
+        var (root, xamlError) = await ReadDocumentAsync(session, path, cancellationToken).ConfigureAwait(false);
         if (xamlError is not null)
         {
             return (null, xamlError, null);
@@ -56,21 +56,21 @@ public sealed class XamlDocumentService
         {
             return (null, new MissingXamlNameError(
                 "x:Name is empty.",
-                "Pass an x:Name from the Avalonia document to xaml_resolve_name."), null);
+                "Pass an x:Name from the XAML document to xaml_resolve_name."), null);
         }
 
-        var (root, docError) = ReadDocument(path);
+        var (root, docError) = await ReadDocumentAsync(session, path, cancellationToken).ConfigureAwait(false);
         if (docError is not null)
         {
             return (null, docError, null);
         }
 
-        var names = CollectXNames(path);
+        var names = CollectXNames(root!.Text);
         if (!names.Contains(name.Trim()))
         {
             return (null, new MissingXamlNameError(
-                $"No x:Name '{name}' is declared in the Avalonia document.",
-                "Inspect the .axaml for x:Name values, then retry xaml_resolve_name."), null);
+                $"No x:Name '{name}' is declared in the XAML document.",
+                "Inspect the XAML document for x:Name values, then retry xaml_resolve_name."), null);
         }
 
         if (string.IsNullOrWhiteSpace(root!.ClassName))
@@ -93,14 +93,14 @@ public sealed class XamlDocumentService
         {
             return (null, new NameGeneratorNotRunError(
                 $"x:Name '{name}' was found in the document but no matching field exists on '{root.ClassName}'.",
-                "Ensure Avalonia NameGenerator has run (build the project), then retry xaml_resolve_name."), null);
+                "Ensure the XAML name generator has run (build the project), then retry xaml_resolve_name."), null);
         }
 
         if (lookup!.Member.Kind != Microsoft.CodeAnalysis.SymbolKind.Field)
         {
             return (null, new NameGeneratorNotRunError(
                 $"x:Name '{name}' resolved to a non-field member; NameGenerator fields were not found.",
-                "Ensure Avalonia NameGenerator has run (build the project), then retry xaml_resolve_name."), null);
+                "Ensure the XAML name generator has run (build the project), then retry xaml_resolve_name."), null);
         }
 
         var handle = _symbols.FormatHandle(lookup.Project, lookup.Member);
@@ -123,7 +123,7 @@ public sealed class XamlDocumentService
                 "Pass a Binding Path such as Name or Home.City."), null);
         }
 
-        var (root, docError) = ReadDocument(path);
+        var (root, docError) = await ReadDocumentAsync(session, path, cancellationToken).ConfigureAwait(false);
         if (docError is not null)
         {
             return (null, docError, null);
@@ -139,7 +139,7 @@ public sealed class XamlDocumentService
         var typeName = dataType;
         if (string.IsNullOrWhiteSpace(typeName))
         {
-            typeName = FindFirstDataType(path);
+            typeName = FindFirstDataType(root!.Text);
         }
 
         if (string.IsNullOrWhiteSpace(typeName))
@@ -237,7 +237,7 @@ public sealed class XamlDocumentService
             TimeSpan? softBudget = null,
             CancellationToken cancellationToken = default)
     {
-        var (root, docError) = ReadDocument(path);
+        var (root, docError) = await ReadDocumentAsync(session, path, cancellationToken).ConfigureAwait(false);
         if (docError is not null)
         {
             return (null, docError, null);
@@ -282,7 +282,7 @@ public sealed class XamlDocumentService
         string? prefix = null,
         CancellationToken cancellationToken = default)
     {
-        var (root, error) = ReadDocument(path);
+        var (root, error) = await ReadDocumentAsync(session, path, cancellationToken).ConfigureAwait(false);
         if (error is not null)
         {
             return (null, error);
@@ -297,7 +297,7 @@ public sealed class XamlDocumentService
             if (declarations.Count == 0)
             {
                 return (null, new UnknownXmlnsPrefixError(
-                    $"No xmlns prefix '{prefix}' is declared on the Avalonia document.",
+                    $"No xmlns prefix '{prefix}' is declared on the XAML document.",
                     "Call xaml_list_xmlns without prefix to list declared prefixes, then retry with one of those."));
             }
         }
@@ -315,9 +315,12 @@ public sealed class XamlDocumentService
         return (mappings, null);
     }
 
-    public (string? ClassName, XamlQueryError? Error) ReadClassName(string path)
+    public async Task<(string? ClassName, XamlQueryError? Error)> ReadClassName(
+        IWorkspaceSession session,
+        string path,
+        CancellationToken cancellationToken = default)
     {
-        var (root, error) = ReadDocument(path);
+        var (root, error) = await ReadDocumentAsync(session, path, cancellationToken).ConfigureAwait(false);
         if (error is not null)
         {
             return (null, error);
@@ -331,13 +334,16 @@ public sealed class XamlDocumentService
         return (root.ClassName, null);
     }
 
-    internal (XamlDocumentRoot? Root, XamlQueryError? Error) ReadDocument(string path)
+    internal async Task<(XamlDocumentRoot? Root, XamlQueryError? Error)> ReadDocumentAsync(
+        IWorkspaceSession session,
+        string path,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
             return (null, new XamlDocumentNotFoundError(
                 "XAML document path is empty.",
-                "Pass the path of an Avalonia .axaml document under a trusted root."));
+                "Pass the path of an Avalonia .axaml or MAUI .xaml document under a trusted root."));
         }
 
         var extension = Path.GetExtension(path);
@@ -350,24 +356,17 @@ public sealed class XamlDocumentService
                 "Pass an Avalonia .axaml path or a MAUI .xaml path (MAUI xmlns). WPF/WinUI .xaml is not registered."));
         }
 
-        if (!File.Exists(path))
+        var text = await TryGetSnapshotTextAsync(session, path, cancellationToken).ConfigureAwait(false);
+        if (text is null)
         {
             return (null, new XamlDocumentNotFoundError(
-                "The XAML document was not found.",
-                "Confirm the document path under a trusted root, then retry."));
+                "The XAML document was not found in the workspace snapshot.",
+                "Confirm the document path is a workspace XAML document under a trusted root, then retry."));
         }
 
         try
         {
-            using var stream = File.OpenRead(path);
-            using var reader = XmlReader.Create(stream, new XmlReaderSettings
-            {
-                DtdProcessing = DtdProcessing.Prohibit,
-                XmlResolver = null,
-                IgnoreComments = true,
-                IgnoreProcessingInstructions = true,
-                IgnoreWhitespace = true
-            });
+            using var reader = CreateReader(text, ignoreWhitespace: true);
 
             if (!reader.Read())
             {
@@ -375,7 +374,7 @@ public sealed class XamlDocumentService
                     ? (null, new UnsupportedXamlDocumentError(
                         "This .xaml document is not a registered MAUI document.",
                         "Pass a MAUI .xaml whose default xmlns is http://schemas.microsoft.com/dotnet/2021/maui."))
-                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: []), null);
+                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text), null);
             }
 
             reader.MoveToContent();
@@ -385,7 +384,7 @@ public sealed class XamlDocumentService
                     ? (null, new UnsupportedXamlDocumentError(
                         "This .xaml document is not a registered MAUI document.",
                         "Pass a MAUI .xaml whose default xmlns is http://schemas.microsoft.com/dotnet/2021/maui."))
-                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: []), null);
+                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text), null);
             }
 
             var className = reader.GetAttribute("Class", XamlXmlns.Xaml);
@@ -417,19 +416,15 @@ public sealed class XamlDocumentService
             return (new XamlDocumentRoot(
                 path,
                 string.IsNullOrWhiteSpace(className) ? null : className.Trim(),
-                xmlns), null);
+                xmlns,
+                text), null);
         }
         catch (XmlException)
         {
-            return (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: []), null);
-        }
-        catch (IOException)
-        {
-            return (null, new XamlDocumentNotFoundError(
-                "The Avalonia XAML document could not be read.",
-                "Confirm the .axaml path under a trusted root, then retry."));
+            return (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text), null);
         }
     }
+
 
     private static IEnumerable<XamlXmlnsMapping> ResolveDeclaration(
         string prefix,
@@ -616,7 +611,7 @@ public sealed class XamlDocumentService
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var definitions = new List<XmlnsDefinition>();
 
-        foreach (var project in session.Solution.Projects.Where(p => p.Language == LanguageNames.CSharp))
+        foreach (var project in session.Solution.Projects.Where(IsRoslynProject))
         {
             cancellationToken.ThrowIfCancellationRequested();
             Compilation compilation;
@@ -676,18 +671,11 @@ public sealed class XamlDocumentService
         type.GetMembers(name).OfType<IMethodSymbol>().Any(m =>
             m.MethodKind == MethodKind.Ordinary && !m.IsStatic);
 
-    private static string? FindFirstDataType(string path)
+    private static string? FindFirstDataType(string text)
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var reader = XmlReader.Create(stream, new XmlReaderSettings
-            {
-                DtdProcessing = DtdProcessing.Prohibit,
-                XmlResolver = null,
-                IgnoreComments = true,
-                IgnoreProcessingInstructions = true
-            });
+            using var reader = CreateReader(text);
 
             while (reader.Read())
             {
@@ -704,9 +692,6 @@ public sealed class XamlDocumentService
             }
         }
         catch (XmlException)
-        {
-        }
-        catch (IOException)
         {
         }
 
@@ -733,19 +718,12 @@ public sealed class XamlDocumentService
             : dataType;
     }
 
-    internal static IReadOnlySet<string> CollectXNames(string path)
+    internal static IReadOnlySet<string> CollectXNames(string text)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
         try
         {
-            using var stream = File.OpenRead(path);
-            using var reader = XmlReader.Create(stream, new XmlReaderSettings
-            {
-                DtdProcessing = DtdProcessing.Prohibit,
-                XmlResolver = null,
-                IgnoreComments = true,
-                IgnoreProcessingInstructions = true
-            });
+            using var reader = CreateReader(text);
 
             while (reader.Read())
             {
@@ -764,9 +742,6 @@ public sealed class XamlDocumentService
         catch (XmlException)
         {
         }
-        catch (IOException)
-        {
-        }
 
         return names;
     }
@@ -781,7 +756,7 @@ public sealed class XamlDocumentService
         CancellationToken cancellationToken)
     {
         var items = new List<DiagnosticItem>();
-        var projectId = session.Solution.Projects.FirstOrDefault(p => p.Language == LanguageNames.CSharp)
+        var projectId = session.Solution.Projects.FirstOrDefault(IsRoslynProject)
             ?.Id.Id.ToString("D") ?? "";
 
         INamedTypeSymbol? classType = null;
@@ -800,14 +775,7 @@ public sealed class XamlDocumentService
 
         try
         {
-            using var stream = File.OpenRead(path);
-            using var reader = XmlReader.Create(stream, new XmlReaderSettings
-            {
-                DtdProcessing = DtdProcessing.Prohibit,
-                XmlResolver = null,
-                IgnoreComments = true,
-                IgnoreProcessingInstructions = true
-            });
+            using var reader = CreateReader(root.Text);
 
             string? currentDataType = null;
             var lineInfo = reader as IXmlLineInfo;
@@ -942,7 +910,7 @@ public sealed class XamlDocumentService
         }
 
         var metadataName = $"{mapping.ClrNamespace}.{localName}";
-        foreach (var project in session.Solution.Projects.Where(p => p.Language == LanguageNames.CSharp))
+        foreach (var project in session.Solution.Projects.Where(IsRoslynProject))
         {
             cancellationToken.ThrowIfCancellationRequested();
             Compilation compilation;
@@ -1043,15 +1011,125 @@ public sealed class XamlDocumentService
             lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LinePosition : null,
             projectId);
 
+
+    private static bool IsRoslynProject(Project project) =>
+        project.Language is LanguageNames.CSharp or LanguageNames.VisualBasic;
+
+    private static XmlReader CreateReader(string text, bool ignoreWhitespace = false) =>
+        XmlReader.Create(new StringReader(text), new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+            IgnoreComments = true,
+            IgnoreProcessingInstructions = true,
+            IgnoreWhitespace = ignoreWhitespace
+        });
+
+    private static async Task<string?> TryGetSnapshotTextAsync(
+        IWorkspaceSession session,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        foreach (var candidate in SnapshotPathCandidates(path))
+        {
+            foreach (var documentId in session.Solution.GetDocumentIdsWithFilePath(candidate))
+            {
+                var document = (TextDocument?)session.Solution.GetDocument(documentId)
+                    ?? session.Solution.GetAdditionalDocument(documentId);
+                if (document is null)
+                {
+                    continue;
+                }
+
+                var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
+                return text.ToString();
+            }
+        }
+
+        string? fullPath = null;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        foreach (var project in session.Solution.Projects)
+        {
+            foreach (var document in EnumerateTextDocuments(project))
+            {
+                if (string.IsNullOrWhiteSpace(document.FilePath))
+                {
+                    continue;
+                }
+
+                string documentPath;
+                try
+                {
+                    documentPath = Path.GetFullPath(document.FilePath);
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+
+                if (!string.Equals(documentPath, fullPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
+                return text.ToString();
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> SnapshotPathCandidates(string path)
+    {
+        yield return path;
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (Exception)
+        {
+            yield break;
+        }
+
+        if (!string.Equals(fullPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return fullPath;
+        }
+    }
+
+    private static IEnumerable<TextDocument> EnumerateTextDocuments(Project project)
+    {
+        foreach (var document in project.Documents)
+        {
+            yield return document;
+        }
+
+        foreach (var document in project.AdditionalDocuments)
+        {
+            yield return document;
+        }
+    }
+
     private static MissingXamlClassError MissingClassError() =>
         new(
-            "The Avalonia document has no x:Class on the root element.",
-            "Add x:Class to the .axaml root (xmlns:x maps to the XAML namespace), then retry xaml_resolve_class.");
+            "The XAML document has no x:Class on the root element.",
+            "Add x:Class to the document root (xmlns:x maps to the XAML namespace), then retry xaml_resolve_class.");
 
     internal sealed record XamlDocumentRoot(
         string Path,
         string? ClassName,
-        IReadOnlyList<(string Prefix, string XmlNamespace)> XmlnsDeclarations);
+        IReadOnlyList<(string Prefix, string XmlNamespace)> XmlnsDeclarations,
+        string Text);
 
     private sealed record XmlnsDefinition(string XmlNamespace, string ClrNamespace, string AssemblyName);
 }

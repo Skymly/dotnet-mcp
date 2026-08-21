@@ -543,7 +543,7 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
 
         cancellationToken.ThrowIfCancellationRequested();
         progress?.Report(new LoadProgress(1, 2));
-        var loaded = _factory();
+        var loaded = AttachWorkspaceXamlDocuments(_factory(), path);
         progress?.Report(new LoadProgress(2, 2));
         return loaded;
     }
@@ -695,6 +695,92 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    public static FakeSolutionLoader ImmediateWithAvaloniaXamlSnapshot(
+        string xamlPath,
+        string snapshotText,
+        string projectFilePath = @"C:\fake\AvaloniaApp.csproj") =>
+        new(TimeSpan.Zero, () =>
+        {
+            var loaded = CreateAvaloniaLoaded(projectFilePath);
+            var project = loaded.Solution.Projects.First();
+            var documentId = DocumentId.CreateNewId(project.Id);
+            var fullPath = Path.GetFullPath(xamlPath);
+            var solution = loaded.Solution.AddAdditionalDocument(
+                documentId,
+                Path.GetFileName(fullPath),
+                SourceText.From(snapshotText),
+                filePath: fullPath);
+            if (!loaded.Workspace.TryApplyChanges(solution))
+            {
+                throw new InvalidOperationException("Failed to apply Avalonia XAML snapshot document.");
+            }
+
+            return new LoadedSolution(loaded.Workspace, loaded.Workspace.CurrentSolution, loaded.Warnings);
+        });
+
+    internal static LoadedSolution AttachWorkspaceXamlDocuments(LoadedSolution loaded, string solutionPath)
+    {
+        string? directory;
+        try
+        {
+            directory = Path.GetDirectoryName(Path.GetFullPath(solutionPath));
+        }
+        catch (Exception)
+        {
+            return loaded;
+        }
+
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            return loaded;
+        }
+
+        var project = loaded.Solution.Projects.FirstOrDefault();
+        if (project is null)
+        {
+            return loaded;
+        }
+
+        var solution = loaded.Solution;
+        var added = false;
+        foreach (var file in Directory.EnumerateFiles(directory))
+        {
+            var extension = Path.GetExtension(file);
+            if (!extension.Equals(".axaml", StringComparison.OrdinalIgnoreCase) &&
+                !extension.Equals(".xaml", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var fullPath = Path.GetFullPath(file);
+            if (solution.GetDocumentIdsWithFilePath(fullPath).Length > 0 ||
+                solution.GetDocumentIdsWithFilePath(file).Length > 0)
+            {
+                continue;
+            }
+
+            var documentId = DocumentId.CreateNewId(project.Id);
+            solution = solution.AddAdditionalDocument(
+                documentId,
+                Path.GetFileName(fullPath),
+                SourceText.From(File.ReadAllText(fullPath)),
+                filePath: fullPath);
+            added = true;
+        }
+
+        if (!added)
+        {
+            return loaded;
+        }
+
+        if (!loaded.Workspace.TryApplyChanges(solution))
+        {
+            return loaded;
+        }
+
+        return new LoadedSolution(loaded.Workspace, loaded.Workspace.CurrentSolution, loaded.Warnings);
     }
 
     public static FakeSolutionLoader ImmediateWithAvalonia(
@@ -884,6 +970,12 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             Public Class MainWindow
                 Public Property TitleText As String = "vb"
             End Class
+
+            Namespace SampleControls
+                Public Class FancyPanel
+                    Public Property Title As String = "panel"
+                End Class
+            End Namespace
             """;
         solution = solution.AddDocument(docId, "MainWindow.axaml.vb", SourceText.From(source), filePath: Path.Combine(projectDir, "MainWindow.axaml.vb"));
         solution = solution.WithProjectCompilationOptions(projectId, new VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary));

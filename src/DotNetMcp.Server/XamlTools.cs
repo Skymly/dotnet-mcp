@@ -28,11 +28,11 @@ public sealed class XamlTools
     }
 
     [McpServerTool(Name = "xaml_resolve_class"), Description(
-        "Map an Avalonia .axaml document under a trusted root to the x:Class code-behind type SymbolHandle. " +
+        "Map a registered XAML document (Avalonia .axaml or MAUI .xaml) under a trusted root to the x:Class code-behind type SymbolHandle. " +
         "Requires a ready workspace. Other UI frameworks are not registered. " +
         "Missing x:Class, type-not-found, and path-policy failures are distinguishable.")]
     public async Task<CallToolResult> XamlResolveClass(
-        [Description("Path to an Avalonia .axaml document under a trusted root.")]
+        [Description("Path to an Avalonia .axaml or MAUI .xaml document under a trusted root.")]
         string path,
         CancellationToken cancellationToken = default)
     {
@@ -87,11 +87,11 @@ public sealed class XamlTools
     }
 
     [McpServerTool(Name = "xaml_list_xmlns"), Description(
-        "List xmlns prefix mappings for an Avalonia .axaml document under a trusted root: " +
+        "List xmlns prefix mappings for a registered XAML document (Avalonia .axaml or MAUI .xaml) under a trusted root: " +
         "using:, clr-namespace:, and XmlnsDefinitionAttribute on referenced assemblies. " +
         "Optional prefix filters; unknown prefix and missing document are distinguishable.")]
     public async Task<CallToolResult> XamlListXmlns(
-        [Description("Path to an Avalonia .axaml document under a trusted root.")]
+        [Description("Path to an Avalonia .axaml or MAUI .xaml document under a trusted root.")]
         string path,
         [Description("Optional xmlns prefix to resolve (empty string is the default xmlns).")]
         string? prefix = null,
@@ -140,10 +140,10 @@ public sealed class XamlTools
     }
 
     [McpServerTool(Name = "xaml_resolve_name"), Description(
-        "Map an x:Name in an Avalonia .axaml document to the NameGenerator field SymbolHandle on the x:Class type. " +
-        "Missing x:Name vs NameGenerator-not-run are distinguishable. Use symbol_attribution on the handle.")]
+        "Map an x:Name in a registered XAML document (Avalonia .axaml or MAUI .xaml) to the name-generator field SymbolHandle on the x:Class type. " +
+        "Missing x:Name vs name-generator-not-run are distinguishable. Use symbol_attribution on the handle.")]
     public async Task<CallToolResult> XamlResolveName(
-        [Description("Path to an Avalonia .axaml document under a trusted root.")]
+        [Description("Path to an Avalonia .axaml or MAUI .xaml document under a trusted root.")]
         string path,
         [Description("x:Name value declared in the document.")]
         string name,
@@ -203,7 +203,7 @@ public sealed class XamlTools
         "Walks types in-process (no MCP DTO N+1). Missing property and type mismatch are distinguishable. " +
         "Code-behind-only DataContext is out of scope.")]
     public async Task<CallToolResult> XamlResolveBinding(
-        [Description("Path to an Avalonia .axaml document under a trusted root.")]
+        [Description("Path to an Avalonia .axaml or MAUI .xaml document under a trusted root.")]
         string path,
         [Description("Binding Path, e.g. Name or Home.City.")]
         string bindingPath,
@@ -265,10 +265,10 @@ public sealed class XamlTools
     }
 
     [McpServerTool(Name = "xaml_diagnostics"), Description(
-        "Semantic Avalonia XAML diagnostics (unknown elements/properties given xmlns, bad Binding paths, unmatched x:Name). " +
+        "Semantic XAML diagnostics for Avalonia .axaml and MAUI .xaml (unknown elements/properties given xmlns, bad Binding paths, unmatched x:Name). " +
         "Not XML well-formedness. Paged with a soft budget; stale cursors fail distinctly.")]
     public async Task<CallToolResult> XamlDiagnostics(
-        [Description("Path to an Avalonia .axaml document under a trusted root.")]
+        [Description("Path to an Avalonia .axaml or MAUI .xaml document under a trusted root.")]
         string path,
         [Description("Page size (default 50, max 100).")]
         int? limit = null,
