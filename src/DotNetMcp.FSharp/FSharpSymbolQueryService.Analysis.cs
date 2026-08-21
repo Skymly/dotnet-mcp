@@ -4,6 +4,7 @@ using FSharp.Compiler.CodeAnalysis;
 using FSharp.Compiler.Symbols;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FindSymbols;
+using Microsoft.FSharp.Core;
 using FcsRange = global::FSharp.Compiler.Text.Range;
 
 namespace DotNetMcp.FSharp;
@@ -30,11 +31,12 @@ public sealed partial class FSharpSymbolQueryService
             ? SymbolQueryService.DefaultMemberPageLimit
             : Math.Min(limit.Value, SymbolQueryService.MaxMemberPageLimit);
         var budget = softBudget ?? (entireSolution
-            ? SoftBudgetOptions.Default.FindRefsEntireSolution
-            : SoftBudgetOptions.Default.FindRefsScoped);
+            ? _softBudgets.FindRefsEntireSolution
+            : _softBudgets.FindRefsScoped);
         var clock = Stopwatch.StartNew();
 
         var hits = new List<ReferenceLocationItem>();
+        var truncatedByBudget = false;
         if (check is not null)
         {
             foreach (var use in check.GetAllUsesOfAllSymbols(null))
@@ -42,6 +44,7 @@ public sealed partial class FSharpSymbolQueryService
                 cancellationToken.ThrowIfCancellationRequested();
                 if (clock.Elapsed >= budget)
                 {
+                    truncatedByBudget = true;
                     break;
                 }
 
@@ -75,6 +78,7 @@ public sealed partial class FSharpSymbolQueryService
             cancellationToken.ThrowIfCancellationRequested();
             if (clock.Elapsed >= budget)
             {
+                truncatedByBudget = true;
                 break;
             }
 
@@ -119,7 +123,7 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        return Page(hits, session.Epoch, entireSolution, pageLimit, cursor, "symbol_find_references");
+        return Page(hits, session.Epoch, entireSolution, pageLimit, cursor, "symbol_find_references", truncatedByBudget);
     }
 
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
@@ -232,9 +236,10 @@ public sealed partial class FSharpSymbolQueryService
                 "Call symbol_resolve for a method name/FQN, then call symbol_find_callers with that handle."));
         }
 
-        var budget = softBudget ?? SoftBudgetOptions.Default.FindRefsScoped;
+        var budget = softBudget ?? _softBudgets.FindRefsScoped;
         var clock = Stopwatch.StartNew();
         var hits = new List<CallerLocationItem>();
+        var truncatedByBudget = false;
         if (check is not null)
         {
             foreach (var use in check.GetAllUsesOfAllSymbols(null))
@@ -242,6 +247,7 @@ public sealed partial class FSharpSymbolQueryService
                 cancellationToken.ThrowIfCancellationRequested();
                 if (clock.Elapsed >= budget)
                 {
+                    truncatedByBudget = true;
                     break;
                 }
 
@@ -263,7 +269,7 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        return Page(hits, session.Epoch, limit, cursor, "symbol_find_callers", "No callers were found.");
+        return Page(hits, session.Epoch, limit, cursor, "symbol_find_callers", "No callers were found.", truncatedByBudget);
     }
 
     private async Task<(FSharpCatalogItem? Item, Microsoft.CodeAnalysis.Project? Project, FSharpCheckProjectResults? Check, SymbolQueryError? Error)>
@@ -316,8 +322,23 @@ public sealed partial class FSharpSymbolQueryService
             name = symbol.DisplayName;
         }
 
-        return string.Equals(name, item.SignatureQualifiedName, StringComparison.Ordinal) ||
-               string.Equals(symbol.DisplayName, item.DisplayName, StringComparison.Ordinal);
+        if (string.Equals(name, item.SignatureQualifiedName, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!string.Equals(symbol.DisplayName, item.DisplayName, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!OptionModule.IsSome(symbol.DeclarationLocation))
+        {
+            return false;
+        }
+
+        var declaredFile = symbol.DeclarationLocation.Value.FileName;
+        return item.Locations.Any(location => SameDocumentPath(location.FilePath, declaredFile));
     }
 
     private static bool InheritsFrom(FSharpCatalogItem candidate, string baseName, IReadOnlyList<FSharpCatalogItem> catalog)
@@ -337,7 +358,7 @@ public sealed partial class FSharpSymbolQueryService
         return false;
     }
 
-    private static ReferenceLocationItem ToReference(string projectId, string file, FcsRange range, string kind)
+    private ReferenceLocationItem ToReference(string projectId, string file, FcsRange range, string kind)
     {
         var loc = ToLocation(file, range);
         return new ReferenceLocationItem(
@@ -350,16 +371,20 @@ public sealed partial class FSharpSymbolQueryService
             kind);
     }
 
-    private static SymbolLocation ToLocation(string file, FcsRange range)
+    private SymbolLocation ToLocation(string file, FcsRange range)
     {
-        if (string.IsNullOrWhiteSpace(file) || !File.Exists(file))
+        if (TryGetSnapshot(file, out var path, out var text))
         {
-            return new SymbolLocation(DeclarationAvailability.InSource, SymbolOrigin.Handwritten, file, null, null);
+            var (start, length) = ToSpan(text, range);
+            return new SymbolLocation(DeclarationAvailability.InSource, SymbolOrigin.Handwritten, path, start, length);
         }
 
-        var text = File.ReadAllText(file);
-        var (start, length) = ToSpan(text, range);
-        return new SymbolLocation(DeclarationAvailability.InSource, SymbolOrigin.Handwritten, file, start, length);
+        return new SymbolLocation(
+            DeclarationAvailability.InSource,
+            SymbolOrigin.Handwritten,
+            string.IsNullOrWhiteSpace(file) ? null : file,
+            null,
+            null);
     }
 
     private static (PagedResult<T>? Success, SymbolQueryError? Error) Page<T>(
@@ -368,7 +393,8 @@ public sealed partial class FSharpSymbolQueryService
         int? pageLimit,
         string? cursor,
         string tool,
-        string emptyMessage)
+        string emptyMessage,
+        bool truncatedByBudget = false)
     {
         var limit = pageLimit is null or < 1
             ? SymbolQueryService.DefaultMemberPageLimit
@@ -400,14 +426,17 @@ public sealed partial class FSharpSymbolQueryService
 
         var slice = items.Skip(offset).Take(limit).ToList();
         var next = offset + slice.Count;
-        var truncated = next < items.Count;
+        var truncated = next < items.Count || truncatedByBudget;
+        var message = truncated
+            ? truncatedByBudget
+                ? $"Soft budget reached after {slice.Count} item(s). Pass nextCursor to {tool} to continue; do not retry from scratch."
+                : $"Results truncated; pass nextCursor to {tool} to continue (do not restart from the first page)."
+            : items.Count == 0 ? emptyMessage : "Page complete.";
         return (new PagedResult<T>(
             slice,
             truncated,
             truncated ? MemberPageCursor.Encode(epoch, next) : null,
-            truncated
-                ? $"Results truncated; pass nextCursor to {tool} to continue (do not restart from the first page)."
-                : items.Count == 0 ? emptyMessage : "Page complete."), null);
+            message), null);
     }
 
     private static (PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error) Page(
@@ -416,7 +445,8 @@ public sealed partial class FSharpSymbolQueryService
         bool entireSolution,
         int pageLimit,
         string? cursor,
-        string tool)
+        string tool,
+        bool truncatedByBudget = false)
     {
         var offset = 0;
         if (!string.IsNullOrWhiteSpace(cursor))
@@ -447,13 +477,16 @@ public sealed partial class FSharpSymbolQueryService
 
         var slice = items.Skip(offset).Take(pageLimit).ToList();
         var next = offset + slice.Count;
-        var truncated = next < items.Count;
+        var truncated = next < items.Count || truncatedByBudget;
+        var message = truncated
+            ? truncatedByBudget
+                ? $"Soft budget reached after {slice.Count} item(s). Pass nextCursor to {tool} to continue; do not retry from scratch."
+                : $"Results truncated; pass nextCursor to {tool} to continue (do not restart from the first page)."
+            : items.Count == 0 ? "No references were found." : "Page complete.";
         return (new PagedResult<ReferenceLocationItem>(
             slice,
             truncated,
             truncated ? FindRefsPageCursor.Encode(epoch, entireSolution, next, 0) : null,
-            truncated
-                ? $"Results truncated; pass nextCursor to {tool} to continue (do not restart from the first page)."
-                : items.Count == 0 ? "No references were found." : "Page complete."), null);
+            message), null);
     }
 }

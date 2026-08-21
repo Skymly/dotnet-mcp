@@ -1,4 +1,4 @@
-using System.Text;
+using System.Collections.Concurrent;
 using DotNetMcp.Core;
 using FSharp.Compiler.CodeAnalysis;
 using FSharp.Compiler.Symbols;
@@ -13,10 +13,31 @@ namespace DotNetMcp.FSharp;
 
 public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
 {
-    private readonly FSharpChecker _checker = FSharpChecker.Create(
-        null,
-        FSharpOption<bool>.Some(true),
-        null, null, null, null, null, null, null, null, null, null, null, null);
+    private readonly SoftBudgetOptions _softBudgets;
+    private readonly ConcurrentDictionary<string, string> _snapshotTexts =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly FSharpChecker _checker;
+
+    public FSharpSymbolQueryService(SoftBudgetOptions? softBudgets = null)
+    {
+        _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
+        var documentSource = FuncConvert.FromFunc<string, FSharpAsync<FSharpOption<ISourceText>?>>(TryReadSnapshot);
+        _checker = FSharpChecker.Create(
+            null,
+            FSharpOption<bool>.Some(true),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            FSharpOption<DocumentSource>.Some(DocumentSource.NewCustom(documentSource)),
+            null,
+            null);
+    }
 
     public async Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
         IWorkspaceSession session,
@@ -278,19 +299,7 @@ public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
             return ([], null, sources);
         }
 
-        foreach (var (path, text) in sources)
-        {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrWhiteSpace(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            if (!File.Exists(path) || File.ReadAllText(path) != text)
-            {
-                File.WriteAllText(path, text);
-            }
-        }
+        PublishSnapshots(sources);
 
         var projectFile = project.FilePath ?? Path.Combine(
             Path.GetDirectoryName(sources[0].Path) ?? Path.GetTempPath(),
@@ -298,6 +307,15 @@ public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
         var dllName = Path.ChangeExtension(projectFile, ".dll");
         var argv = BuildCompilerArgs(dllName, sources.Select(s => s.Path));
         var options = _checker.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
+        foreach (var (path, _) in sources)
+        {
+            await FSharpAsync.StartAsTask(
+                    _checker.NotifyFileChanged(path, options, userOpName: null),
+                    taskCreationOptions: null,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         var check = await FSharpAsync.StartAsTask(
                 _checker.ParseAndCheckProject(options, userOpName: null),
                 taskCreationOptions: null,
@@ -459,9 +477,7 @@ public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
         IReadOnlyList<(string Path, string Text)> sources)
     {
         var file = range.FileName;
-        var source = sources.FirstOrDefault(s =>
-            string.Equals(s.Path, file, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(Path.GetFileName(s.Path), Path.GetFileName(file), StringComparison.OrdinalIgnoreCase));
+        var source = sources.FirstOrDefault(s => SameDocumentPath(s.Path, file));
         if (string.IsNullOrWhiteSpace(source.Path))
         {
             if (string.IsNullOrWhiteSpace(file))
@@ -521,6 +537,86 @@ public sealed partial class FSharpSymbolQueryService : IFSharpSymbolQuery
         }
 
         return text.Length;
+    }
+
+    private FSharpAsync<FSharpOption<ISourceText>?> TryReadSnapshot(string fileName)
+    {
+        if (TryGetSnapshot(fileName, out _, out var text))
+        {
+            return FSharpAsync.AwaitTask(
+                Task.FromResult<FSharpOption<ISourceText>?>(FSharpOption<ISourceText>.Some(SourceText.ofString(text))));
+        }
+
+        return FSharpAsync.AwaitTask(Task.FromResult<FSharpOption<ISourceText>?>(null));
+    }
+
+    private void PublishSnapshots(IReadOnlyList<(string Path, string Text)> sources)
+    {
+        foreach (var (path, text) in sources)
+        {
+            _snapshotTexts[path] = text;
+            var full = TryFullPath(path);
+            if (full is not null)
+            {
+                _snapshotTexts[full] = text;
+            }
+        }
+    }
+
+    private bool TryGetSnapshot(string? file, out string path, out string text)
+    {
+        path = file ?? string.Empty;
+        text = string.Empty;
+        if (string.IsNullOrWhiteSpace(file))
+        {
+            return false;
+        }
+
+        if (_snapshotTexts.TryGetValue(file, out text!))
+        {
+            path = TryFullPath(file) ?? file;
+            return true;
+        }
+
+        var full = TryFullPath(file);
+        if (full is not null && _snapshotTexts.TryGetValue(full, out text!))
+        {
+            path = full;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool SameDocumentPath(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var leftFull = TryFullPath(left);
+        var rightFull = TryFullPath(right);
+        return leftFull is not null &&
+               rightFull is not null &&
+               string.Equals(leftFull, rightFull, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? TryFullPath(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private static string[] BuildCompilerArgs(string dllName, IEnumerable<string> sourceFiles)

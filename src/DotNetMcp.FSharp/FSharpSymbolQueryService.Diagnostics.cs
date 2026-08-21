@@ -46,7 +46,7 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        var budget = softBudget ?? SoftBudgetOptions.Default.SingleProjectCompile;
+        var budget = softBudget ?? _softBudgets.SingleProjectCompile;
         var clock = Stopwatch.StartNew();
         var (_, check, _) = await CheckProjectAsync(project, cancellationToken).ConfigureAwait(false);
         if (check is null)
@@ -75,15 +75,6 @@ public sealed partial class FSharpSymbolQueryService
             .ThenBy(d => d.Message, StringComparer.Ordinal)
             .ToList();
 
-        if (clock.Elapsed >= budget && items.Count == 0)
-        {
-            return (new PagedResult<DiagnosticItem>(
-                [],
-                Truncated: true,
-                NextCursor: MemberPageCursor.Encode(epoch, offset),
-                Message: "Soft budget reached after 0 item(s). Pass nextCursor to continue; do not retry from scratch."), null);
-        }
-
         if (offset > items.Count)
         {
             return (null, new StaleCursorError(
@@ -93,15 +84,19 @@ public sealed partial class FSharpSymbolQueryService
 
         var slice = items.Skip(offset).Take(pageLimit).ToList();
         var next = offset + slice.Count;
-        var truncated = next < items.Count;
+        var truncatedByBudget = clock.Elapsed >= budget;
+        var truncated = next < items.Count || truncatedByBudget;
+        var message = truncated
+            ? truncatedByBudget
+                ? $"Soft budget reached after {slice.Count} item(s). Pass nextCursor to project_diagnostics to continue; do not retry from scratch."
+                : "Results truncated; pass nextCursor to project_diagnostics to continue (do not restart from the first page)."
+            : items.Count == 0
+                ? "Project has no error or warning diagnostics."
+                : "Diagnostics page complete.";
         return (new PagedResult<DiagnosticItem>(
             slice,
             truncated,
             truncated ? MemberPageCursor.Encode(epoch, next) : null,
-            truncated
-                ? "Results truncated; pass nextCursor to project_diagnostics to continue (do not restart from the first page)."
-                : items.Count == 0
-                    ? "Project has no error or warning diagnostics."
-                    : "Diagnostics page complete."), null);
+            message), null);
     }
 }
