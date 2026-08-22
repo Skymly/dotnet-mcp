@@ -64,15 +64,11 @@ public sealed partial class FSharpSymbolQueryService
                     "Rename the handwritten input instead of the generated/provided symbol."));
             }
 
-            var source = session.Solution.Projects
-                .SelectMany(p => p.Documents)
-                .FirstOrDefault(d => SameDocumentPath(d.FilePath, use.FileName));
-            if (source?.FilePath is null)
+            if (!TryGetSnapshot(use.FileName, out var path, out var text))
             {
                 continue;
             }
 
-            var text = (await source.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
             var (start, length) = ToSpan(text, use.Range);
             if (length <= 0 || start + length > text.Length)
             {
@@ -89,10 +85,10 @@ public sealed partial class FSharpSymbolQueryService
                     "Choose a handwritten identifier; operators and active patterns are refused."));
             }
 
-            if (!edits.TryGetValue(source.FilePath, out var list))
+            if (!edits.TryGetValue(path, out var list))
             {
                 list = [];
-                edits[source.FilePath] = list;
+                edits[path] = list;
             }
 
             var replaceStart = slice.EndsWith(oldName, StringComparison.Ordinal)
@@ -111,28 +107,26 @@ public sealed partial class FSharpSymbolQueryService
         var documents = new List<RenameDocumentSlice>();
         foreach (var (path, spans) in edits)
         {
-            var document = session.Solution.Projects
-                .SelectMany(p => p.Documents)
-                .First(d => string.Equals(d.FilePath, path, StringComparison.OrdinalIgnoreCase));
-            var oldText = (await document.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
+            if (!TryGetSnapshot(path, out var full, out var oldText))
+            {
+                continue;
+            }
+
             var newText = ApplyReplacements(oldText, spans, newName);
             if (oldText != newText)
             {
-                documents.Add(new RenameDocumentSlice(path, oldText, newText));
+                documents.Add(new RenameDocumentSlice(full, oldText, newText));
             }
         }
 
-        var (slices, generated) = await HandwrittenDocumentDiff
-            .FromDocumentPairsAsync(session.Solution, documents, cancellationToken)
-            .ConfigureAwait(false);
-        if (generated && slices.Count == 0)
+        if (documents.Count == 0)
         {
             return (null, new GeneratedSymbolRenameRefusedError(
                 "Type-provider or generated F# declarations cannot be renamed.",
                 "Rename the handwritten input instead of the generated/provided symbol."));
         }
 
-        return (new RenamePreviewDraft(handle, newName, slices, [handle]), null);
+        return (new RenamePreviewDraft(handle, newName, documents, [handle]), null);
     }
 
     private static bool IsProvided(FSharpSymbol symbol) =>

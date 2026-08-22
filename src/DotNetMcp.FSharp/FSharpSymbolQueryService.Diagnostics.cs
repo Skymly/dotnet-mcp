@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using DotNetMcp.Core;
-using Microsoft.CodeAnalysis;
 
 namespace DotNetMcp.FSharp;
 
@@ -14,9 +13,7 @@ public sealed partial class FSharpSymbolQueryService
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
-        var project = session.Solution.Projects.FirstOrDefault(p =>
-            p.Language == LanguageNames.FSharp &&
-            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        var project = session.FSharpSnapshot.FindProject(projectId);
         if (project is null)
         {
             return (null, new ProjectNotFoundError(

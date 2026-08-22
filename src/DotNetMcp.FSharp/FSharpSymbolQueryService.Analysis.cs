@@ -2,8 +2,6 @@ using System.Diagnostics;
 using DotNetMcp.Core;
 using FSharp.Compiler.CodeAnalysis;
 using FSharp.Compiler.Symbols;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.FSharp.Core;
 using FcsRange = global::FSharp.Compiler.Text.Range;
 
@@ -20,7 +18,7 @@ public sealed partial class FSharpSymbolQueryService
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
-        var (item, project, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
+        var (item, _, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -60,66 +58,6 @@ public sealed partial class FSharpSymbolQueryService
                     use.IsFromDefinition
                         ? ReferenceLocationKind.Definition
                         : ReferenceLocationKind.Reference));
-            }
-        }
-
-        var scopeDocs = FindRefsScopes.DocumentsForScope(
-            session.Solution,
-            project!,
-            entireSolution ? FindRefsScopeKind.EntireSolution : FindRefsScopeKind.DependencyClosure);
-
-        foreach (var roslynProject in scopeDocs.Select(d => d.Project).Distinct())
-        {
-            if (roslynProject.Language is not LanguageNames.CSharp and not LanguageNames.VisualBasic)
-            {
-                continue;
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-            if (clock.Elapsed >= budget)
-            {
-                truncatedByBudget = true;
-                break;
-            }
-
-            Compilation compilation;
-            try
-            {
-                compilation = await session.GetCompilationAsync(roslynProject.Id, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (InvalidOperationException)
-            {
-                continue;
-            }
-
-            var imported = compilation.GetTypeByMetadataName(item!.SignatureQualifiedName)
-                           ?? compilation.GetTypeByMetadataName(item.SignatureQualifiedName.Replace(".", "+", StringComparison.Ordinal));
-            if (imported is null)
-            {
-                continue;
-            }
-
-            var refs = await SymbolFinder.FindReferencesAsync(
-                    imported,
-                    session.Solution,
-                    scopeDocs,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            foreach (var referenced in refs)
-            {
-                foreach (var loc in referenced.Locations)
-                {
-                    var span = loc.Location.SourceSpan;
-                    hits.Add(new ReferenceLocationItem(
-                        DeclarationAvailability.InSource,
-                        SymbolOrigin.Handwritten,
-                        loc.Document.FilePath,
-                        span.Start,
-                        span.Length,
-                        roslynProject.Id.Id.ToString("D"),
-                        ReferenceLocationKind.Reference));
-                }
             }
         }
 
@@ -272,7 +210,7 @@ public sealed partial class FSharpSymbolQueryService
         return Page(hits, session.Epoch, limit, cursor, "symbol_find_callers", "No callers were found.", truncatedByBudget);
     }
 
-    private async Task<(FSharpCatalogItem? Item, Microsoft.CodeAnalysis.Project? Project, FSharpCheckProjectResults? Check, SymbolQueryError? Error)>
+    private async Task<(FSharpCatalogItem? Item, FSharpProjectSnapshot? Project, FSharpCheckProjectResults? Check, SymbolQueryError? Error)>
         TryResolveWithCheckAsync(IWorkspaceSession session, string handle, CancellationToken cancellationToken)
     {
         if (!SymbolHandle.TryParse(handle, out var parsed, out var parseError) || parsed is null)
@@ -289,9 +227,8 @@ public sealed partial class FSharpSymbolQueryService
                 "Call symbol_resolve for an F# symbol to obtain a fsharp handle."));
         }
 
-        var project = session.Solution.Projects.FirstOrDefault(p =>
-            string.Equals(p.Id.Id.ToString("D"), parsed.ProjectId, StringComparison.OrdinalIgnoreCase));
-        if (project is null || project.Language != LanguageNames.FSharp)
+        var project = session.FSharpSnapshot.FindProject(parsed.ProjectId);
+        if (project is null)
         {
             return (null, null, null, new SymbolNotFoundError(
                 $"No F# project '{parsed.ProjectId}' is in the ready workspace.",
