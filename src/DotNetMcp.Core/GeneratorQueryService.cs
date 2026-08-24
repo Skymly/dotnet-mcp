@@ -56,38 +56,6 @@ public sealed class GeneratorQueryService
         typeFullName = typeFullName.Trim();
         var epoch = session.Epoch;
 
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
-        {
-            if (!GeneratedSourcesPageCursor.TryDecode(
-                    cursor,
-                    out var cursorEpoch,
-                    out var cursorAssembly,
-                    out var cursorType,
-                    out offset,
-                    out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call project_list_generated_sources without a cursor to start a new page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call project_list_generated_sources without a cursor after the workspace refreshes."));
-            }
-
-            if (!string.Equals(cursorAssembly, assemblyName, StringComparison.Ordinal) ||
-                !string.Equals(cursorType, typeFullName, StringComparison.Ordinal))
-            {
-                return (null, new StaleCursorError(
-                    "Cursor generator identity does not match assemblyName/typeFullName.",
-                    "Pass the same assemblyName and typeFullName used when the cursor was issued."));
-            }
-        }
-
         var (snapshot, snapError) = await GetDriverRunAsync(session, projectId, cancellationToken)
             .ConfigureAwait(false);
         if (snapError is not null)
@@ -107,25 +75,17 @@ public sealed class GeneratorQueryService
         }
 
         var pageLimit = ClampLimit(limit);
-        if (offset > run.Sources.Count)
-        {
-            return (null, new StaleCursorError(
-                $"Cursor offset {offset} is beyond the generated-source list.",
-                "Call project_list_generated_sources without a cursor to start a new page."));
-        }
-
-        var page = run.Sources.Skip(offset).Take(pageLimit).ToArray();
-        var nextOffset = offset + page.Length;
-        var truncated = nextOffset < run.Sources.Count;
-        string? nextCursor = truncated
-            ? GeneratedSourcesPageCursor.Encode(epoch, assemblyName, typeFullName, nextOffset)
-            : null;
-
-        var message = truncated
-            ? $"Returning {page.Length} generated source(s); more remain — use nextCursor."
-            : $"Returning {page.Length} generated source(s).";
-
-        return (new PagedResult<GeneratedSourceItem>(page, truncated, nextCursor, message), null);
+        return SoftBudgetPage.PageGenerated(
+            run.Sources,
+            epoch,
+            assemblyName,
+            typeFullName,
+            cursor,
+            pageLimit,
+            "project_list_generated_sources",
+            "Generator produced no sources.",
+            "Generated sources page complete.",
+            "the generated-source list");
     }
 
     public async Task<(GeneratorDiagnosticsPage? Success, SymbolQueryError? Error)> ListGeneratorDiagnosticsAsync(
@@ -150,38 +110,6 @@ public sealed class GeneratorQueryService
         typeFullName = typeFullName.Trim();
         var epoch = session.Epoch;
 
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
-        {
-            if (!GeneratedSourcesPageCursor.TryDecode(
-                    cursor,
-                    out var cursorEpoch,
-                    out var cursorAssembly,
-                    out var cursorType,
-                    out offset,
-                    out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call project_list_generator_diagnostics without a cursor to start a new page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call project_list_generator_diagnostics without a cursor after the workspace refreshes."));
-            }
-
-            if (!string.Equals(cursorAssembly, assemblyName, StringComparison.Ordinal) ||
-                !string.Equals(cursorType, typeFullName, StringComparison.Ordinal))
-            {
-                return (null, new StaleCursorError(
-                    "Cursor generator identity does not match assemblyName/typeFullName.",
-                    "Pass the same assemblyName and typeFullName used when the cursor was issued."));
-            }
-        }
-
         var (snapshot, snapError) = await GetDriverRunAsync(session, projectId, cancellationToken)
             .ConfigureAwait(false);
         if (snapError is not null)
@@ -201,27 +129,23 @@ public sealed class GeneratorQueryService
         }
 
         var pageLimit = ClampLimit(limit);
-        if (offset > run.Diagnostics.Count)
+        var (page, pageError) = SoftBudgetPage.PageGenerated(
+            run.Diagnostics,
+            epoch,
+            assemblyName,
+            typeFullName,
+            cursor,
+            pageLimit,
+            "project_list_generator_diagnostics",
+            "Generator produced no diagnostics.",
+            "Generator diagnostics page complete.",
+            "the generator-diagnostics list");
+        if (pageError is not null)
         {
-            return (null, new StaleCursorError(
-                $"Cursor offset {offset} is beyond the generator-diagnostics list.",
-                "Call project_list_generator_diagnostics without a cursor to start a new page."));
+            return (null, pageError);
         }
 
-        var page = run.Diagnostics.Skip(offset).Take(pageLimit).ToArray();
-        var nextOffset = offset + page.Length;
-        var truncated = nextOffset < run.Diagnostics.Count;
-        string? nextCursor = truncated
-            ? GeneratedSourcesPageCursor.Encode(epoch, assemblyName, typeFullName, nextOffset)
-            : null;
-
-        var message = truncated
-            ? $"Returning {page.Length} generator diagnostic(s); more remain — use nextCursor."
-            : $"Returning {page.Length} generator diagnostic(s).";
-
-        return (new GeneratorDiagnosticsPage(
-            run.Identity,
-            new PagedResult<GeneratorDiagnosticItem>(page, truncated, nextCursor, message)), null);
+        return (new GeneratorDiagnosticsPage(run.Identity, page!), null);
     }
 
     public async Task<(DriverRunSnapshot? Success, SymbolQueryError? Error)> GetDriverRunAsync(

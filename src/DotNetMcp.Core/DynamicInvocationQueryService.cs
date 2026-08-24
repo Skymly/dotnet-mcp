@@ -42,24 +42,6 @@ public sealed class DynamicInvocationQueryService
         var pageLimit = limit is null or < 1
             ? LanguageAdapters.DefaultMemberPageLimit
             : Math.Min(limit.Value, LanguageAdapters.MaxMemberPageLimit);
-        var offset = 0;
-        if (!string.IsNullOrWhiteSpace(cursor))
-        {
-            if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
-            {
-                return (null, new StaleCursorError(
-                    cursorError ?? "Cursor is invalid.",
-                    "Call project_list_dynamic_invocations again without a cursor to start a fresh page."));
-            }
-
-            if (cursorEpoch != epoch)
-            {
-                return (null, new StaleCursorError(
-                    $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
-                    "Call project_list_dynamic_invocations again without a cursor; do not retry with the stale cursor."));
-            }
-        }
-
         Compilation compilation;
         try
         {
@@ -141,25 +123,16 @@ public sealed class DynamicInvocationQueryService
             }
         }
 
-        if (offset > items.Count)
-        {
-            return (null, new StaleCursorError(
-                "Cursor offset is past the end of the dynamic invocation list.",
-                "Call project_list_dynamic_invocations again without a cursor to start a fresh page."));
-        }
-
-        var slice = items.Skip(offset).Take(pageLimit).ToList();
-        var next = offset + slice.Count;
-        var truncated = next < items.Count || clock.Elapsed >= budget;
-        return (new PagedResult<DynamicInvocationItem>(
-            slice,
-            truncated,
-            truncated ? MemberPageCursor.Encode(epoch, next) : null,
-            truncated
-                ? "Results truncated; pass nextCursor to project_list_dynamic_invocations to continue (do not restart from the first page)."
-                : items.Count == 0
-                    ? "Project has no dynamic invocation sites."
-                    : "Dynamic invocation page complete."), null);
+        return SoftBudgetPage.Page(
+            items,
+            epoch,
+            budgetHit: clock.Elapsed >= budget,
+            cursor,
+            pageLimit,
+            "project_list_dynamic_invocations",
+            "Project has no dynamic invocation sites.",
+            "Dynamic invocation page complete.",
+            "the dynamic invocation list");
     }
 
     private static DynamicInvocationItem ToItem(
