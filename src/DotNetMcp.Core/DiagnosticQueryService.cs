@@ -107,9 +107,9 @@ public sealed class DiagnosticQueryService
     {
         if (limit is null or <= 0)
         {
-            return SymbolQueryService.DefaultMemberPageLimit;
+            return LanguageAdapters.DefaultMemberPageLimit;
         }
 
-        return Math.Min(limit.Value, SymbolQueryService.MaxMemberPageLimit);
+        return Math.Min(limit.Value, LanguageAdapters.MaxMemberPageLimit);
     }
 }

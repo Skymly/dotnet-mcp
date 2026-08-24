@@ -72,7 +72,7 @@ public class HandwrittenDocumentDiffTests
         var renamed = await Renamer.RenameSymbolAsync(
             loaded.Solution,
             type!,
-            RenamePreviewService.DefaultOptions,
+            RoslynLanguageAdapter.DefaultRenameOptions,
             "RenamedThing",
             CancellationToken.None);
 

@@ -4,11 +4,18 @@ using Microsoft.CodeAnalysis;
 namespace DotNetMcp.Core;
 
 /// <summary>
-/// Selects an <see cref="ILanguageAdapter"/> once from <see cref="SymbolHandle.Language"/>
-/// or project language. Core query modules must not copy language <c>if</c>s.
+/// DTO facade (ADR-0001 §3): selects an <see cref="ILanguageAdapter"/> once from
+/// <see cref="SymbolHandle.Language"/> or project language, then dispatches.
+/// Core query modules must not copy language <c>if</c>s or re-declare this hop.
 /// </summary>
 public sealed class LanguageAdapters
 {
+    public const string CSharpLanguage = "csharp";
+    public const string VbLanguage = "vb";
+    public const string FSharpLanguage = "fsharp";
+    public const int DefaultMemberPageLimit = 50;
+    public const int MaxMemberPageLimit = 100;
+
     private readonly IReadOnlyList<ILanguageAdapter> _adapters;
 
     public LanguageAdapters(IEnumerable<ILanguageAdapter> adapters)
@@ -93,8 +100,7 @@ public sealed class LanguageAdapters
         foreach (var adapter in _adapters)
         {
             if (primary is null &&
-                (adapter.OwnsLanguage(SymbolQueryService.CSharpLanguage) ||
-                 adapter.OwnsLanguage(SymbolQueryService.VbLanguage)))
+                (adapter.OwnsLanguage(CSharpLanguage) || adapter.OwnsLanguage(VbLanguage)))
             {
                 primary = adapter;
             }
@@ -154,6 +160,100 @@ public sealed class LanguageAdapters
         return (null, new SymbolNotFoundError(
             $"No symbol named '{name}' was found in the ready workspace.",
             "Confirm the name/FQN (and optional projectId), then call symbol_resolve again."));
+    }
+
+    public Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> GetSummaryAsync(
+        IWorkspaceSession session,
+        string handle,
+        CancellationToken cancellationToken = default) =>
+        Dispatch(handle, adapter => adapter.GetSummaryAsync(session, handle, cancellationToken));
+
+    public Task<(SymbolDefinitionSuccess? Success, SymbolQueryError? Error)> GetDefinitionAsync(
+        IWorkspaceSession session,
+        string handle,
+        CancellationToken cancellationToken = default) =>
+        Dispatch(handle, adapter => adapter.GetDefinitionAsync(session, handle, cancellationToken));
+
+    public Task<(PagedResult<MemberListItem>? Success, SymbolQueryError? Error)> GetMembersAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        CancellationToken cancellationToken = default) =>
+        Dispatch(handle, adapter => adapter.GetMembersAsync(session, handle, limit, cursor, cancellationToken));
+
+    public Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        CancellationToken cancellationToken = default) =>
+        Dispatch(handle, adapter => adapter.FindImplementationsAsync(session, handle, limit, cursor, cancellationToken));
+
+    public Task<(PagedResult<HierarchyItem>? Success, SymbolQueryError? Error)> GetTypeHierarchyAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        CancellationToken cancellationToken = default) =>
+        Dispatch(handle, adapter => adapter.GetTypeHierarchyAsync(session, handle, limit, cursor, cancellationToken));
+
+    public Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? limit = null,
+        string? cursor = null,
+        TimeSpan? softBudget = null,
+        CancellationToken cancellationToken = default) =>
+        Dispatch(handle, adapter => adapter.FindCallersAsync(session, handle, limit, cursor, softBudget, cancellationToken));
+
+    public Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> FindReferencesAsync(
+        IWorkspaceSession session,
+        string handle,
+        bool entireSolution = false,
+        int? limit = null,
+        string? cursor = null,
+        TimeSpan? softBudget = null,
+        CancellationToken cancellationToken = default) =>
+        Dispatch(
+            handle,
+            adapter => adapter.FindReferencesAsync(
+                session, handle, entireSolution, limit, cursor, softBudget, cancellationToken));
+
+    public async Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
+        IWorkspaceSession session,
+        string handle,
+        string newName,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(newName) || newName.IndexOfAny(['.', ' ', '\t']) >= 0)
+        {
+            return (null, new InvalidRenameNameError(
+                "New name must be a single identifier.",
+                "Pass a C# identifier (no qualification) as newName."));
+        }
+
+        if (!TryGetForHandle(handle, out var adapter, out var error))
+        {
+            return (null, error);
+        }
+
+        return await adapter
+            .BuildRenamePreviewAsync(session, handle, newName, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private Task<(T? Success, SymbolQueryError? Error)> Dispatch<T>(
+        string handle,
+        Func<ILanguageAdapter, Task<(T? Success, SymbolQueryError? Error)>> action)
+        where T : class
+    {
+        if (!TryGetForHandle(handle, out var adapter, out var error))
+        {
+            return Task.FromResult<(T? Success, SymbolQueryError? Error)>((null, error));
+        }
+
+        return action(adapter);
     }
 
     private static async Task<bool> IsSourceDefiningAsync(

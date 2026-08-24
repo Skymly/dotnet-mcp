@@ -273,7 +273,7 @@ public class SymbolGotoMembersSeamTests
             Assert.True(open.IsError is not true);
 
             var ghost = SymbolHandle.Create(
-                SymbolQueryService.CSharpLanguage,
+                LanguageAdapters.CSharpLanguage,
                 Guid.NewGuid().ToString("D"),
                 "SampleLib.Calculator");
 

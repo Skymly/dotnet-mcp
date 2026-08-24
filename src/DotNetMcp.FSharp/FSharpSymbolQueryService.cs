@@ -19,7 +19,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     private readonly FSharpChecker _checker;
 
     public bool OwnsLanguage(string languageToken) =>
-        string.Equals(languageToken, SymbolQueryService.FSharpLanguage, StringComparison.Ordinal);
+        string.Equals(languageToken, LanguageAdapters.FSharpLanguage, StringComparison.Ordinal);
 
     public bool OwnsProject(RoslynProject project) =>
         project.Language == LanguageNames.FSharp ||
@@ -152,8 +152,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         }
 
         var pageLimit = limit is null or < 1
-            ? SymbolQueryService.DefaultMemberPageLimit
-            : Math.Min(limit.Value, SymbolQueryService.MaxMemberPageLimit);
+            ? LanguageAdapters.DefaultMemberPageLimit
+            : Math.Min(limit.Value, LanguageAdapters.MaxMemberPageLimit);
         var items = item.Members
             .OrderBy(m => m.SignatureQualifiedName, StringComparer.Ordinal)
             .Select(m =>
@@ -187,7 +187,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 "Call symbol_resolve with a name/FQN to obtain a fresh SymbolHandle; do not invent handles."));
         }
 
-        if (!string.Equals(parsed.Language, SymbolQueryService.FSharpLanguage, StringComparison.Ordinal))
+        if (!string.Equals(parsed.Language, LanguageAdapters.FSharpLanguage, StringComparison.Ordinal))
         {
             return (null, new InvalidSymbolHandleError(
                 $"Unsupported language '{parsed.Language}'.",
@@ -393,7 +393,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     private static SymbolResolveSuccess ToSuccess(FSharpCatalogItem item)
     {
         var handle = SymbolHandle.Create(
-            SymbolQueryService.FSharpLanguage,
+            LanguageAdapters.FSharpLanguage,
             item.ProjectId,
             item.SignatureQualifiedName);
         var summary = new SymbolSummary(
@@ -402,7 +402,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             ContainingSymbol: item.ContainingSymbol,
             Accessibility: "Public",
             ProjectId: item.ProjectId,
-            Language: SymbolQueryService.FSharpLanguage);
+            Language: LanguageAdapters.FSharpLanguage);
         return new SymbolResolveSuccess(handle.Format(), summary);
     }
 

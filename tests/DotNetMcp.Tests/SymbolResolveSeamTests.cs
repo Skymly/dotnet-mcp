@@ -105,7 +105,7 @@ public class SymbolResolveSeamTests
             var projectId = Assert.Single(projects.Projects).ProjectId;
 
             var ghost = SymbolHandle.Create(
-                SymbolQueryService.CSharpLanguage,
+                LanguageAdapters.CSharpLanguage,
                 projectId,
                 "SampleLib.DoesNotExist");
 

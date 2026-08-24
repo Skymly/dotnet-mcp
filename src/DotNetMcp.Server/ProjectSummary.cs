@@ -18,7 +18,7 @@ public static partial class ProjectSummary
             {
                 ProjectId = p.Id.Id.ToString("D"),
                 Name = p.Name,
-                Language = SymbolQueryService.LanguageToken(p.Language),
+                Language = RoslynLanguageAdapter.LanguageToken(p.Language),
                 TargetFramework = ExtractTfm(p),
                 FilePath = p.FilePath
             })

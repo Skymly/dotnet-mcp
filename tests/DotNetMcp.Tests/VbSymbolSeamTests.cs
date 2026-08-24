@@ -28,7 +28,7 @@ public class VbSymbolSeamTests
 
             Assert.StartsWith("vb:", body.Handle, StringComparison.Ordinal);
             Assert.True(SymbolHandle.TryParse(body.Handle, out var parsed, out _), body.Handle);
-            Assert.Equal(SymbolQueryService.VbLanguage, parsed!.Language);
+            Assert.Equal(LanguageAdapters.VbLanguage, parsed!.Language);
             Assert.Equal("NamedType", body.Summary.Kind);
             Assert.Equal("Widget", body.Summary.DisplayName);
             Assert.Equal("vb", body.Summary.Language);
@@ -225,7 +225,7 @@ public class VbSymbolSeamTests
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
             var vbProject = Assert.Single(projects.Projects, p => p.Language == "vb");
             var stale = SymbolHandle.Create(
-                SymbolQueryService.VbLanguage,
+                LanguageAdapters.VbLanguage,
                 vbProject.ProjectId,
                 "VbLib.DoesNotExist");
             var missing = await fx.Client.CallToolAsync(
