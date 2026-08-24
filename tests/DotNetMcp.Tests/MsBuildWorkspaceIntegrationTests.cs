@@ -228,6 +228,34 @@ public class MsBuildWorkspaceIntegrationTests
         Assert.Contains(body.Projects, p =>
             p.Name.Contains("FsLib", StringComparison.OrdinalIgnoreCase) && p.Language == "fsharp");
     }
+    [Fact]
+    public async Task workspace_open_mixed_solution_resolves_fsharp_widget()
+    {
+        Assert.True(File.Exists(MixedWithFsSlnx), $"Missing fixture: {MixedWithFsSlnx}");
+        var root = Path.GetDirectoryName(MixedWithFsSlnx)!;
+
+        await using var fx = new InProcessMcpFixture(
+            TrustedRoots.Create([root]),
+            new MsBuildSolutionLoader());
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = MixedWithFsSlnx });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        Assert.Equal("ready", status.Phase);
+
+        var resolved = await fx.Client.CallToolAsync(
+            "symbol_resolve",
+            new Dictionary<string, object?> { ["name"] = "FsLib.Widget" });
+        Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+        var body = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved);
+        Assert.StartsWith("fsharp:", body.Handle, StringComparison.Ordinal);
+        Assert.Equal("Widget", body.Summary.DisplayName);
+        Assert.Equal("fsharp", body.Summary.Language);
+    }
+
     private static async Task<WorkspaceStatusDto> PollReadyAsync(InProcessMcpFixture fx, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

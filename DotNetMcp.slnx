@@ -9,4 +9,7 @@
     <Project Path="tests/DotNetMcp.Tests/DotNetMcp.Tests.csproj" />
     <Project Path="tests/fixtures/CustomGenerator/CustomGenerator.csproj" />
   </Folder>
+  <Folder Name="/benches/">
+    <Project Path="benches/DotNetMcp.Bench/DotNetMcp.Bench.csproj" />
+  </Folder>
 </Solution>

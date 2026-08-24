@@ -1642,6 +1642,69 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    public static FakeSolutionLoader ImmediateWithCallersGraph(string root = @"C:\fake") =>
+        new(TimeSpan.Zero, () => CreateCallersGraphLoaded(root));
+
+    public static LoadedSolution CreateCallersGraphLoaded(string root = @"C:\fake")
+    {
+        var workspace = new AdhocWorkspace();
+        var libAId = ProjectId.CreateNewId();
+        var outsiderId = ProjectId.CreateNewId();
+        var libAOps = DocumentId.CreateNewId(libAId);
+        var libAUses = DocumentId.CreateNewId(libAId);
+        var outsiderDoc = DocumentId.CreateNewId(outsiderId);
+        var mscorlib = MetadataReference.CreateFromFile(typeof(object).Assembly.Location);
+        var solution = workspace.CurrentSolution;
+
+        solution = solution.AddProject(ProjectInfo.Create(
+            libAId, VersionStamp.Create(), "LibA", "LibA", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "LibA", "LibA.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            outsiderId, VersionStamp.Create(), "Outsider", "Outsider", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "Outsider", "Outsider.csproj")));
+
+        const string ops = """
+            namespace LibA;
+
+            public static class MathOps
+            {
+                public static int Add(int a, int b) => a + b;
+            }
+            """;
+        const string local = """
+            namespace LibA;
+
+            public static class LocalUses
+            {
+                public static int Twice(int x) => MathOps.Add(x, x);
+            }
+            """;
+        const string outside = """
+            namespace Outsider;
+            using LibA;
+
+            public static class OutsideUses
+            {
+                public static int Remote(int x) => MathOps.Add(x, 1);
+            }
+            """;
+
+        solution = solution.AddDocument(libAOps, "MathOps.cs", SourceText.From(ops), filePath: Path.Combine(root, "LibA", "MathOps.cs"));
+        solution = solution.AddDocument(libAUses, "LocalUses.cs", SourceText.From(local), filePath: Path.Combine(root, "LibA", "LocalUses.cs"));
+        solution = solution.AddDocument(outsiderDoc, "OutsideUses.cs", SourceText.From(outside), filePath: Path.Combine(root, "Outsider", "OutsideUses.cs"));
+        solution = solution.AddProjectReference(outsiderId, new ProjectReference(libAId));
+        solution = solution.WithProjectCompilationOptions(libAId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.WithProjectCompilationOptions(outsiderId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(libAId, mscorlib);
+        solution = solution.AddMetadataReference(outsiderId, mscorlib);
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace callers-graph fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithCallers(string projectFilePath = @"C:\fake\CallerLib.csproj") =>
         new(TimeSpan.Zero, () => CreateCallersLoaded(projectFilePath));
 

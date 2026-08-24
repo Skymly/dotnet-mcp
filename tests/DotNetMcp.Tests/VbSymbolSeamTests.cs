@@ -158,7 +158,7 @@ public class VbSymbolSeamTests
             var callerBody = InProcessMcpFixture.Deserialize<SymbolFindCallersResultDto>(callers);
             Assert.Contains(callerBody.Items, i =>
                 (i.FilePath ?? string.Empty).Contains("Uses.vb", StringComparison.OrdinalIgnoreCase));
-            Assert.Contains(callerBody.Items, i =>
+            Assert.DoesNotContain(callerBody.Items, i =>
                 (i.FilePath ?? string.Empty).Contains("Caller.cs", StringComparison.OrdinalIgnoreCase));
         }
         finally

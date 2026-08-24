@@ -288,7 +288,7 @@ public sealed class SymbolTools
 
     [McpServerTool(Name = "symbol_find_callers"), Description(
         "Find direct call sites of a method SymbolHandle (shallow callers, not a full call graph). " +
-        "Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch.")]
+        "Default scope is the defining project's dependency closure. Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch.")]
     public async Task<CallToolResult> SymbolFindCallers(
         [Description("Method SymbolHandle from symbol_resolve.")]
         string handle,
@@ -546,3 +546,5 @@ public sealed class SymbolTools
         InteropKind = summary.InteropKind
     };
 }
+
+

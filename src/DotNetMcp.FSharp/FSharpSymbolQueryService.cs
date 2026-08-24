@@ -22,7 +22,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         string.Equals(languageToken, SymbolQueryService.FSharpLanguage, StringComparison.Ordinal);
 
     public bool OwnsProject(RoslynProject project) =>
-        project.Language == LanguageNames.FSharp;
+        project.Language == LanguageNames.FSharp ||
+        (project.FilePath?.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase) ?? false);
 
     public bool SupportsCodeRefactoring => false;
 

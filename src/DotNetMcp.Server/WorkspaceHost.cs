@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using DotNetMcp.Core;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Server;
@@ -34,6 +35,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private readonly HashSet<string> _pendingPaths = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _debounceCts;
     private readonly GeneratorRunCache _generatorRunCache = new();
+    private readonly FindHitCache _findHitCache = new();
+    private CancellationTokenSource? _warmCts;
     private long _generation;
     private CompilationLru _compilationLru;
 
@@ -85,6 +88,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         CancelInFlightUnlocked();
+        lock (_gate) { CancelWarmUnlocked(); }
         StopWatcher();
         lock (_gate)
         {
@@ -129,7 +133,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 _loaded,
                 _epoch,
                 generatorRunCache: _generatorRunCache,
-                compilationLru: _compilationLru);
+                compilationLru: _compilationLru,
+                findHitCache: _findHitCache);
             return true;
         }
     }
@@ -138,6 +143,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     {
         _epoch++;
         _generatorRunCache.Clear();
+        _findHitCache.Clear();
+        CancelWarmUnlocked();
         // Replace the instance so in-flight sessions keep the previous epoch's compilations.
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
     }
@@ -562,6 +569,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
 
             StartWatcherForLoaded(loaded);
+            StartBackgroundWarm(loaded, path);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -657,6 +665,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             oldCts = _loadCts;
             _loadCts = null;
             _loadTask = null;
+            CancelWarmUnlocked();
         }
 
         try
@@ -713,6 +722,109 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         };
     }
 
+
+    private void CancelWarmUnlocked()
+    {
+        try
+        {
+            _warmCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        _warmCts = null;
+    }
+
+    private void StartBackgroundWarm(LoadedSolution loaded, string openedPath)
+    {
+        CancellationToken token;
+        CompilationLru lru;
+        long epoch;
+        lock (_gate)
+        {
+            _warmCts?.Cancel();
+            _warmCts = new CancellationTokenSource();
+            token = _warmCts.Token;
+            lru = _compilationLru;
+            epoch = _epoch;
+        }
+
+        _ = Task.Run(() => WarmCompilationsAsync(loaded, openedPath, lru, epoch, token));
+    }
+
+    private async Task WarmCompilationsAsync(
+        LoadedSolution loaded,
+        string openedPath,
+        CompilationLru lru,
+        long epoch,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var session = new WorkspaceSession(
+                loaded,
+                epoch,
+                compilationLru: lru,
+                generatorRunCache: _generatorRunCache,
+                findHitCache: _findHitCache);
+            foreach (var project in SelectWarmProjects(loaded.Solution, openedPath, lru.Capacity ?? 50))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    await session.GetCompilationAsync(project.Id, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            // Warm is best-effort; never flip phase to failed.
+        }
+    }
+
+    internal static IReadOnlyList<Project> SelectWarmProjects(Solution solution, string openedPath, int cap)
+    {
+        cap = Math.Max(1, cap);
+        var ext = Path.GetExtension(openedPath);
+        var isProject = ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".vbproj", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".fsproj", StringComparison.OrdinalIgnoreCase);
+
+        if (isProject)
+        {
+            var seed = solution.Projects.FirstOrDefault(p =>
+                p.FilePath is not null &&
+                string.Equals(Path.GetFullPath(p.FilePath), Path.GetFullPath(openedPath), StringComparison.OrdinalIgnoreCase));
+            if (seed is null)
+            {
+                return [];
+            }
+
+            return FindRefsScopes.ProjectsInClosure(solution, seed).Take(cap).ToArray();
+        }
+
+        return solution.Projects
+            .OrderBy(p => WarmPreference(p.Name))
+            .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(cap)
+            .ToArray();
+    }
+
+    private static int WarmPreference(string name)
+    {
+        if (name.Contains("Test", StringComparison.OrdinalIgnoreCase)) return 100;
+        if (name.Contains("Bench", StringComparison.OrdinalIgnoreCase)) return 90;
+        if (name.Contains("Dummy", StringComparison.OrdinalIgnoreCase)) return 80;
+        return 0;
+    }
+
     public async ValueTask DisposeAsync()
     {
         CancelInFlightUnlocked();
@@ -751,4 +863,5 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         _loadMutex.Dispose();
     }
 }
+
 

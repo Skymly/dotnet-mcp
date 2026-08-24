@@ -29,9 +29,21 @@ public sealed class CompilationLru
         }
     }
 
+    public int Hits { get; private set; }
+
+    public int Misses { get; private set; }
+
     public int Evictions { get; private set; }
 
     public int? Capacity => _capacity;
+
+    public bool TryGet(ProjectId id, out Compilation compilation)
+    {
+        lock (_gate)
+        {
+            return TryGetAndTouch(id, out compilation);
+        }
+    }
 
     public async Task<Compilation> GetOrAddAsync(
         Project project,
@@ -42,8 +54,11 @@ public sealed class CompilationLru
         {
             if (TryGetAndTouch(project.Id, out var existing))
             {
+                Hits++;
                 return existing;
             }
+
+            Misses++;
         }
 
         var compilation = await factory(project, cancellationToken).ConfigureAwait(false);
@@ -52,6 +67,7 @@ public sealed class CompilationLru
         {
             if (TryGetAndTouch(project.Id, out var existing))
             {
+                Hits++;
                 return existing;
             }
 

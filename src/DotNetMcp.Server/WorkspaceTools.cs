@@ -20,7 +20,7 @@ public sealed class WorkspaceTools
 
     [McpServerTool(Name = "workspace_open"), Description(
         "Start loading a .NET solution/project into the single active workspace and return immediately. " +
-        "Poll workspace_status until phase is ready (do not retry this tool while loading). " +
+        "For large repos prefer a .slnf or a single project file over a 150+ project solution; load does not compile all projects. Poll workspace_status until phase is ready (do not retry this tool while loading). " +
         "SECURITY: loading runs MSBuild evaluation and project-referenced analyzers/source generators — " +
         "equivalent to executing that repository's build logic. Do not open untrusted codebases. " +
         "All paths must fall under a configured trusted root.")]
@@ -127,3 +127,5 @@ public sealed class WorkspaceTools
         return McpToolEnvelope.OkResult(_workspaceHost.CheckDrift());
     }
 }
+
+

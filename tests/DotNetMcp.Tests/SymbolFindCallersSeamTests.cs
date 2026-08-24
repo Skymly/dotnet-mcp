@@ -52,6 +52,47 @@ public class SymbolFindCallersSeamTests
     }
 
     [Fact]
+    public async Task symbol_find_callers_default_scope_is_dependency_closure_excluding_consumers()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithCallersGraph());
+
+            await OpenUntilReadyAsync(fx, solution);
+            var projects = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            var list = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(projects);
+            var libA = Assert.Single(list.Projects, p => p.Name == "LibA");
+            var resolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "LibA.MathOps.Add", ["projectId"] = libA.ProjectId });
+            Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+
+            var result = await fx.Client.CallToolAsync(
+                "symbol_find_callers",
+                new Dictionary<string, object?> { ["handle"] = handle });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<SymbolFindCallersResultDto>(result);
+            Assert.Contains(body.Items, i => (i.FilePath ?? string.Empty).Contains("LocalUses.cs", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(body.Items, i =>
+                (i.FilePath ?? string.Empty).Contains("OutsideUses.cs", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task symbol_find_callers_pages_with_limit_and_continues_without_duplicates()
     {
         var root = CreateTempDir("root");

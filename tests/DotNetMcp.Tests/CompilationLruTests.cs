@@ -35,4 +35,28 @@ public class CompilationLruTests
         Assert.Equal(1, lru.Count);
         Assert.All(results, c => Assert.Same(results[0], c));
     }
+
+    [Fact]
+    public async Task second_get_or_add_same_project_counts_as_hit_not_factory()
+    {
+        var loaded = FakeSolutionLoader.CreateSymbolsLoaded(@"C:\fake\SampleLib.csproj");
+        var project = loaded.Solution.Projects.Single();
+        var lru = new CompilationLru(50);
+        var factories = 0;
+
+        Task<Compilation> Factory(Project p, CancellationToken ct)
+        {
+            Interlocked.Increment(ref factories);
+            return p.GetCompilationAsync(ct)!;
+        }
+
+        var first = await lru.GetOrAddAsync(project, Factory, CancellationToken.None);
+        var second = await lru.GetOrAddAsync(project, Factory, CancellationToken.None);
+
+        Assert.Same(first, second);
+        Assert.Equal(1, factories);
+        Assert.Equal(1, lru.Misses);
+        Assert.Equal(1, lru.Hits);
+    }
 }
+

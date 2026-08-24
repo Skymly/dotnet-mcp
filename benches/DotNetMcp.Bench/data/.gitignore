@@ -1,0 +1,3 @@
+# Local reports. Keep the directory.
+*.json
+!.gitignore

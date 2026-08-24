@@ -99,7 +99,7 @@ MCP 客户端以 **stdio** 连接该进程。默认受信根为进程当前工�
 
 加载与查询遵守 [ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)：
 
-- **基线（所有客户端）**：`workspace_open` **立即返回**，用 `workspace_status` 轮询至 `ready`；勿在 loading 时重试 `workspace_open`。
+- **基线（所有客户端）**：`workspace_open` **立即返回**，用 `workspace_status` 轮询至 `ready`；勿在 loading 时重试 `workspace_open`。大解决方案优先开 `.slnf` 或单个项目；加载不做全量编译。
 - **Tasks 增强**：服务器启用 MCP Tasks（`.WithTasks`）。仅当客户端协议 ≥ **2026-07-28** 且显式 opt-in `io.modelcontextprotocol/tasks` 时，可用 `tasks/get` / `tasks/cancel`；未 opt-in 仍走同步 `tools/call` + 手工 open/status。
 - **超时**：常见客户端 `tools/call` 硬顶约 **60s**；**progress 不是 keepalive**，不能靠进度通知延长超时。
 
@@ -132,6 +132,16 @@ dotnet test DotNetMcp.slnx -c Release --no-build
 
 GitHub Actions 工作流见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)（ubuntu + SDK 8/9/10，同上命令）。
 
+- **性能基准**（产品 MCP 工具面，见 [`docs/perf/benchmark.md`](docs/perf/benchmark.md)）：
+
+```bash
+dotnet run --project benches/DotNetMcp.Bench -c Release -- --suite fixtures
+dotnet run --project benches/DotNetMcp.Bench -c Release -- --suite smoke
+```
+
+
 ## 开发约定
 
 本仓库使用 [mattpocock/skills](https://github.com/mattpocock/skills) 工程技能链，其仓库级配置见 `AGENTS.md` 的 `## Agent skills` 一节与 `docs/agents/` 目录（issue 跟踪方式、triage 标签、领域文档布局）。
+
+

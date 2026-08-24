@@ -58,22 +58,18 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
 
         var query = name.Trim();
         var matches = new List<(Project Project, ISymbol Symbol)>();
-        foreach (var project in projects)
+        if (string.IsNullOrWhiteSpace(projectId))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            Compilation? compilation;
-            try
+            await CollectResolveMatchesAsync(session, projects, query, matches, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            foreach (var project in projects)
             {
-                compilation = await session.GetCompilationAsync(project.Id, cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidOperationException)
-            {
-                continue;
-            }
-
-            foreach (var symbol in FindSymbols(compilation, query))
-            {
-                matches.Add((project, symbol));
+                cancellationToken.ThrowIfCancellationRequested();
+                await AddResolveMatchesAsync(session, project, query, matches, cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
 
@@ -81,7 +77,7 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         {
             return (null, new SymbolNotFoundError(
                 $"No symbol named '{name}' was found in the ready workspace.",
-                "Confirm the name/FQN (and optional projectId), then call symbol_resolve again."));
+                "Confirm the name/FQN, or pass projectId from workspace_list_projects, then call symbol_resolve again."));
         }
 
         // Deduplicate identical symbols within the same project (walk may hit twice).
@@ -535,9 +531,7 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
-
         var solution = session.Solution;
-        var epoch = session.Epoch;
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
@@ -553,130 +547,55 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         }
 
         var pageLimit = ClampLimit(limit);
-        var budget = softBudget ?? _softBudgets.FindRefsEntireSolution;
-        var docIndex = 0;
-        var locOffset = 0;
-
+        var budget = softBudget ?? _softBudgets.FindRefsScoped;
         if (!SoftBudgetPage.TryReadFindRefs(
                 cursor,
-                epoch,
+                session.Epoch,
                 entireSolution: false,
                 "symbol_find_callers",
-                out docIndex,
-                out locOffset,
+                out var docIndex,
+                out var locOffset,
                 out var cursorError,
                 scopeMismatchMessage: "Cursor payload is invalid."))
         {
             return (null, cursorError);
         }
 
-        var documents = solution.Projects
-            .SelectMany(p => p.Documents)
+        var documents = FindRefsScopes.DocumentsForScope(solution, project!, FindRefsScopeKind.DependencyClosure)
             .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Id.Id)
             .ToList();
 
-        if (docIndex > documents.Count || (docIndex == documents.Count && locOffset > 0))
-        {
-            return (null, new StaleCursorError(
-                "Cursor document index is past the end of the document list.",
-                "Call symbol_find_callers again without a cursor to start a fresh page."));
-        }
-
-        var page = new List<CallerLocationItem>();
-        var stopwatch = Stopwatch.StartNew();
-        var truncatedByBudget = false;
-        var nextDocIndex = documents.Count;
-        var nextLocOffset = 0;
-        var exhausted = true;
-
-        for (var i = docIndex; i < documents.Count; i++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (page.Count > 0 && stopwatch.Elapsed >= budget)
-            {
-                truncatedByBudget = true;
-                exhausted = false;
-                nextDocIndex = i;
-                nextLocOffset = 0;
-                break;
-            }
-
-            var doc = documents[i];
-            IEnumerable<SymbolCallerInfo> callers;
-            using (var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-            {
-                var remaining = budget - stopwatch.Elapsed;
-                if (remaining > TimeSpan.Zero)
+        return await PageFinderHitsAsync<CallerLocationItem>(
+                session,
+                handle,
+                scopeKey: "callers-closure",
+                entireSolution: false,
+                tool: "symbol_find_callers",
+                documents,
+                budget,
+                pageLimit,
+                docIndex,
+                locOffset,
+                async (scan, ct) =>
                 {
-                    budgetCts.CancelAfter(remaining);
-                }
-
-                try
-                {
-                    callers = await SymbolFinder
-                        .FindCallersAsync(
-                            symbol!,
-                            solution,
-                            ImmutableHashSet.Create(doc),
-                            budgetCts.Token)
+                    var callers = await SymbolFinder
+                        .FindCallersAsync(symbol!, solution, scan.ToImmutableHashSet(), ct)
                         .ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    truncatedByBudget = true;
-                    exhausted = false;
-                    nextDocIndex = i;
-                    nextLocOffset = 0;
-                    break;
-                }
-            }
+                    var aligned = new List<IReadOnlyList<CallerLocationItem>>(scan.Count);
+                    foreach (var doc in scan)
+                    {
+                        aligned.Add(await FlattenCallerHitsForDocumentAsync(session, doc, callers, ct)
+                            .ConfigureAwait(false));
+                    }
 
-            var hits = (await FlattenCallerHitsForDocumentAsync(
-                    session, doc, callers, cancellationToken)
-                .ConfigureAwait(false))
-                .OrderBy(h => h.FilePath ?? string.Empty, StringComparer.Ordinal)
-                .ThenBy(h => h.Start ?? -1)
-                .ThenBy(h => h.Length ?? -1)
-                .ThenBy(h => h.CallerHandle, StringComparer.Ordinal)
-                .ToList();
-
-            var startLoc = i == docIndex ? locOffset : 0;
-            if (startLoc > hits.Count)
-            {
-                return (null, new StaleCursorError(
-                    "Cursor location offset is past the end of hits for a document.",
-                    "Call symbol_find_callers again without a cursor to start a fresh page."));
-            }
-
-            for (var loc = startLoc; loc < hits.Count; loc++)
-            {
-                if (page.Count >= pageLimit)
-                {
-                    exhausted = false;
-                    nextDocIndex = i;
-                    nextLocOffset = loc;
-                    break;
-                }
-
-                page.Add(hits[loc]);
-            }
-
-            if (!exhausted)
-            {
-                break;
-            }
-        }
-
-        return (SoftBudgetPage.Finish(
-            page,
-            moreItems: !exhausted,
-            budgetHit: truncatedByBudget,
-            () => FindRefsPageCursor.Encode(epoch, entireSolution: false, nextDocIndex, nextLocOffset),
-            "symbol_find_callers",
-            page.Count == 0 ? "No direct callers found." : "Caller page complete."), null);
+                    return aligned;
+                },
+                emptyMessage: "No direct callers found.",
+                completeMessage: "Caller page complete.",
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> FindReferencesAsync(
@@ -688,9 +607,7 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
-
         var solution = session.Solution;
-        var epoch = session.Epoch;
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
@@ -702,16 +619,13 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         var budget = softBudget ?? (entireSolution
             ? _softBudgets.FindRefsEntireSolution
             : _softBudgets.FindRefsScoped);
-        var docIndex = 0;
-        var locOffset = 0;
-
         if (!SoftBudgetPage.TryReadFindRefs(
                 cursor,
-                epoch,
+                session.Epoch,
                 entireSolution,
                 "symbol_find_references",
-                out docIndex,
-                out locOffset,
+                out var docIndex,
+                out var locOffset,
                 out var cursorError,
                 scopeMismatchMessage: "Cursor scope does not match the entireSolution parameter for this request."))
         {
@@ -727,111 +641,183 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
             .ThenBy(d => d.Id.Id)
             .ToList();
 
+        return await PageFinderHitsAsync<ReferenceLocationItem>(
+                session,
+                handle,
+                scopeKey: entireSolution ? "refs-entire" : "refs-closure",
+                entireSolution,
+                tool: "symbol_find_references",
+                documents,
+                budget,
+                pageLimit,
+                docIndex,
+                locOffset,
+                async (scan, ct) =>
+                {
+                    var referenced = await FindRefsScopes
+                        .FindReferencesInDocumentsAsync(symbol!, solution, scan.ToImmutableHashSet(), ct)
+                        .ConfigureAwait(false);
+                    var aligned = new List<IReadOnlyList<ReferenceLocationItem>>(scan.Count);
+                    foreach (var doc in scan)
+                    {
+                        aligned.Add(await FlattenReferenceHitsForDocumentAsync(session, doc, referenced, ct)
+                            .ConfigureAwait(false));
+                    }
+
+                    return aligned;
+                },
+                emptyMessage: "No references found in the selected scope.",
+                completeMessage: "Reference page complete.",
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<(PagedResult<T>? Success, SymbolQueryError? Error)> PageFinderHitsAsync<T>(
+        IWorkspaceSession session,
+        string handle,
+        string scopeKey,
+        bool entireSolution,
+        string tool,
+        IReadOnlyList<Document> documents,
+        TimeSpan budget,
+        int pageLimit,
+        int docIndex,
+        int locOffset,
+        Func<IReadOnlyList<Document>, CancellationToken, Task<IReadOnlyList<IReadOnlyList<T>>>> findAligned,
+        string emptyMessage,
+        string completeMessage,
+        CancellationToken cancellationToken)
+    {
         if (docIndex > documents.Count || (docIndex == documents.Count && locOffset > 0))
         {
             return (null, new StaleCursorError(
                 "Cursor document index is past the end of the scoped document list.",
-                "Call symbol_find_references again without a cursor to start a fresh page."));
+                $"Call {tool} again without a cursor to start a fresh page."));
         }
 
-        var page = new List<ReferenceLocationItem>();
-        var stopwatch = Stopwatch.StartNew();
+        var cache = session as IWorkspaceSessionCaches;
+        IReadOnlyList<IReadOnlyList<T>>? byDocument = null;
+        var fromCache = cache?.FindHits.TryGetByDocument(session.Epoch, handle, scopeKey, out byDocument) == true;
         var truncatedByBudget = false;
-        var nextDocIndex = documents.Count;
-        var nextLocOffset = 0;
-        var exhausted = true;
 
-        for (var i = docIndex; i < documents.Count; i++)
+        if (!fromCache)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // Soft budget: stop before the next document once we already have results.
-            if (page.Count > 0 && stopwatch.Elapsed >= budget)
+            if (budget <= TimeSpan.Zero)
             {
+                var filled = new IReadOnlyList<T>[documents.Count];
+                for (var i = 0; i < documents.Count; i++)
+                {
+                    filled[i] = Array.Empty<T>();
+                }
+
+                for (var i = docIndex; i < documents.Count; i++)
+                {
+                    var one = await findAligned([documents[i]], cancellationToken).ConfigureAwait(false);
+                    filled[i] = one.Count > 0 ? one[0] : Array.Empty<T>();
+                    if (filled[i].Count > 0)
+                    {
+                        break;
+                    }
+                }
+
+                byDocument = filled;
                 truncatedByBudget = true;
-                exhausted = false;
-                nextDocIndex = i;
-                nextLocOffset = 0;
-                break;
             }
-
-            var doc = documents[i];
-            IEnumerable<Microsoft.CodeAnalysis.FindSymbols.ReferencedSymbol> referenced;
-            using (var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            else
             {
-                var remaining = budget - stopwatch.Elapsed;
-                if (remaining > TimeSpan.Zero)
+                IReadOnlyList<IReadOnlyList<T>> aligned;
+                using (var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 {
-                    budgetCts.CancelAfter(remaining);
+                    budgetCts.CancelAfter(budget);
+                    try
+                    {
+                        aligned = documents.Count == 0
+                            ? Array.Empty<IReadOnlyList<T>>()
+                            : await findAligned(documents, budgetCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        truncatedByBudget = true;
+                        aligned = Array.Empty<IReadOnlyList<T>>();
+                    }
                 }
 
-                try
+                var filled = AlignByDocument(documents, documents, aligned);
+                byDocument = filled;
+                if (!truncatedByBudget)
                 {
-                    referenced = await FindRefsScopes
-                        .FindReferencesInDocumentsAsync(
-                            symbol!,
-                            solution,
-                            ImmutableHashSet.Create(doc),
-                            budgetCts.Token)
-                        .ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    // Soft budget cancelled mid-document; next page gets a fresh budget from this doc.
-                    truncatedByBudget = true;
-                    exhausted = false;
-                    nextDocIndex = i;
-                    nextLocOffset = 0;
-                    break;
+                    cache?.FindHits.SetByDocument(session.Epoch, handle, scopeKey, filled);
                 }
             }
+        }
 
-            var hits = (await FlattenReferenceHitsForDocumentAsync(
-                    session, doc, referenced, cancellationToken)
-                .ConfigureAwait(false))
-                .OrderBy(h => h.FilePath ?? string.Empty, StringComparer.Ordinal)
-                .ThenBy(h => h.Start ?? -1)
-                .ThenBy(h => h.Length ?? -1)
-                .ThenBy(h => h.Kind, StringComparer.Ordinal)
-                .ToList();
+        if (docIndex < documents.Count && locOffset > byDocument![docIndex].Count)
+        {
+            return (null, new StaleCursorError(
+                "Cursor location offset is past the end of hits for a document.",
+                $"Call {tool} again without a cursor to start a fresh page."));
+        }
 
-            var startLoc = i == docIndex ? locOffset : 0;
-            if (startLoc > hits.Count)
-            {
-                return (null, new StaleCursorError(
-                    "Cursor location offset is past the end of hits for a document.",
-                    "Call symbol_find_references again without a cursor to start a fresh page."));
-            }
-
-            for (var loc = startLoc; loc < hits.Count; loc++)
-            {
-                if (page.Count >= pageLimit)
-                {
-                    exhausted = false;
-                    nextDocIndex = i;
-                    nextLocOffset = loc;
-                    break;
-                }
-
-                page.Add(hits[loc]);
-            }
-
-            if (!exhausted)
-            {
-                break;
-            }
+        var (page, exhausted, nextDoc, nextLoc) = SliceByDocument(byDocument!, docIndex, locOffset, pageLimit);
+        if (budget <= TimeSpan.Zero && !exhausted)
+        {
+            truncatedByBudget = true;
         }
 
         return (SoftBudgetPage.Finish(
             page,
             moreItems: !exhausted,
             budgetHit: truncatedByBudget,
-            () => FindRefsPageCursor.Encode(epoch, entireSolution, nextDocIndex, nextLocOffset),
-            "symbol_find_references",
-            page.Count == 0
-                ? "No references found in the selected scope."
-                : "Reference page complete."), null);
+            () => FindRefsPageCursor.Encode(session.Epoch, entireSolution, nextDoc, nextLoc),
+            tool,
+            page.Count == 0 ? emptyMessage : completeMessage), null);
     }
+
+    private static IReadOnlyList<IReadOnlyList<T>> AlignByDocument<T>(
+        IReadOnlyList<Document> documents,
+        IReadOnlyList<Document> scan,
+        IReadOnlyList<IReadOnlyList<T>> aligned)
+    {
+        var map = new Dictionary<DocumentId, IReadOnlyList<T>>();
+        for (var i = 0; i < scan.Count && i < aligned.Count; i++)
+        {
+            map[scan[i].Id] = aligned[i];
+        }
+
+        var filled = new IReadOnlyList<T>[documents.Count];
+        for (var i = 0; i < documents.Count; i++)
+        {
+            filled[i] = map.TryGetValue(documents[i].Id, out var hits) ? hits : Array.Empty<T>();
+        }
+
+        return filled;
+    }
+
+    private static (List<T> Page, bool Exhausted, int NextDoc, int NextLoc) SliceByDocument<T>(
+        IReadOnlyList<IReadOnlyList<T>> byDocument,
+        int docIndex,
+        int locOffset,
+        int pageLimit)
+    {
+        var page = new List<T>();
+        for (var i = docIndex; i < byDocument.Count; i++)
+        {
+            var hits = byDocument[i];
+            var start = i == docIndex ? locOffset : 0;
+            for (var loc = start; loc < hits.Count; loc++)
+            {
+                if (page.Count >= pageLimit)
+                {
+                    return (page, false, i, loc);
+                }
+
+                page.Add(hits[loc]);
+            }
+        }
+
+        return (page, true, byDocument.Count, 0);
+    }
+
 
     private async Task<(ImplementationItem? Item, SymbolQueryError? Error)> ToImplementationItemAsync(
         IWorkspaceSession session,
@@ -1569,6 +1555,108 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
 
     public static bool IsSupportedRoslynLanguage(string roslynLanguage) =>
         roslynLanguage is LanguageNames.CSharp or LanguageNames.VisualBasic;
+
+
+    private async Task CollectResolveMatchesAsync(
+        IWorkspaceSession session,
+        IReadOnlyList<Project> projects,
+        string query,
+        List<(Project Project, ISymbol Symbol)> matches,
+        CancellationToken cancellationToken)
+    {
+        var cache = session as IWorkspaceSessionCaches;
+        var remaining = new List<Project>();
+        foreach (var project in projects)
+        {
+            if (cache is not null && cache.CompilationCache.TryGet(project.Id, out var warm))
+            {
+                foreach (var symbol in FindSymbols(warm, query))
+                {
+                    matches.Add((project, symbol));
+                }
+            }
+            else
+            {
+                remaining.Add(project);
+            }
+        }
+
+        if (TryFinishResolve(matches))
+        {
+            return;
+        }
+
+        var segment = query.Split('.', 2)[0];
+        var named = remaining
+            .Where(p => ProjectNameLooksLike(p, segment) && !IsTestLikeProject(p.Name))
+            .ToList();
+        var rest = remaining.Except(named).Where(p => !IsTestLikeProject(p.Name)).ToList();
+
+        using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budgetCts.CancelAfter(_softBudgets.SingleProjectCompile);
+        try
+        {
+            foreach (var project in named.Concat(rest))
+            {
+                budgetCts.Token.ThrowIfCancellationRequested();
+                await AddResolveMatchesAsync(session, project, query, matches, budgetCts.Token)
+                    .ConfigureAwait(false);
+                if (TryFinishResolve(matches))
+                {
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private static async Task AddResolveMatchesAsync(
+        IWorkspaceSession session,
+        Project project,
+        string query,
+        List<(Project Project, ISymbol Symbol)> matches,
+        CancellationToken cancellationToken)
+    {
+        Compilation compilation;
+        try
+        {
+            compilation = await session.GetCompilationAsync(project.Id, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+
+        foreach (var symbol in FindSymbols(compilation, query))
+        {
+            matches.Add((project, symbol));
+        }
+    }
+
+    private static bool TryFinishResolve(List<(Project Project, ISymbol Symbol)> matches)
+    {
+        if (matches.Count == 0)
+        {
+            return false;
+        }
+
+        var sourceDefining = matches
+            .Where(m => m.Symbol.Locations.Any(static l => l.IsInSource))
+            .DistinctBy(m => (m.Project.Id.Id, SymbolKey(m.Symbol)))
+            .ToList();
+        return sourceDefining.Count == 1;
+    }
+
+    private static bool ProjectNameLooksLike(Project project, string segment) =>
+        project.Name.Contains(segment, StringComparison.OrdinalIgnoreCase) ||
+        (project.DefaultNamespace?.Contains(segment, StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private static bool IsTestLikeProject(string name) =>
+        name.Contains("Test", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("Bench", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("Dummy", StringComparison.OrdinalIgnoreCase);
 
     private static IReadOnlyList<Project> FilterProjects(
         Solution solution,

@@ -19,7 +19,9 @@ public static class FindRefsScopes
     {
         return scope switch
         {
-            FindRefsScopeKind.DependencyClosure => CollectClosureDocuments(solution, project),
+            FindRefsScopeKind.DependencyClosure => ProjectsInClosure(solution, project)
+                .SelectMany(p => p.Documents)
+                .ToImmutableHashSet(),
             FindRefsScopeKind.EntireSolution => solution.Projects
                 .SelectMany(p => p.Documents)
                 .ToImmutableHashSet(),
@@ -27,22 +29,12 @@ public static class FindRefsScopes
         };
     }
 
-    public static async Task<IEnumerable<ReferencedSymbol>> FindReferencesInDocumentsAsync(
-        ISymbol symbol,
-        Solution solution,
-        IImmutableSet<Document> documents,
-        CancellationToken ct = default)
-    {
-        return await SymbolFinder.FindReferencesAsync(symbol, solution, documents, ct)
-            .ConfigureAwait(false);
-    }
-
-    private static ImmutableHashSet<Document> CollectClosureDocuments(Solution solution, Project project)
+    public static IReadOnlyList<Project> ProjectsInClosure(Solution solution, Project project)
     {
         var visited = new HashSet<ProjectId>();
         var stack = new Stack<ProjectId>();
         stack.Push(project.Id);
-        var docs = ImmutableHashSet.CreateBuilder<Document>();
+        var projects = new List<Project>();
 
         while (stack.Count > 0)
         {
@@ -58,17 +50,23 @@ public static class FindRefsScopes
                 continue;
             }
 
-            foreach (var d in p.Documents)
-            {
-                docs.Add(d);
-            }
-
+            projects.Add(p);
             foreach (var reference in p.ProjectReferences)
             {
                 stack.Push(reference.ProjectId);
             }
         }
 
-        return docs.ToImmutable();
+        return projects;
+    }
+
+    public static async Task<IEnumerable<ReferencedSymbol>> FindReferencesInDocumentsAsync(
+        ISymbol symbol,
+        Solution solution,
+        IImmutableSet<Document> documents,
+        CancellationToken ct = default)
+    {
+        return await SymbolFinder.FindReferencesAsync(symbol, solution, documents, ct)
+            .ConfigureAwait(false);
     }
 }
