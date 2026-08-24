@@ -14,6 +14,8 @@ public interface ILanguageAdapter
 
     bool SupportsCodeRefactoring { get; }
 
+    bool SupportsDiagnosticFix { get; }
+
     Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
         IWorkspaceSession session,
         string name,

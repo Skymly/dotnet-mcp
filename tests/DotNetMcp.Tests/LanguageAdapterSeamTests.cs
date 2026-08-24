@@ -130,6 +130,7 @@ public class LanguageAdapterSeamTests
             "LanguageAdapters.cs",
             "DiagnosticQueryService.cs",
             "CodeRefactoringService.cs",
+            "DiagnosticFixService.cs",
         };
 
         foreach (var name in files)
@@ -240,6 +241,8 @@ public class LanguageAdapterSeamTests
         public bool OwnsProject(Project project) => false;
 
         public bool SupportsCodeRefactoring => false;
+
+        public bool SupportsDiagnosticFix => false;
 
         public Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
             IWorkspaceSession session,

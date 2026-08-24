@@ -10,10 +10,12 @@ namespace DotNetMcp.Core;
 /// </summary>
 public sealed class DiagnosticFixService
 {
+    private readonly LanguageAdapters _languages;
     private readonly SoftBudgetOptions _budgets;
 
-    public DiagnosticFixService(SoftBudgetOptions? budgets = null)
+    public DiagnosticFixService(LanguageAdapters? languages = null, SoftBudgetOptions? budgets = null)
     {
+        _languages = languages ?? new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
         _budgets = budgets ?? SoftBudgetOptions.Default;
     }
 
@@ -168,6 +170,21 @@ public sealed class DiagnosticFixService
                 "Call project_diagnostics and pass the Id of the occurrence to fix."));
         }
 
+        var adapter = _languages.ForProjectId(session, projectId);
+        if (adapter is null)
+        {
+            return (null, null, new ProjectNotFoundError(
+                $"No project with projectId '{projectId}' is in the ready workspace.",
+                "Call workspace_list_projects for valid projectId values."));
+        }
+
+        if (!adapter.SupportsDiagnosticFix)
+        {
+            return (null, null, new FixLanguageNotSupportedError(
+                "Diagnostic fix is not available for this language.",
+                "Call diagnostics_list_fixes on a C# or VB project."));
+        }
+
         var project = session.Solution.Projects.FirstOrDefault(p =>
             string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
         if (project is null)
@@ -175,20 +192,6 @@ public sealed class DiagnosticFixService
             return (null, null, new ProjectNotFoundError(
                 $"No project with projectId '{projectId}' is in the ready workspace.",
                 "Call workspace_list_projects for valid projectId values."));
-        }
-
-        if (project.Language == LanguageNames.FSharp)
-        {
-            return (null, null, new FixLanguageNotSupportedError(
-                "Diagnostic fix is not available for F# projects.",
-                "Use project_diagnostics to inspect F# errors, or symbol_preview_rename for handwritten fsharp handles."));
-        }
-
-        if (!RoslynLanguageAdapter.IsSupportedRoslynLanguage(project.Language))
-        {
-            return (null, null, new FixLanguageNotSupportedError(
-                $"Diagnostic fix is not available for language '{project.Language}'.",
-                "Call diagnostics_list_fixes on a C# or VB project."));
         }
 
         Compilation compilation;
