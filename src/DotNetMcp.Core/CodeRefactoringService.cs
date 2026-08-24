@@ -59,33 +59,27 @@ public sealed class CodeRefactoringService
 
         var chosen = actions[refactoringIndex];
         var changed = await CodeActionDocuments.ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
-        if (changed is null)
+        var (slices, sliceError) = await CodeActionDocuments.ToHandwrittenSlicesAsync(
+                session.Solution,
+                changed,
+                () => new RefactoringApplyFailedError(
+                    $"Code Refactoring '{chosen.Title}' did not produce a handwritten document change.",
+                    "Pick another refactoringIndex from symbol_list_refactorings, or change the code without this tool."),
+                () => new GeneratedDocumentRefactoringRefusedError(
+                    "This Code Refactoring would change a generated document.",
+                    "Change the generator input (handwritten source / attribute) instead of applying a refactoring to generated output."),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (sliceError is not null)
         {
-            return (null, new RefactoringApplyFailedError(
-                $"Code Refactoring '{chosen.Title}' did not produce a solution change.",
-                "Pick another refactoringIndex from symbol_list_refactorings, or change the code without this tool."));
-        }
-
-        var (slices, generated) = await HandwrittenDocumentDiff.FromSolutionsAsync(session.Solution, changed, cancellationToken).ConfigureAwait(false);
-        if (generated)
-        {
-            return (null, new GeneratedDocumentRefactoringRefusedError(
-                "This Code Refactoring would change a generated document.",
-                "Change the generator input (handwritten source / attribute) instead of applying a refactoring to generated output."));
-        }
-
-        if (slices.Count == 0)
-        {
-            return (null, new RefactoringApplyFailedError(
-                $"Code Refactoring '{chosen.Title}' produced no handwritten document changes.",
-                "Pick another refactoringIndex from symbol_list_refactorings."));
+            return (null, sliceError);
         }
 
         return (new CodeRefactoringPreviewDraft(
             chosen.Title,
             chosen.EquivalenceKey,
             handle,
-            slices,
+            slices!,
             InvalidatedHandles: [handle]), null);
     }
 

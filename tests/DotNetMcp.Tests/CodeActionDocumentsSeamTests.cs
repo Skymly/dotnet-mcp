@@ -10,6 +10,7 @@ public class CodeActionDocumentsSeamTests
         Assert.Contains("GetProviders", helper, StringComparison.Ordinal);
         Assert.Contains("Flatten", helper, StringComparison.Ordinal);
         Assert.Contains("ApplyActionAsync", helper, StringComparison.Ordinal);
+        Assert.Contains("ToHandwrittenSlicesAsync", helper, StringComparison.Ordinal);
 
         foreach (var name in new[] { "DiagnosticFixService.cs", "CodeRefactoringService.cs" })
         {
@@ -21,6 +22,8 @@ public class CodeActionDocumentsSeamTests
             Assert.DoesNotContain("private static IReadOnlyList<CodeRefactoringProvider> GetProviders", text, StringComparison.Ordinal);
             Assert.DoesNotContain("private static IEnumerable<CodeAction> Flatten", text, StringComparison.Ordinal);
             Assert.DoesNotContain("private static async Task<Solution?> ApplyActionAsync", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("HandwrittenDocumentDiff.FromSolutionsAsync", text, StringComparison.Ordinal);
+            Assert.Contains("ToHandwrittenSlicesAsync", text, StringComparison.Ordinal);
         }
     }
 
