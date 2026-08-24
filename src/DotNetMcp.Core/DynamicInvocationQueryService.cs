@@ -29,7 +29,7 @@ public sealed class DynamicInvocationQueryService
         }
 
         var project = session.Solution.Projects.FirstOrDefault(p =>
-            SymbolQueryService.IsSupportedRoslynLanguage(p.Language) &&
+            RoslynLanguageAdapter.IsSupportedRoslynLanguage(p.Language) &&
             string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
         if (project is null)
         {
@@ -40,8 +40,8 @@ public sealed class DynamicInvocationQueryService
 
         var epoch = session.Epoch;
         var pageLimit = limit is null or < 1
-            ? SymbolQueryService.DefaultMemberPageLimit
-            : Math.Min(limit.Value, SymbolQueryService.MaxMemberPageLimit);
+            ? LanguageAdapters.DefaultMemberPageLimit
+            : Math.Min(limit.Value, LanguageAdapters.MaxMemberPageLimit);
         var offset = 0;
         if (!string.IsNullOrWhiteSpace(cursor))
         {

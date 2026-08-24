@@ -26,8 +26,8 @@ public sealed partial class FSharpSymbolQueryService
         }
 
         var pageLimit = limit is null or < 1
-            ? SymbolQueryService.DefaultMemberPageLimit
-            : Math.Min(limit.Value, SymbolQueryService.MaxMemberPageLimit);
+            ? LanguageAdapters.DefaultMemberPageLimit
+            : Math.Min(limit.Value, LanguageAdapters.MaxMemberPageLimit);
         var budget = softBudget ?? (entireSolution
             ? _softBudgets.FindRefsEntireSolution
             : _softBudgets.FindRefsScoped);
@@ -220,7 +220,7 @@ public sealed partial class FSharpSymbolQueryService
                 "Call symbol_resolve with a name/FQN to obtain a fresh SymbolHandle; do not invent handles."));
         }
 
-        if (!string.Equals(parsed.Language, SymbolQueryService.FSharpLanguage, StringComparison.Ordinal))
+        if (!string.Equals(parsed.Language, LanguageAdapters.FSharpLanguage, StringComparison.Ordinal))
         {
             return (null, null, null, new InvalidSymbolHandleError(
                 $"Unsupported language '{parsed.Language}'.",
@@ -334,8 +334,8 @@ public sealed partial class FSharpSymbolQueryService
         bool truncatedByBudget = false)
     {
         var limit = pageLimit is null or < 1
-            ? SymbolQueryService.DefaultMemberPageLimit
-            : Math.Min(pageLimit.Value, SymbolQueryService.MaxMemberPageLimit);
+            ? LanguageAdapters.DefaultMemberPageLimit
+            : Math.Min(pageLimit.Value, LanguageAdapters.MaxMemberPageLimit);
         return SoftBudgetPage.Page(
             items,
             epoch,

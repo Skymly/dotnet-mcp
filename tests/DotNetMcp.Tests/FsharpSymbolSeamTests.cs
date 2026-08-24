@@ -28,7 +28,7 @@ public class FsharpSymbolSeamTests
 
             Assert.StartsWith("fsharp:", body.Handle, StringComparison.Ordinal);
             Assert.True(SymbolHandle.TryParse(body.Handle, out var parsed, out _), body.Handle);
-            Assert.Equal(SymbolQueryService.FSharpLanguage, parsed!.Language);
+            Assert.Equal(LanguageAdapters.FSharpLanguage, parsed!.Language);
             Assert.Equal("NamedType", body.Summary.Kind);
             Assert.Equal("Widget", body.Summary.DisplayName);
             Assert.Equal("fsharp", body.Summary.Language);
@@ -146,7 +146,7 @@ public class FsharpSymbolSeamTests
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
             var fsProject = Assert.Single(projects.Projects, p => p.Language == "fsharp");
             var stale = SymbolHandle.Create(
-                SymbolQueryService.FSharpLanguage,
+                LanguageAdapters.FSharpLanguage,
                 fsProject.ProjectId,
                 "FsLib.DoesNotExist");
             var missing = await fx.Client.CallToolAsync(

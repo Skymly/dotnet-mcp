@@ -129,7 +129,7 @@ public class FsharpReadNoDiskWriteSeamTests
                 FindRefsScoped = TimeSpan.Zero,
                 FindRefsEntireSolution = TimeSpan.Zero
             });
-            var service = new SymbolQueryService(new GeneratorQueryService(), extraAdapter: fsharp);
+            var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService()), fsharp]);
             using var session = new WorkspaceSession(loaded, epoch: 1);
 
             var fs = loaded.Solution.Projects.Single(p => p.Language == LanguageNames.FSharp);

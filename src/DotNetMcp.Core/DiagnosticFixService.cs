@@ -184,7 +184,7 @@ public sealed class DiagnosticFixService
                 "Use project_diagnostics to inspect F# errors, or symbol_preview_rename for handwritten fsharp handles."));
         }
 
-        if (!SymbolQueryService.IsSupportedRoslynLanguage(project.Language))
+        if (!RoslynLanguageAdapter.IsSupportedRoslynLanguage(project.Language))
         {
             return (null, null, new FixLanguageNotSupportedError(
                 $"Diagnostic fix is not available for language '{project.Language}'.",

@@ -10,13 +10,13 @@ namespace DotNetMcp.Core;
 /// </summary>
 public sealed class CodeRefactoringService
 {
-    private readonly SymbolQueryService _symbols;
     private readonly LanguageAdapters _languages;
+    private readonly RoslynLanguageAdapter _roslyn;
 
-    public CodeRefactoringService(SymbolQueryService symbols, LanguageAdapters? languages = null)
+    public CodeRefactoringService(LanguageAdapters languages, RoslynLanguageAdapter roslyn)
     {
-        _symbols = symbols;
-        _languages = languages ?? symbols.Languages;
+        _languages = languages;
+        _roslyn = roslyn;
     }
 
     public async Task<(CodeRefactoringListSuccess? Success, SymbolQueryError? Error)> ListAsync(
@@ -108,7 +108,7 @@ public sealed class CodeRefactoringService
                 "Call symbol_list_refactorings on a handwritten csharp or vb SymbolHandle."));
         }
 
-        var (project, symbol, resolveError) = await _symbols
+        var (project, symbol, resolveError) = await _roslyn
             .ResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (resolveError is not null)
@@ -116,7 +116,7 @@ public sealed class CodeRefactoringService
             return (null, default, resolveError);
         }
 
-        var (attribution, attrError) = await _symbols
+        var (attribution, attrError) = await _roslyn
             .GetAttributionAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (attrError is not null)

@@ -201,7 +201,7 @@ public class SymbolFindReferencesSeamTests
             Assert.True(open.IsError is not true);
 
             var ghost = SymbolHandle.Create(
-                SymbolQueryService.CSharpLanguage,
+                LanguageAdapters.CSharpLanguage,
                 Guid.NewGuid().ToString("D"),
                 "LibA.Marker");
 
@@ -224,7 +224,7 @@ public class SymbolFindReferencesSeamTests
     public async Task FindReferencesAsync_soft_budget_zero_truncates_with_continuation_message()
     {
         var loaded = FakeSolutionLoader.CreateFindRefsGraphLoaded();
-        var service = new SymbolQueryService(new GeneratorQueryService());
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
         var libA = loaded.Solution.Projects.Single(p => p.Name == "LibA");
         using var session = new WorkspaceSession(loaded, epoch: 1);
 

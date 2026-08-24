@@ -13,12 +13,17 @@ public sealed class XamlDocumentService
     public const string AvaloniaDocumentExtension = ".axaml";
     public const string MauiDocumentExtension = ".xaml";
 
-    private readonly SymbolQueryService _symbols;
+    private readonly LanguageAdapters _languages;
+    private readonly RoslynLanguageAdapter _roslyn;
     private readonly SoftBudgetOptions _softBudgets;
 
-    public XamlDocumentService(SymbolQueryService symbols, SoftBudgetOptions? softBudgets = null)
+    public XamlDocumentService(
+        LanguageAdapters languages,
+        RoslynLanguageAdapter roslyn,
+        SoftBudgetOptions? softBudgets = null)
     {
-        _symbols = symbols;
+        _languages = languages;
+        _roslyn = roslyn;
         _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
     }
 
@@ -39,7 +44,7 @@ public sealed class XamlDocumentService
             return (null, MissingClassError(), null);
         }
 
-        var (success, symbolError) = await _symbols
+        var (success, symbolError) = await _languages
             .ResolveByNameAsync(session, root.ClassName, projectId: null, cancellationToken)
             .ConfigureAwait(false);
         return (success, null, symbolError);
@@ -78,7 +83,7 @@ public sealed class XamlDocumentService
             return (null, MissingClassError(), null);
         }
 
-        var (resolved, symbolError) = await _symbols
+        var (resolved, symbolError) = await _languages
             .ResolveByNameAsync(session, root.ClassName, projectId: null, cancellationToken)
             .ConfigureAwait(false);
         if (symbolError is not null)
@@ -86,7 +91,7 @@ public sealed class XamlDocumentService
             return (null, null, symbolError);
         }
 
-        var (lookup, lookupError) = await _symbols
+        var (lookup, lookupError) = await _roslyn
             .LookupTypeMemberAsync(session, resolved!.Handle, name.Trim(), publicOnly: false, cancellationToken)
             .ConfigureAwait(false);
         if (lookupError is not null)
@@ -103,8 +108,8 @@ public sealed class XamlDocumentService
                 "Ensure the XAML name generator has run (build the project), then retry xaml_resolve_name."), null);
         }
 
-        var handle = _symbols.FormatHandle(lookup.Project, lookup.Member);
-        var success = await _symbols.GetSummaryAsync(session, handle, cancellationToken).ConfigureAwait(false);
+        var handle = _roslyn.FormatHandle(lookup.Project, lookup.Member);
+        var success = await _languages.GetSummaryAsync(session, handle, cancellationToken).ConfigureAwait(false);
         return (success.Success, null, success.Error);
     }
 
@@ -162,7 +167,7 @@ public sealed class XamlDocumentService
         }
 
         var resolvedTypeName = ResolveTypeName(typeName.Trim(), xmlns!);
-        var (resolved, symbolError) = await _symbols
+        var (resolved, symbolError) = await _languages
             .ResolveByNameAsync(session, resolvedTypeName, projectId: null, cancellationToken)
             .ConfigureAwait(false);
         if (symbolError is not null)
@@ -170,7 +175,7 @@ public sealed class XamlDocumentService
             return (null, null, symbolError);
         }
 
-        var (startProject, startSymbol, startError) = await _symbols
+        var (startProject, startSymbol, startError) = await _roslyn
             .ResolveHandleSymbolAsync(session, resolved!.Handle, cancellationToken)
             .ConfigureAwait(false);
         if (startError is not null)
@@ -190,7 +195,7 @@ public sealed class XamlDocumentService
         Project walkProject = startProject!;
         foreach (var segment in bindingPath.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var (lookup, lookupError) = _symbols.LookupTypeMember(walkProject, walkType, segment, publicOnly: true);
+            var (lookup, lookupError) = _roslyn.LookupTypeMember(walkProject, walkType, segment, publicOnly: true);
             if (lookupError is not null)
             {
                 if (HasOrdinaryMethod(walkType, segment))
@@ -212,8 +217,8 @@ public sealed class XamlDocumentService
                     "Bind to a public instance property or field."), null);
             }
 
-            var handle = _symbols.FormatHandle(lookup.Project, lookup.Member);
-            var (summary, summaryError) = await _symbols.GetSummaryAsync(session, handle, cancellationToken)
+            var handle = _roslyn.FormatHandle(lookup.Project, lookup.Member);
+            var (summary, summaryError) = await _languages.GetSummaryAsync(session, handle, cancellationToken)
                 .ConfigureAwait(false);
             if (summaryError is not null)
             {
@@ -508,7 +513,7 @@ public sealed class XamlDocumentService
             return (null, null);
         }
 
-        var (resolved, symbolError) = await _symbols
+        var (resolved, symbolError) = await _languages
             .ResolveByNameAsync(session, root.ClassName, projectId: null, cancellationToken)
             .ConfigureAwait(false);
         if (symbolError is not null || resolved is null)
@@ -516,7 +521,7 @@ public sealed class XamlDocumentService
             return (null, symbolError);
         }
 
-        var (_, symbol, handleError) = await _symbols
+        var (_, symbol, handleError) = await _roslyn
             .ResolveHandleSymbolAsync(session, resolved.Handle, cancellationToken)
             .ConfigureAwait(false);
         if (handleError is not null || symbol is not INamedTypeSymbol type)
@@ -762,11 +767,11 @@ public sealed class XamlDocumentService
         INamedTypeSymbol? classType = null;
         if (!string.IsNullOrWhiteSpace(root.ClassName))
         {
-            var (resolved, _) = await _symbols.ResolveByNameAsync(session, root.ClassName, cancellationToken: cancellationToken)
+            var (resolved, _) = await _languages.ResolveByNameAsync(session, root.ClassName, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
             if (resolved is not null)
             {
-                var (_, symbol, _) = await _symbols.ResolveHandleSymbolAsync(session, resolved.Handle, cancellationToken)
+                var (_, symbol, _) = await _roslyn.ResolveHandleSymbolAsync(session, resolved.Handle, cancellationToken)
                     .ConfigureAwait(false);
                 classType = symbol as INamedTypeSymbol;
                 projectId = resolved.Summary.ProjectId;

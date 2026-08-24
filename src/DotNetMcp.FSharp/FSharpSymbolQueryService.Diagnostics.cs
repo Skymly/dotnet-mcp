@@ -23,8 +23,8 @@ public sealed partial class FSharpSymbolQueryService
 
         var epoch = session.Epoch;
         var pageLimit = limit is null or < 1
-            ? SymbolQueryService.DefaultMemberPageLimit
-            : Math.Min(limit.Value, SymbolQueryService.MaxMemberPageLimit);
+            ? LanguageAdapters.DefaultMemberPageLimit
+            : Math.Min(limit.Value, LanguageAdapters.MaxMemberPageLimit);
         if (!SoftBudgetPage.TryReadOffset(cursor, epoch, "project_diagnostics", out _, out var cursorError))
         {
             return (null, cursorError);

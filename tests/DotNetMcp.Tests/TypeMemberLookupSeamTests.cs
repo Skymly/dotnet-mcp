@@ -151,7 +151,7 @@ public class TypeMemberLookupSeamTests
         using (session)
         {
             var projectId = session.Solution.Projects.Single().Id.Id.ToString("D");
-            var ghost = SymbolHandle.Create(SymbolQueryService.CSharpLanguage, projectId, "SampleLib.DoesNotExist");
+            var ghost = SymbolHandle.Create(LanguageAdapters.CSharpLanguage, projectId, "SampleLib.DoesNotExist");
 
             var (lookup, error) = await symbols.LookupTypeMemberAsync(session, ghost.Format(), "Mode");
 
@@ -182,20 +182,20 @@ public class TypeMemberLookupSeamTests
         }
     }
 
-    private static (WorkspaceSession Session, SymbolQueryService Symbols) OpenSymbols()
+    private static (WorkspaceSession Session, RoslynLanguageAdapter Symbols) OpenSymbols()
     {
         var loaded = FakeSolutionLoader.CreateSymbolsLoaded(@"C:\fake\SampleLib.csproj");
-        return (new WorkspaceSession(loaded, epoch: 1), new SymbolQueryService(new GeneratorQueryService()));
+        return (new WorkspaceSession(loaded, epoch: 1), new RoslynLanguageAdapter(new GeneratorQueryService()));
     }
 
-    private static (WorkspaceSession Session, SymbolQueryService Symbols) OpenViewModels()
+    private static (WorkspaceSession Session, RoslynLanguageAdapter Symbols) OpenViewModels()
     {
         var loaded = FakeSolutionLoader.CreateViewModelLoaded();
-        return (new WorkspaceSession(loaded, epoch: 1), new SymbolQueryService(new GeneratorQueryService()));
+        return (new WorkspaceSession(loaded, epoch: 1), new RoslynLanguageAdapter(new GeneratorQueryService()));
     }
 
     private static async Task<string> ResolveHandleAsync(
-        SymbolQueryService symbols,
+        RoslynLanguageAdapter symbols,
         IWorkspaceSession session,
         string name)
     {

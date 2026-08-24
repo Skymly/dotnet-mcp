@@ -53,10 +53,6 @@ public static class ServerHost
             sp.GetRequiredService<RoslynLanguageAdapter>(),
             sp.GetRequiredService<FSharpSymbolQueryService>(),
         ]));
-        services.AddSingleton(sp => new SymbolQueryService(
-            sp.GetRequiredService<LanguageAdapters>(),
-            sp.GetRequiredService<RoslynLanguageAdapter>()));
-        services.AddSingleton<RenamePreviewService>();
         services.AddSingleton<DiagnosticFixService>();
         services.AddSingleton<CodeRefactoringService>();
         services.AddSingleton<DiagnosticQueryService>();

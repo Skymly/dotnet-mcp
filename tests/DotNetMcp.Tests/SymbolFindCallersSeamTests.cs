@@ -212,7 +212,7 @@ public class SymbolFindCallersSeamTests
             Assert.True(open.IsError is not true);
 
             var ghost = SymbolHandle.Create(
-                SymbolQueryService.CSharpLanguage,
+                LanguageAdapters.CSharpLanguage,
                 Guid.NewGuid().ToString("D"),
                 "SampleLib.MathOps.Add(int, int)");
 
@@ -234,7 +234,7 @@ public class SymbolFindCallersSeamTests
     public async Task FindCallersAsync_soft_budget_zero_truncates_with_continuation_message()
     {
         var loaded = FakeSolutionLoader.CreateCallersLoaded(@"C:\fake\CallerLib.csproj");
-        var service = new SymbolQueryService(new GeneratorQueryService());
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
         using var session = new WorkspaceSession(loaded, epoch: 1);
 
         var (resolved, resolveError) = await service.ResolveByNameAsync(session, "SampleLib.MathOps.Add");

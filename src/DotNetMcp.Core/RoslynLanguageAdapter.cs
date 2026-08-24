@@ -17,6 +17,11 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         SoftBudgetOptions.Default.FindRefsScoped;
     public static readonly TimeSpan EntireSolutionSoftBudget =
         SoftBudgetOptions.Default.FindRefsEntireSolution;
+    public static readonly SymbolRenameOptions DefaultRenameOptions = new(
+        RenameOverloads: false,
+        RenameInStrings: false,
+        RenameInComments: false,
+        RenameFile: false);
 
     private readonly GeneratorQueryService _generators;
     private readonly SoftBudgetOptions _softBudgets;
@@ -29,10 +34,10 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
     }
 
     public bool OwnsLanguage(string languageToken) =>
-        SymbolQueryService.IsSupportedLanguageToken(languageToken);
+        IsSupportedLanguageToken(languageToken);
 
     public bool OwnsProject(Project project) =>
-        SymbolQueryService.IsSupportedRoslynLanguage(project.Language);
+        IsSupportedRoslynLanguage(project.Language);
 
     public bool SupportsCodeRefactoring => true;
 
@@ -1339,7 +1344,7 @@ public sealed class RoslynLanguageAdapter : ILanguageAdapter
         var renamed = await Renamer.RenameSymbolAsync(
             session.Solution,
             symbol,
-            RenamePreviewService.DefaultOptions,
+            DefaultRenameOptions,
             newName,
             cancellationToken).ConfigureAwait(false);
 

@@ -10,21 +10,21 @@ public sealed class SymbolTools
 {
     private readonly WorkspaceHost _workspaceHost;
     private readonly WorkspaceEdit _workspaceEdit;
-    private readonly SymbolQueryService _symbols;
-    private readonly RenamePreviewService _renames;
+    private readonly LanguageAdapters _languages;
+    private readonly RoslynLanguageAdapter _roslyn;
     private readonly IAuditLogger _audit;
 
     public SymbolTools(
         WorkspaceHost workspaceHost,
         WorkspaceEdit workspaceEdit,
-        SymbolQueryService symbols,
-        RenamePreviewService renames,
+        LanguageAdapters languages,
+        RoslynLanguageAdapter roslyn,
         IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
         _workspaceEdit = workspaceEdit;
-        _symbols = symbols;
-        _renames = renames;
+        _languages = languages;
+        _roslyn = roslyn;
         _audit = audit;
     }
 
@@ -46,7 +46,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _symbols
+        var (success, error) = await _languages
             .ResolveByNameAsync(session!, name, projectId, cancellationToken)
             .ConfigureAwait(false);
 
@@ -74,7 +74,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _symbols
+        var (success, error) = await _languages
             .GetSummaryAsync(session!, handle, cancellationToken)
             .ConfigureAwait(false);
 
@@ -102,7 +102,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _symbols
+        var (success, error) = await _languages
             .GetDefinitionAsync(session!, handle, cancellationToken)
             .ConfigureAwait(false);
 
@@ -131,7 +131,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _symbols
+        var (success, error) = await _roslyn
             .GetAttributionAsync(session!, handle, cancellationToken)
             .ConfigureAwait(false);
 
@@ -163,7 +163,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _symbols
+        var (success, error) = await _languages
             .GetMembersAsync(
                 session!,
                 handle,
@@ -203,7 +203,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _symbols
+        var (success, error) = await _languages
             .FindReferencesAsync(
                 session!,
                 handle,
@@ -242,7 +242,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _symbols
+        var (success, error) = await _languages
             .FindImplementationsAsync(session!, handle, limit, cursor, cancellationToken)
             .ConfigureAwait(false);
 
@@ -274,7 +274,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _symbols
+        var (success, error) = await _languages
             .GetTypeHierarchyAsync(session!, handle, limit, cursor, cancellationToken)
             .ConfigureAwait(false);
 
@@ -306,7 +306,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _symbols
+        var (success, error) = await _languages
             .FindCallersAsync(session!, handle, limit, cursor, softBudget: null, cancellationToken)
             .ConfigureAwait(false);
 
@@ -337,8 +337,8 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (draft, error) = await _renames
-            .BuildAsync(session!, handle, newName, cancellationToken)
+        var (draft, error) = await _languages
+            .BuildRenamePreviewAsync(session!, handle, newName, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {

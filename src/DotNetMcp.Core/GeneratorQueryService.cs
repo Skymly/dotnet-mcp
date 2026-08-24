@@ -285,7 +285,7 @@ public sealed class GeneratorQueryService
         }
 
         project = solution.Projects
-            .Where(p => SymbolQueryService.IsSupportedRoslynLanguage(p.Language))
+            .Where(p => RoslynLanguageAdapter.IsSupportedRoslynLanguage(p.Language))
             .FirstOrDefault(p =>
                 string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
 

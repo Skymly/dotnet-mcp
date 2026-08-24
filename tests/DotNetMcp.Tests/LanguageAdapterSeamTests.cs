@@ -58,7 +58,7 @@ public class LanguageAdapterSeamTests
         {
             var loaded = FakeSolutionLoader.CreateFsharpSymbolsLoaded(root);
             var fake = new FakeLanguageAdapter();
-            var service = new SymbolQueryService(new GeneratorQueryService(), extraAdapter: fake);
+            var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService()), fake]);
             using var session = new WorkspaceSession(loaded, epoch: 1);
 
             var handle = SymbolHandle.Create("fake", Guid.NewGuid().ToString("D"), "Fake.Type").Format();
@@ -89,16 +89,16 @@ public class LanguageAdapterSeamTests
             var fs = loaded.Solution.Projects.Single(p => p.Language == LanguageNames.FSharp);
             var cs = loaded.Solution.Projects.Single(p => p.Language == LanguageNames.CSharp);
             var fsharpHandle = SymbolHandle.Create(
-                SymbolQueryService.FSharpLanguage,
+                LanguageAdapters.FSharpLanguage,
                 fs.Id.Id.ToString("D"),
                 "FsLib.Widget").Format();
             var csharpHandle = SymbolHandle.Create(
-                SymbolQueryService.CSharpLanguage,
+                LanguageAdapters.CSharpLanguage,
                 cs.Id.Id.ToString("D"),
                 "CsLib.Caller").Format();
 
-            Assert.Same(roslyn, languages.TryGet(SymbolQueryService.CSharpLanguage, out var roslynSelected) ? roslynSelected : null);
-            Assert.Same(fsharp, languages.TryGet(SymbolQueryService.FSharpLanguage, out var fsharpSelected) ? fsharpSelected : null);
+            Assert.Same(roslyn, languages.TryGet(LanguageAdapters.CSharpLanguage, out var roslynSelected) ? roslynSelected : null);
+            Assert.Same(fsharp, languages.TryGet(LanguageAdapters.FSharpLanguage, out var fsharpSelected) ? fsharpSelected : null);
             Assert.Same(fsharp, languages.ForProjectId(loaded.Solution, fs.Id.Id.ToString("D")));
             Assert.Same(roslyn, languages.ForProjectId(loaded.Solution, cs.Id.Id.ToString("D")));
 
@@ -122,11 +122,13 @@ public class LanguageAdapterSeamTests
     public void core_query_modules_do_not_copy_fsharp_language_dispatch()
     {
         var coreDir = FindCoreDir();
+        Assert.False(File.Exists(Path.Combine(coreDir, "SymbolQueryService.cs")));
+        Assert.False(File.Exists(Path.Combine(coreDir, "RenamePreviewService.cs")));
+
         var files = new[]
         {
-            "SymbolQueryService.cs",
+            "LanguageAdapters.cs",
             "DiagnosticQueryService.cs",
-            "RenamePreviewService.cs",
             "CodeRefactoringService.cs",
         };
 
@@ -140,13 +142,40 @@ public class LanguageAdapterSeamTests
         }
     }
 
+
+    [Fact]
+    public void dto_facade_is_language_adapters_not_a_pass_through_hop()
+    {
+        var coreDir = FindCoreDir();
+        Assert.False(File.Exists(Path.Combine(coreDir, "SymbolQueryService.cs")));
+        Assert.False(File.Exists(Path.Combine(coreDir, "RenamePreviewService.cs")));
+
+        var languageAdapters = File.ReadAllText(Path.Combine(coreDir, "LanguageAdapters.cs"));
+        Assert.Contains("GetSummaryAsync", languageAdapters, StringComparison.Ordinal);
+        Assert.Contains("BuildRenamePreviewAsync", languageAdapters, StringComparison.Ordinal);
+
+        var repo = Directory.GetParent(coreDir)!.Parent!;
+        var files = new[]
+        {
+            Path.Combine(repo.FullName, "src", "DotNetMcp.Server", "SymbolTools.cs"),
+            Path.Combine(repo.FullName, "src", "DotNetMcp.Server", "ServerHost.cs"),
+            Path.Combine(repo.FullName, "src", "DotNetMcp.Xaml", "XamlDocumentService.cs"),
+            Path.Combine(coreDir, "CodeRefactoringService.cs"),
+        };
+        foreach (var file in files)
+        {
+            var text = File.ReadAllText(file);
+            Assert.DoesNotContain("SymbolQueryService ", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("RenamePreviewService", text, StringComparison.Ordinal);
+        }
+    }
     private static string FindCoreDir()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
         {
             var candidate = Path.Combine(dir.FullName, "src", "DotNetMcp.Core");
-            if (File.Exists(Path.Combine(candidate, "SymbolQueryService.cs")))
+            if (File.Exists(Path.Combine(candidate, "LanguageAdapters.cs")))
             {
                 return candidate;
             }

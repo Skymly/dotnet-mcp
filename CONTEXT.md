@@ -68,6 +68,11 @@ _Avoid_: treating non-csharp handles as a blanket reject
 工作区可加载 SDK 风格 `.fsproj` / 混合解决方案；语言标记为 `fsharp`。F# 符号使用独立 FCS 栈上的 `fsharp:` SymbolHandle，导航/分析/诊断与 C# 同级。F# 源生成器归因不在本分期。
 _Avoid_: LSP proxy, stuffing F# into Roslyn ISymbol
 
+
+**DTO facade**:
+MCP 工具面的 Core 外层：SymbolHandle、摘要、分页；按 Language 选一次 ILanguageAdapter。
+_Avoid_: 再套一层只转发的查询 hop; merging tools into Core
+
 **ILanguageAdapter**:
 Core 语言接缝（ADR-0001 §5）。`SymbolHandle.Language` / project language 选一次。两个真实 adapter：Roslyn（C#/VB）与 FCS（F#）。XAML 是 Core 内层 API 的调用者，不是 adapter。
 _Avoid_: per-module `if (fsharp:)`; treating XAML as a third adapter
