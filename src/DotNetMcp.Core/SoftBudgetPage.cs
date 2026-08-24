@@ -73,6 +73,40 @@ public static class SoftBudgetPage
             items.Count == 0 ? emptyMessage : completeMessage), null);
     }
 
+    public static (PagedResult<T>? Success, SymbolQueryError? Error) PageGenerated<T>(
+        IReadOnlyList<T> items,
+        long epoch,
+        string assemblyName,
+        string typeFullName,
+        string? cursor,
+        int pageLimit,
+        string tool,
+        string emptyMessage,
+        string completeMessage,
+        string pastEndNoun = "the result list")
+    {
+        if (!TryReadGenerated(cursor, epoch, assemblyName, typeFullName, tool, out var offset, out var error))
+        {
+            return (null, error);
+        }
+
+        if (offset > items.Count)
+        {
+            return (null, PastEnd(tool, pastEndNoun));
+        }
+
+        pageLimit = Math.Max(1, pageLimit);
+        var slice = items.Skip(offset).Take(pageLimit).ToList();
+        var next = offset + slice.Count;
+        return (Finish(
+            slice,
+            moreItems: next < items.Count,
+            budgetHit: false,
+            () => GeneratedSourcesPageCursor.Encode(epoch, assemblyName, typeFullName, next),
+            tool,
+            items.Count == 0 ? emptyMessage : completeMessage), null);
+    }
+
     public static bool TryReadOffset(
         string? cursor,
         long epoch,
@@ -151,6 +185,59 @@ public static class SoftBudgetPage
                 $"Call {tool} again without a cursor; do not retry with the stale cursor.");
             docIndex = 0;
             locOffset = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    public static bool TryReadGenerated(
+        string? cursor,
+        long epoch,
+        string assemblyName,
+        string typeFullName,
+        string tool,
+        out int offset,
+        out SymbolQueryError? error)
+    {
+        offset = 0;
+        error = null;
+        if (string.IsNullOrWhiteSpace(cursor))
+        {
+            return true;
+        }
+
+        if (!GeneratedSourcesPageCursor.TryDecode(
+                cursor,
+                out var cursorEpoch,
+                out var cursorAssembly,
+                out var cursorType,
+                out offset,
+                out var cursorError))
+        {
+            error = new StaleCursorError(
+                cursorError ?? "Cursor is invalid.",
+                $"Call {tool} again without a cursor to start a fresh page.");
+            offset = 0;
+            return false;
+        }
+
+        if (cursorEpoch != epoch)
+        {
+            error = new StaleCursorError(
+                $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
+                $"Call {tool} again without a cursor; do not retry with the stale cursor.");
+            offset = 0;
+            return false;
+        }
+
+        if (!string.Equals(cursorAssembly, assemblyName, StringComparison.Ordinal) ||
+            !string.Equals(cursorType, typeFullName, StringComparison.Ordinal))
+        {
+            error = new StaleCursorError(
+                "Cursor generator identity does not match assemblyName/typeFullName.",
+                "Pass the same assemblyName and typeFullName used when the cursor was issued.");
+            offset = 0;
             return false;
         }
 
