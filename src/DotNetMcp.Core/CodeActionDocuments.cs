@@ -7,7 +7,7 @@ namespace DotNetMcp.Core;
 
 /// <summary>
 /// CodeAction → changed documents. First-party / parameterless provider load,
-/// nested-action flatten, and ApplyChangesOperation. Shared by Diagnostic fix
+/// nested-action flatten, ApplyChangesOperation, and handwritten slices. Shared by Diagnostic fix
 /// and Code Refactoring. Diff stays in HandwrittenDocumentDiff.
 /// </summary>
 public static class CodeActionDocuments
@@ -39,6 +39,34 @@ public static class CodeActionDocuments
         {
             return null;
         }
+    }
+
+    public static async Task<(IReadOnlyList<RenameDocumentSlice>? Documents, SymbolQueryError? Error)> ToHandwrittenSlicesAsync(
+        Solution before,
+        Solution? after,
+        Func<SymbolQueryError> applyFailed,
+        Func<SymbolQueryError> generatedRefused,
+        CancellationToken cancellationToken)
+    {
+        if (after is null)
+        {
+            return (null, applyFailed());
+        }
+
+        var (slices, generated) = await HandwrittenDocumentDiff
+            .FromSolutionsAsync(before, after, cancellationToken)
+            .ConfigureAwait(false);
+        if (generated)
+        {
+            return (null, generatedRefused());
+        }
+
+        if (slices.Count == 0)
+        {
+            return (null, applyFailed());
+        }
+
+        return (slices, null);
     }
 
     private static IReadOnlyList<TProvider> LoadProviders<TProvider>(string language)

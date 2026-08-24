@@ -115,33 +115,27 @@ public sealed class DiagnosticFixService
             changed = await CodeActionDocuments.ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
         }
 
-        if (changed is null)
+        var (slices, sliceError) = await CodeActionDocuments.ToHandwrittenSlicesAsync(
+                session.Solution,
+                changed,
+                () => new FixApplyFailedError(
+                    $"CodeFix '{chosen.Title}' did not produce a handwritten document change.",
+                    "Pick another fixIndex from diagnostics_list_fixes, or fix the code without this tool."),
+                () => new GeneratedDocumentFixRefusedError(
+                    "This Diagnostic fix would change a generated document.",
+                    "Change the generator input (handwritten source / attribute) instead of applying a fix to generated output."),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (sliceError is not null)
         {
-            return (null, new FixApplyFailedError(
-                $"CodeFix '{chosen.Title}' did not produce a solution change.",
-                "Pick another fixIndex from diagnostics_list_fixes, or fix the code without this tool."));
-        }
-
-        var (slices, generated) = await HandwrittenDocumentDiff.FromSolutionsAsync(session.Solution, changed, cancellationToken).ConfigureAwait(false);
-        if (generated)
-        {
-            return (null, new GeneratedDocumentFixRefusedError(
-                "This Diagnostic fix would change a generated document.",
-                "Change the generator input (handwritten source / attribute) instead of applying a fix to generated output."));
-        }
-
-        if (slices.Count == 0)
-        {
-            return (null, new FixApplyFailedError(
-                $"CodeFix '{chosen.Title}' produced no handwritten document changes.",
-                "Pick another fixIndex from diagnostics_list_fixes."));
+            return (null, sliceError);
         }
 
         return (new DiagnosticFixPreviewDraft(
             chosen.Title,
             chosen.EquivalenceKey,
             normalizedScope,
-            slices,
+            slices!,
             InvalidatedHandles: []), null);
     }
 
