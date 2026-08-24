@@ -41,6 +41,22 @@ public sealed class LanguageAdapters
         return project is null ? null : ForProject(project);
     }
 
+    public ILanguageAdapter? ForProjectId(IWorkspaceSession session, string projectId)
+    {
+        var fromSolution = ForProjectId(session.Solution, projectId);
+        if (fromSolution is not null)
+        {
+            return fromSolution;
+        }
+
+        if (session.FSharpSnapshot.FindProject(projectId) is null)
+        {
+            return null;
+        }
+
+        return TryGet(FSharpLanguage, out var adapter) ? adapter : null;
+    }
+
     public bool TryGetForHandle(
         string handle,
         [NotNullWhen(true)] out ILanguageAdapter? adapter,
@@ -82,7 +98,7 @@ public sealed class LanguageAdapters
 
         if (!string.IsNullOrWhiteSpace(projectId))
         {
-            var adapter = ForProjectId(session.Solution, projectId);
+            var adapter = ForProjectId(session, projectId);
             if (adapter is null)
             {
                 return (null, new SymbolNotFoundError(

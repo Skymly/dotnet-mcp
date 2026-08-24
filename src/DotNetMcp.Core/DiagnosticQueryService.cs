@@ -28,7 +28,7 @@ public sealed class DiagnosticQueryService
                 .ConfigureAwait(false);
         }
 
-        var adapter = _languages.ForProjectId(session.Solution, projectId);
+        var adapter = _languages.ForProjectId(session, projectId);
         if (adapter is null)
         {
             return (null, new ProjectNotFoundError(

@@ -27,6 +27,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
     public bool SupportsCodeRefactoring => false;
 
+    public bool SupportsDiagnosticFix => false;
+
     public FSharpSymbolQueryService(SoftBudgetOptions? softBudgets = null)
     {
         _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
