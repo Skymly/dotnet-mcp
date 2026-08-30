@@ -1,5 +1,7 @@
 using DotNetMcp.Core;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Rename;
 using Microsoft.CodeAnalysis.Text;
 
@@ -10,8 +12,8 @@ public class HandwrittenDocumentDiffTests
     [Fact]
     public async Task from_document_pairs_drops_source_generator_documents_so_callers_do_not_re_copy_origin_checks()
     {
-        var loaded = FakeSolutionLoader.CreateGeneratorsLoaded();
-        var project = loaded.Solution.Projects.Single();
+        using var workspace = CreateWorkspace();
+        var project = workspace.CurrentSolution.Projects.Single();
         var handwritten = Assert.Single(project.Documents);
         var generated = (await project.GetSourceGeneratedDocumentsAsync())
             .Where(d => !string.IsNullOrWhiteSpace(d.FilePath))
@@ -25,7 +27,7 @@ public class HandwrittenDocumentDiffTests
         pairs.AddRange(generated.Select(d => new RenameDocumentSlice(d.FilePath!, "old-gen", "new-gen")));
 
         var (slices, touchedGenerated) = await HandwrittenDocumentDiff.FromDocumentPairsAsync(
-            loaded.Solution,
+            workspace.CurrentSolution,
             pairs,
             CancellationToken.None);
 
@@ -39,14 +41,14 @@ public class HandwrittenDocumentDiffTests
     [Fact]
     public async Task from_solutions_keeps_handwritten_text_changes_without_generated_slices()
     {
-        var loaded = FakeSolutionLoader.CreateGeneratorsLoaded();
-        var handwritten = Assert.Single(loaded.Solution.Projects.Single().Documents);
-        var after = loaded.Solution.WithDocumentText(
+        using var workspace = CreateWorkspace();
+        var handwritten = Assert.Single(workspace.CurrentSolution.Projects.Single().Documents);
+        var after = workspace.CurrentSolution.WithDocumentText(
             handwritten.Id,
             SourceText.From("namespace GeneratorHost; public static class Host { public static int N => 1; }"));
 
         var (slices, touchedGenerated) = await HandwrittenDocumentDiff.FromSolutionsAsync(
-            loaded.Solution,
+            workspace.CurrentSolution,
             after,
             CancellationToken.None);
 
@@ -59,8 +61,8 @@ public class HandwrittenDocumentDiffTests
     [Fact]
     public async Task from_solutions_omits_source_generator_documents_when_rename_would_touch_them()
     {
-        var loaded = FakeSolutionLoader.CreateGeneratorsLoaded();
-        var project = loaded.Solution.Projects.Single();
+        using var workspace = CreateWorkspace();
+        var project = workspace.CurrentSolution.Projects.Single();
         var compilation = await project.GetCompilationAsync();
         Assert.NotNull(compilation);
         var type = compilation!.GetTypeByMetadataName("GeneratorHost.PartialThing");
@@ -70,14 +72,14 @@ public class HandwrittenDocumentDiffTests
         Assert.NotEmpty(generated);
 
         var renamed = await Renamer.RenameSymbolAsync(
-            loaded.Solution,
+            workspace.CurrentSolution,
             type!,
             RoslynLanguageAdapter.DefaultRenameOptions,
             "RenamedThing",
             CancellationToken.None);
 
         var (slices, _) = await HandwrittenDocumentDiff.FromSolutionsAsync(
-            loaded.Solution,
+            workspace.CurrentSolution,
             renamed,
             CancellationToken.None);
 
@@ -98,21 +100,77 @@ public class HandwrittenDocumentDiffTests
     [Fact]
     public async Task from_solutions_flags_added_documents_without_emitting_them_as_slices()
     {
-        var loaded = FakeSolutionLoader.CreateGeneratorsLoaded();
-        var project = loaded.Solution.Projects.Single();
-        var after = loaded.Solution.AddDocument(
+        using var workspace = CreateWorkspace();
+        var project = workspace.CurrentSolution.Projects.Single();
+        var after = workspace.CurrentSolution.AddDocument(
             DocumentId.CreateNewId(project.Id),
             "Extra.cs",
             SourceText.From("namespace GeneratorHost; public class Extra {}"),
             filePath: Path.Combine(Path.GetDirectoryName(project.FilePath) ?? @"C:\fake", "Extra.cs"));
 
         var (slices, touchedGenerated) = await HandwrittenDocumentDiff.FromSolutionsAsync(
-            loaded.Solution,
+            workspace.CurrentSolution,
             after,
             CancellationToken.None);
 
         Assert.True(touchedGenerated);
         Assert.Empty(slices);
+    }
+
+    private static AdhocWorkspace CreateWorkspace()
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        const string projectFilePath = @"C:\fake\GeneratorHost.csproj";
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "GeneratorHost",
+            "GeneratorHost",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        const string source = """
+            namespace GeneratorHost;
+
+            public static class Host
+            {
+                public static string Name => "host";
+            }
+
+            public partial class PartialThing
+            {
+                public string Format() => "hw";
+                public string Format(string x) => x;
+            }
+            """;
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        solution = solution.AddDocument(
+            docId,
+            "Host.cs",
+            SourceText.From(source),
+            filePath: Path.Combine(projectDir, "Host.cs"));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        solution = solution.AddAnalyzerReference(
+            projectId,
+            new AnalyzerFileReference(
+                typeof(CustomGenerator.MarkerGenerator).Assembly.Location,
+                AnalyzerAssemblyLoader.Instance));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace.");
+        }
+
+        return workspace;
     }
 
     private static bool PathsEqual(string? left, string? right)
@@ -126,5 +184,17 @@ public class HandwrittenDocumentDiffTests
             Path.GetFullPath(left),
             Path.GetFullPath(right),
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class AnalyzerAssemblyLoader : IAnalyzerAssemblyLoader
+    {
+        public static AnalyzerAssemblyLoader Instance { get; } = new();
+
+        public void AddDependencyLocation(string fullPath)
+        {
+        }
+
+        public System.Reflection.Assembly LoadFromPath(string fullPath) =>
+            System.Reflection.Assembly.LoadFrom(fullPath);
     }
 }
