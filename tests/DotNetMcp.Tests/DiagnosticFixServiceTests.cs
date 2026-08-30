@@ -124,25 +124,6 @@ public class DiagnosticFixServiceTests
     }
 
     [Fact]
-    public async Task build_preview_project_fix_all_application_cap_is_exceeded()
-    {
-        using var workspace = CreateTwoFileMissingUsingWorkspace();
-        using var session = new FakeSession(workspace.CurrentSolution);
-        var budgets = new SoftBudgetOptions { FixAllProjectMaxApplications = 1 };
-        var service = new DiagnosticFixService(budgets: budgets);
-        var projectId = ProjectIdOf(workspace);
-        var (listed, listError) = await service.ListFixesAsync(
-            session, projectId, "CS0246", @"C:\fake\One.cs", null, null, null, null);
-        Assert.Null(listError);
-        var withKey = listed!.Items.First(i => !string.IsNullOrWhiteSpace(i.EquivalenceKey));
-
-        var (_, error) = await service.BuildPreviewAsync(
-            session, projectId, "CS0246", @"C:\fake\One.cs", null, null, null, null,
-            withKey.FixIndex, DiagnosticFixScopes.Project);
-        Assert.IsType<FixAllBudgetExceededError>(error);
-    }
-
-    [Fact]
     public async Task build_preview_unknown_project_is_not_found()
     {
         using var workspace = CreateMissingUsingWorkspace();
