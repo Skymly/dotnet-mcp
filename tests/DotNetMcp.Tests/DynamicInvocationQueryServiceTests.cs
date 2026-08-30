@@ -18,7 +18,8 @@ public class DynamicInvocationQueryServiceTests
 
         Assert.Null(error);
         Assert.NotNull(page);
-        Assert.Contains(page!.Items, i => i.Kind is "Invocation" or "Member");
+        Assert.NotEmpty(page!.Items);
+        Assert.Contains(page.Items, i => i.Kind == "Invocation");
         Assert.False(page.Truncated);
     }
 
