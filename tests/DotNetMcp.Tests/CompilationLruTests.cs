@@ -8,8 +8,7 @@ public class CompilationLruTests
     [Fact]
     public async Task concurrent_get_or_add_same_project_returns_one_cached_compilation()
     {
-        var loaded = FakeSolutionLoader.CreateSymbolsLoaded(@"C:\fake\SampleLib.csproj");
-        var project = loaded.Solution.Projects.Single();
+        using var workspace = CreateWorkspace(out var project);
         var lru = new CompilationLru(50);
         using var started = new CountdownEvent(8);
         var release = new TaskCompletionSource();
@@ -34,13 +33,26 @@ public class CompilationLruTests
 
         Assert.Equal(1, lru.Count);
         Assert.All(results, c => Assert.Same(results[0], c));
+        Assert.True(lru.TryGet(project.Id, out var cached));
+        Assert.Same(results[0], cached);
+
+        var extraFactories = 0;
+        Task<Compilation> ExtraFactory(Project p, CancellationToken ct)
+        {
+            Interlocked.Increment(ref extraFactories);
+            return p.GetCompilationAsync(ct)!;
+        }
+
+        var again = await lru.GetOrAddAsync(project, ExtraFactory, CancellationToken.None);
+        Assert.Same(results[0], again);
+        Assert.Equal(0, extraFactories);
+        Assert.True(lru.Hits >= 1);
     }
 
     [Fact]
     public async Task second_get_or_add_same_project_counts_as_hit_not_factory()
     {
-        var loaded = FakeSolutionLoader.CreateSymbolsLoaded(@"C:\fake\SampleLib.csproj");
-        var project = loaded.Solution.Projects.Single();
+        using var workspace = CreateWorkspace(out var project);
         var lru = new CompilationLru(50);
         var factories = 0;
 
@@ -51,6 +63,9 @@ public class CompilationLruTests
         }
 
         var first = await lru.GetOrAddAsync(project, Factory, CancellationToken.None);
+        Assert.True(lru.TryGet(project.Id, out var cached));
+        Assert.Same(first, cached);
+
         var second = await lru.GetOrAddAsync(project, Factory, CancellationToken.None);
 
         Assert.Same(first, second);
@@ -58,5 +73,11 @@ public class CompilationLruTests
         Assert.Equal(1, lru.Misses);
         Assert.Equal(1, lru.Hits);
     }
-}
 
+    private static AdhocWorkspace CreateWorkspace(out Project project)
+    {
+        var workspace = new AdhocWorkspace();
+        project = workspace.AddProject("SampleLib", LanguageNames.CSharp);
+        return workspace;
+    }
+}
