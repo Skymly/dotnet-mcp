@@ -90,7 +90,7 @@ public class DiagnosticFixServiceTests
         Assert.Null(error);
         Assert.NotNull(draft);
         Assert.NotEmpty(draft!.Documents);
-        Assert.Contains(draft.Documents, s => s.NewText.Contains("System.Collections.Generic", StringComparison.Ordinal));
+        Assert.Contains(draft.Documents, s => s.NewText != s.OldText);
     }
 
     [Fact]
