@@ -93,6 +93,13 @@ public static class MsBuildBootstrap
 
 public sealed class MsBuildSolutionLoader : ISolutionLoader
 {
+    private readonly TrustedRoots _trustedRoots;
+
+    public MsBuildSolutionLoader(TrustedRoots trustedRoots)
+    {
+        _trustedRoots = trustedRoots ?? throw new ArgumentNullException(nameof(trustedRoots));
+    }
+
     public async Task<LoadedSolution> OpenAsync(
         string path,
         IProgress<LoadProgress>? progress = null,
@@ -108,26 +115,39 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         MsBuildBootstrap.EnsureRegistered();
         var ext = Path.GetExtension(fullPath);
 
+        LoadedSolution loaded;
         if (ext.Equals(".slnf", StringComparison.OrdinalIgnoreCase))
         {
-            return await OpenSlnfAsync(fullPath, progress, cancellationToken).ConfigureAwait(false);
+            loaded = await OpenSlnfAsync(fullPath, progress, cancellationToken).ConfigureAwait(false);
         }
-
-        if (ext.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
+        else if (ext.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
             ext.Equals(".slnx", StringComparison.OrdinalIgnoreCase))
         {
-            return await OpenSolutionAsync(fullPath, progress, cancellationToken).ConfigureAwait(false);
+            loaded = await OpenSolutionAsync(fullPath, progress, cancellationToken).ConfigureAwait(false);
         }
-
-        if (ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
+        else if (ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
             ext.Equals(".vbproj", StringComparison.OrdinalIgnoreCase) ||
             ext.Equals(".fsproj", StringComparison.OrdinalIgnoreCase))
         {
-            return await OpenProjectAsync(fullPath, progress, cancellationToken).ConfigureAwait(false);
+            loaded = await OpenProjectAsync(fullPath, progress, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            throw new InvalidDataException(
+                $"Unsupported workspace path extension '{ext}'. Use .sln, .slnx, .slnf, or a project file.");
         }
 
-        throw new InvalidDataException(
-            $"Unsupported workspace path extension '{ext}'. Use .sln, .slnx, .slnf, or a project file.");
+        try
+        {
+            TrustedGraphGate.EnsureLoadedSolutionUnderRoots(loaded, _trustedRoots);
+        }
+        catch
+        {
+            await loaded.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        return loaded;
     }
 
     private static MSBuildWorkspace CreateWorkspace(List<string> warnings)
@@ -194,12 +214,14 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         }
     }
 
-    private static async Task<LoadedSolution> OpenSlnfAsync(
+    private async Task<LoadedSolution> OpenSlnfAsync(
         string slnfPath,
         IProgress<LoadProgress>? progress,
         CancellationToken ct)
     {
         var projectPaths = SlnfParser.ResolveProjectPaths(slnfPath);
+        // Hard-fail escaping .slnf entries before MSBuild opens (and executes) them.
+        TrustedGraphGate.EnsureProjectPathsUnderRoots(projectPaths, _trustedRoots, ".slnf");
         var warnings = new List<string>();
         var workspace = CreateWorkspace(warnings);
         var total = Math.Max(1, projectPaths.Count);

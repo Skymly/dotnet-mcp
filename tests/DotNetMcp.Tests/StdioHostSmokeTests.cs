@@ -13,11 +13,17 @@ public class StdioHostSmokeTests
 
         Assert.True(File.Exists(serverDll), $"Server assembly not found: {serverDll}");
 
+        var roots = Path.GetTempPath();
         await using var client = await McpClient.CreateAsync(new StdioClientTransport(new StdioClientTransportOptions
         {
             Name = "dotnet-mcp",
             Command = "dotnet",
-            Arguments = [serverDll]
+            Arguments = [serverDll, "--roots", roots],
+            EnvironmentVariables = new Dictionary<string, string?>
+            {
+                // Ensure empty env cannot silently widen; CLI --roots is the explicit config.
+                ["DOTNET_MCP_TRUSTED_ROOTS"] = null,
+            },
         }));
 
         var tools = await client.ListToolsAsync();
