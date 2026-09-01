@@ -21,16 +21,29 @@ public sealed class TrustedRoots
 
     public static TrustedRoots Create(IEnumerable<string> roots)
     {
-        var normalized = roots
-            .Select(PathPolicy.Normalize)
-            .Distinct(PathComparer)
-            .ToArray();
-        return new TrustedRoots(normalized);
+        var normalized = new List<string>();
+        foreach (var root in roots)
+        {
+            try
+            {
+                normalized.Add(PathPolicy.Normalize(root));
+            }
+            catch (PathPolicyException ex)
+            {
+                throw new ArgumentException(
+                    "A trusted root path could not be canonicalized (unresolvable reparse point).",
+                    nameof(roots),
+                    ex);
+            }
+        }
+
+        return new TrustedRoots(normalized.Distinct(PathComparer).ToArray());
     }
 
     /// <summary>
     /// Resolve roots from CLI <c>--roots</c> (Path.PathSeparator-delimited) and
-    /// <c>DOTNET_MCP_TRUSTED_ROOTS</c>; default is the current working directory.
+    /// <c>DOTNET_MCP_TRUSTED_ROOTS</c>. When neither is set, startup fails closed —
+    /// the process working directory is never used as an implicit sandbox.
     /// </summary>
     public static TrustedRoots FromStartup(string[] args)
     {
@@ -59,7 +72,9 @@ public sealed class TrustedRoots
 
         if (collected.Count == 0)
         {
-            collected.Add(Directory.GetCurrentDirectory());
+            throw new InvalidOperationException(
+                "Trusted roots must be configured via --roots or DOTNET_MCP_TRUSTED_ROOTS. " +
+                "Refusing to default to the process working directory.");
         }
 
         return Create(collected);
@@ -67,10 +82,28 @@ public sealed class TrustedRoots
 
     public bool Contains(string path)
     {
-        var normalized = PathPolicy.Normalize(path);
+        string normalized;
+        try
+        {
+            normalized = PathPolicy.Normalize(path);
+        }
+        catch (PathPolicyException)
+        {
+            // Fail closed: unresolvable reparse points are outside the trust boundary.
+            return false;
+        }
+
+        return ContainsNormalized(normalized);
+    }
+
+    /// <summary>
+    /// Prefix-check an already-normalized (canonical) path against trusted roots.
+    /// </summary>
+    public bool ContainsNormalized(string normalizedPath)
+    {
         foreach (var root in _normalizedRoots)
         {
-            if (PathPolicy.IsUnderRoot(normalized, root))
+            if (PathPolicy.IsUnderRoot(normalizedPath, root))
             {
                 return true;
             }

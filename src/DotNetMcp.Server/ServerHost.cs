@@ -21,7 +21,7 @@ public static class ServerHost
         IAuditLogger? auditLogger = null)
     {
         services.AddSingleton(trustedRoots);
-        services.AddSingleton<ISolutionLoader>(solutionLoader ?? new MsBuildSolutionLoader());
+        services.AddSingleton<ISolutionLoader>(solutionLoader ?? new MsBuildSolutionLoader(trustedRoots));
         services.AddSingleton(workspaceHostOptions ?? WorkspaceHostOptions.Default);
         services.AddSingleton(softBudgetOptions ?? SoftBudgetOptions.FromEnvironment());
         services.AddSingleton(auditOptions ?? AuditOptions.FromEnvironment());

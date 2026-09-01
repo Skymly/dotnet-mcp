@@ -61,7 +61,7 @@ dotnet tool exec --source ./artifacts --yes dotnet-mcp
 dotnet run --project src/DotNetMcp.Server
 ```
 
-MCP 客户端以 **stdio** 连接该进程。默认受信根为进程当前工作目录。本工具为 **framework-dependent** .NET tool，**不要求** NativeAOT。
+MCP 客户端以 **stdio** 连接该进程。必须通过 `--roots` 或 `DOTNET_MCP_TRUSTED_ROOTS` 显式配置受信根（不再默认使用进程工作目录）。本工具为 **framework-dependent** .NET tool，**不要求** NativeAOT。
 
 ### 受信根配置
 
@@ -69,7 +69,7 @@ MCP 客户端以 **stdio** 连接该进程。默认受信根为进程当前工�
 |------|------|
 | `--roots <paths>` | 命令行；多个根用 `Path.PathSeparator` 分隔（Windows 上为 `;`） |
 | `DOTNET_MCP_TRUSTED_ROOTS` | 环境变量，分隔规则同上 |
-| 缺省 | 当前工作目录 |
+| （必填） | 未配置时进程拒绝启动 |
 
 所有路径参数经规范化（含 `..` 与符号链接/junction 解析）后必须落在某个受信根之内，否则拒绝并返回带 `SuggestedAction` 的错误（不回显目标内容）。详见 [ADR-0004](docs/adr/0004-security-and-path-policy.md)。
 

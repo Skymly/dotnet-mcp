@@ -39,11 +39,14 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private CancellationTokenSource? _warmCts;
     private long _generation;
     private CompilationLru _compilationLru;
+    private readonly TrustedRoots _trustedRoots;
+    private FSharpWorkspaceSnapshot? _fsharpSnapshot;
 
-    public WorkspaceHost(ISolutionLoader loader, WorkspaceHostOptions options)
+    public WorkspaceHost(ISolutionLoader loader, WorkspaceHostOptions options, TrustedRoots trustedRoots)
     {
         _loader = loader;
         _options = options;
+        _trustedRoots = trustedRoots ?? throw new ArgumentNullException(nameof(trustedRoots));
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
         if (_options.FileWatcher is not null)
         {
@@ -132,6 +135,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             session = new WorkspaceSession(
                 _loaded,
                 _epoch,
+                fsharpSnapshot: _fsharpSnapshot,
                 generatorRunCache: _generatorRunCache,
                 compilationLru: _compilationLru,
                 findHitCache: _findHitCache);
@@ -147,6 +151,17 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         CancelWarmUnlocked();
         // Replace the instance so in-flight sessions keep the previous epoch's compilations.
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
+        if (_loaded is not null)
+        {
+            _fsharpSnapshot = WorkspaceSession.CaptureFSharpSnapshot(
+                _loaded.Solution,
+                _epoch,
+                _trustedRoots);
+        }
+        else
+        {
+            _fsharpSnapshot = null;
+        }
     }
 
     public WorkspaceEditOutcome<long> WriteDeclaredPaths(IReadOnlyList<WorkspaceEditDocument> documents)
@@ -166,6 +181,14 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             var loaded = _loaded;
             foreach (var document in documents)
             {
+                if (!_trustedRoots.Contains(document.Path))
+                {
+                    return FailWrite(
+                        PolicyErrorCodes.PathOutsideTrustedRoots,
+                        "A preview document is outside trusted roots; nothing was written.",
+                        "Re-open the workspace under a trusted root that contains every preview path.");
+                }
+
                 if (!TryReadSnapshotText(loaded, document.Path, out var snapshotText)
                     || !File.Exists(document.Path))
                 {
@@ -186,15 +209,43 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 }
             }
 
-            var paths = documents.Select(static d => d.Path).ToArray();
+            // Re-canonicalize immediately before write so a post-check symlink retarget cannot escape.
+            var resolvedWrites = new List<(WorkspaceEditDocument Document, string FinalPath)>(documents.Count);
+            foreach (var document in documents)
+            {
+                string finalPath;
+                try
+                {
+                    finalPath = PathPolicy.Normalize(document.Path);
+                }
+                catch (PathPolicyException)
+                {
+                    return FailWrite(
+                        PolicyErrorCodes.PathOutsideTrustedRoots,
+                        "A preview document path could not be canonicalized; nothing was written.",
+                        "Call the matching preview tool again on the current snapshot under a trusted root.");
+                }
+
+                if (!_trustedRoots.ContainsNormalized(finalPath))
+                {
+                    return FailWrite(
+                        PolicyErrorCodes.PathOutsideTrustedRoots,
+                        "A preview document resolves outside trusted roots; nothing was written.",
+                        "Re-open the workspace under a trusted root that contains every preview path.");
+                }
+
+                resolvedWrites.Add((document, finalPath));
+            }
+
+            var paths = resolvedWrites.Select(static r => r.FinalPath).ToArray();
             using (_options.WriteSuppression.Suppress(paths))
             {
                 var writtenCount = 0;
                 try
                 {
-                    foreach (var document in documents)
+                    foreach (var (document, finalPath) in resolvedWrites)
                     {
-                        File.WriteAllText(document.Path, document.NewText);
+                        File.WriteAllText(finalPath, document.NewText);
                         writtenCount++;
                     }
 
@@ -204,7 +255,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                                 document.Path,
                                 SourceText.From(document.NewText)))
                         {
-                            RollbackDeclaredPaths(loaded, documents, writtenCount);
+                            RollbackDeclaredPaths(loaded, resolvedWrites, writtenCount);
                             return FailWrite(
                                 PolicyErrorCodes.PreviewTargetMissing,
                                 "A preview document is not in the ready workspace; nothing was written.",
@@ -217,7 +268,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 }
                 catch
                 {
-                    RollbackDeclaredPaths(loaded, documents, writtenCount);
+                    RollbackDeclaredPaths(loaded, resolvedWrites, writtenCount);
                     throw;
                 }
             }
@@ -254,15 +305,15 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
     private static void RollbackDeclaredPaths(
         LoadedSolution loaded,
-        IReadOnlyList<WorkspaceEditDocument> documents,
+        IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath)> writes,
         int writtenCount)
     {
-        for (var i = 0; i < writtenCount && i < documents.Count; i++)
+        for (var i = 0; i < writtenCount && i < writes.Count; i++)
         {
-            File.WriteAllText(documents[i].Path, documents[i].OldText);
+            File.WriteAllText(writes[i].FinalPath, writes[i].Document.OldText);
         }
 
-        foreach (var document in documents)
+        foreach (var (document, _) in writes)
         {
             loaded.TryUpdateDocumentFromText(document.Path, SourceText.From(document.OldText));
         }
@@ -542,6 +593,16 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             var loaded = await _loader.OpenAsync(path, progress, ct).ConfigureAwait(false);
 
+            try
+            {
+                TrustedGraphGate.EnsureLoadedSolutionUnderRoots(loaded, _trustedRoots);
+            }
+            catch
+            {
+                await loaded.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+
             lock (_gate)
             {
                 if (ct.IsCancellationRequested)
@@ -741,6 +802,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         CancellationToken token;
         CompilationLru lru;
         long epoch;
+        FSharpWorkspaceSnapshot? fsharpSnapshot;
         lock (_gate)
         {
             _warmCts?.Cancel();
@@ -748,9 +810,10 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             token = _warmCts.Token;
             lru = _compilationLru;
             epoch = _epoch;
+            fsharpSnapshot = _fsharpSnapshot;
         }
 
-        _ = Task.Run(() => WarmCompilationsAsync(loaded, openedPath, lru, epoch, token));
+        _ = Task.Run(() => WarmCompilationsAsync(loaded, openedPath, lru, epoch, fsharpSnapshot, token));
     }
 
     private async Task WarmCompilationsAsync(
@@ -758,6 +821,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         string openedPath,
         CompilationLru lru,
         long epoch,
+        FSharpWorkspaceSnapshot? fsharpSnapshot,
         CancellationToken cancellationToken)
     {
         try
@@ -765,6 +829,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             using var session = new WorkspaceSession(
                 loaded,
                 epoch,
+                fsharpSnapshot: fsharpSnapshot,
                 compilationLru: lru,
                 generatorRunCache: _generatorRunCache,
                 findHitCache: _findHitCache);

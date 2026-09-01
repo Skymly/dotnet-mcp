@@ -21,12 +21,14 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         int compilationLruCapacity = DefaultCompilationLruCapacity,
         GeneratorRunCache? generatorRunCache = null,
         CompilationLru? compilationLru = null,
-        FindHitCache? findHitCache = null)
+        FindHitCache? findHitCache = null,
+        FSharpWorkspaceSnapshot? fsharpSnapshot = null)
     {
-        // Freeze snapshot at request start so FSW updates cannot cross a mid-request boundary (ADR-0002).
+        // Prefer the host-frozen F# snapshot (captured when Epoch advances). Fall back only for tests
+        // that construct sessions without a host, still without re-walking disk when a snapshot is provided.
         Solution = loaded.Solution;
         Epoch = epoch;
-        FSharpSnapshot = CaptureFSharp(loaded.Solution, epoch);
+        FSharpSnapshot = fsharpSnapshot ?? CaptureFSharpSnapshot(loaded.Solution, epoch, trustedRoots: null);
         _compilationLru = compilationLru ?? new CompilationLru(compilationLruCapacity);
         _generatorRunCache = generatorRunCache ?? new GeneratorRunCache();
         _findHits = findHitCache ?? new FindHitCache();
@@ -114,7 +116,14 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         return compilation;
     }
 
-    private static FSharpWorkspaceSnapshot CaptureFSharp(Solution solution, long epoch)
+
+    /// <summary>
+    /// Capture F# sources once per Epoch. Skips symlink directories and paths outside trusted roots.
+    /// </summary>
+    public static FSharpWorkspaceSnapshot CaptureFSharpSnapshot(
+        Solution solution,
+        long epoch,
+        TrustedRoots? trustedRoots)
     {
         var projects = new List<FSharpProjectSnapshot>();
         foreach (var project in solution.Projects)
@@ -124,7 +133,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                 continue;
             }
 
-            var documents = ReadFSharpDocuments(project);
+            var documents = ReadFSharpDocuments(project, trustedRoots);
             projects.Add(new FSharpProjectSnapshot(
                 project.Id.Id.ToString("D"),
                 project.Name,
@@ -139,14 +148,33 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         project.Language == LanguageNames.FSharp ||
         (project.FilePath?.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase) ?? false);
 
-    private static IReadOnlyList<FSharpDocumentSnapshot> ReadFSharpDocuments(Project project)
+    private static IReadOnlyList<FSharpDocumentSnapshot> ReadFSharpDocuments(
+        Project project,
+        TrustedRoots? trustedRoots)
     {
         var documents = new List<FSharpDocumentSnapshot>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        void Add(string path, string text)
+        void Add(string path, string text, bool requireTrusted)
         {
-            var full = Path.GetFullPath(path);
+            string full;
+            try
+            {
+                full = PathPolicy.Normalize(path);
+            }
+            catch (PathPolicyException)
+            {
+                return;
+            }
+
+            // Disk enumeration must stay inside trusted roots. Roslyn documents already
+            // admitted to the loaded graph are frozen from in-memory text (graph gate
+            // rejects on-disk escapes at open); synthetic fixture paths are allowed.
+            if (requireTrusted && trustedRoots is not null && !trustedRoots.ContainsNormalized(full))
+            {
+                return;
+            }
+
             if (seen.Add(full))
             {
                 documents.Add(new FSharpDocumentSnapshot(full, text));
@@ -166,13 +194,23 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                 sourceText = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult();
             }
 
-            Add(document.FilePath, sourceText.ToString());
+            Add(document.FilePath, sourceText.ToString(), requireTrusted: false);
         }
 
         var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(project.FilePath))
         {
-            var dir = Path.GetDirectoryName(Path.GetFullPath(project.FilePath));
+            string projectFull;
+            try
+            {
+                projectFull = PathPolicy.Normalize(project.FilePath);
+            }
+            catch (PathPolicyException)
+            {
+                projectFull = Path.GetFullPath(project.FilePath);
+            }
+
+            var dir = Path.GetDirectoryName(projectFull);
             if (!string.IsNullOrWhiteSpace(dir))
             {
                 roots.Add(dir);
@@ -201,12 +239,42 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
 
         foreach (var root in roots)
         {
-            if (!Directory.Exists(root))
+            if (!Directory.Exists(root) || IsSymlinkDirectory(root))
             {
                 continue;
             }
 
-            foreach (var path in Directory.EnumerateFiles(root, "*.fs", SearchOption.AllDirectories))
+            EnumerateFsFilesSkippingSymlinkDirs(
+                root,
+                (path, text) => Add(path, text, requireTrusted: true));
+        }
+
+        return documents;
+    }
+
+    private static void EnumerateFsFilesSkippingSymlinkDirs(string root, Action<string, string> add)
+    {
+        var stack = new Stack<string>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var dir = stack.Pop();
+            if (IsSymlinkDirectory(dir))
+            {
+                continue;
+            }
+
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(dir, "*.fs");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            foreach (var path in files)
             {
                 var relative = Path.GetRelativePath(root, path);
                 if (relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
@@ -216,10 +284,55 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                     continue;
                 }
 
-                Add(path, File.ReadAllText(path));
+                try
+                {
+                    add(path, File.ReadAllText(path));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+
+            IEnumerable<string> subdirs;
+            try
+            {
+                subdirs = Directory.EnumerateDirectories(dir);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            foreach (var sub in subdirs)
+            {
+                var name = Path.GetFileName(sub);
+                if (name.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("obj", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (IsSymlinkDirectory(sub))
+                {
+                    continue;
+                }
+
+                stack.Push(sub);
             }
         }
+    }
 
-        return documents;
+    private static bool IsSymlinkDirectory(string path)
+    {
+        try
+        {
+            var attrs = File.GetAttributes(path);
+            return (attrs & FileAttributes.ReparsePoint) != 0 && Directory.Exists(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 }
+

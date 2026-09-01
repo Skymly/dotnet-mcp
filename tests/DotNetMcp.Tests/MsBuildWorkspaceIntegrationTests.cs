@@ -23,7 +23,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader());
+            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -53,7 +53,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader());
+            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -82,7 +82,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader());
+            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -116,7 +116,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader());
+            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -145,7 +145,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader());
+            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -176,7 +176,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader());
+            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -205,7 +205,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader());
+            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -236,7 +236,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader());
+            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",

@@ -49,7 +49,7 @@ public sealed class WorkspaceTools
         string fullPath;
         try
         {
-            fullPath = Path.GetFullPath(path);
+            fullPath = PathPolicy.Normalize(path);
         }
         catch (Exception)
         {
@@ -58,6 +58,21 @@ public sealed class WorkspaceTools
                 Error = PolicyErrorCodes.InvalidWorkspacePath,
                 Message = "The path could not be resolved.",
                 SuggestedAction = "Pass a valid filesystem path under a trusted root, then call workspace_open again."
+            });
+        }
+
+        // Re-check the canonical path (same string BeginOpen will use).
+        if (!_trustedRoots.ContainsNormalized(fullPath))
+        {
+            _audit.PathPolicyDenied("workspace_open", path);
+            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
+            {
+                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
+                Message = "The requested path is outside the configured trusted roots and was rejected. " +
+                          "No target content is returned.",
+                SuggestedAction =
+                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
+                    "environment variable, then retry workspace_open with a path under that root."
             });
         }
 

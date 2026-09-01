@@ -141,7 +141,9 @@ public class WorkspaceSessionCompilationSeamTests
         try
         {
             var projectPath = Path.Combine(dir, "SampleLib.csproj");
-            await using var host = CreateHost(FakeSolutionLoader.ImmediateWithSymbolsOnDisk(dir));
+            await using var host = CreateHost(
+                FakeSolutionLoader.ImmediateWithSymbolsOnDisk(dir),
+                trustedRoots: TrustedRoots.Create([dir]));
             await OpenUntilReadyAsync(host, projectPath);
 
             Assert.True(host.TryGetReadySession(out var firstSession));
@@ -184,7 +186,10 @@ public class WorkspaceSessionCompilationSeamTests
             "public void Reset() { Name = \"calc\"; Mode = 0; }\n                public int Extra() => 1;",
             StringComparison.Ordinal);
 
-    private static WorkspaceHost CreateHost(ISolutionLoader loader, int compilationLruCapacity = 50) =>
+    private static WorkspaceHost CreateHost(
+        ISolutionLoader loader,
+        int compilationLruCapacity = 50,
+        TrustedRoots? trustedRoots = null) =>
         new(
             loader,
             new WorkspaceHostOptions
@@ -192,7 +197,8 @@ public class WorkspaceSessionCompilationSeamTests
                 Debounce = TimeSpan.Zero,
                 FileWatcher = new ManualWorkspaceFileWatcher(),
                 CompilationLruCapacity = compilationLruCapacity
-            });
+            },
+            trustedRoots ?? TrustedRoots.Create([Directory.GetCurrentDirectory()]));
 
     private static async Task OpenUntilReadyAsync(WorkspaceHost host, string path)
     {
