@@ -260,7 +260,7 @@ public class VbSymbolSeamTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader());
+            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
         await OpenUntilReadyAsync(fx, slnx, TimeSpan.FromSeconds(90));
         var handle = await ResolveHandleAsync(fx, "VbLib.Widget");

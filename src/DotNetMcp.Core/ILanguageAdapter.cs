@@ -32,6 +32,11 @@ public interface ILanguageAdapter
         string handle,
         CancellationToken cancellationToken = default);
 
+    Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
+        IWorkspaceSession session,
+        string handle,
+        CancellationToken cancellationToken = default);
+
     Task<(PagedResult<MemberListItem>? Success, SymbolQueryError? Error)> GetMembersAsync(
         IWorkspaceSession session,
         string handle,

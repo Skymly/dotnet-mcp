@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-19，见 Amendment 1 / Spike S4 / Spec #84 P0）**
+Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-09-02 Amendment 4 fail-closed roots）**
 
 ## 上下文
 
@@ -18,7 +18,7 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 
 ### 1. 受信根（sanctioned roots）
 
-服务器启动时确定一组受信根（启动参数/配置/环境变量；缺省为当前工作目录）。所有路径参数必须解析后落在某个受信根之内，否则拒绝并返回可操作错误。
+服务器启动时确定一组受信根（启动参数 `--roots` 或环境变量 `DOTNET_MCP_TRUSTED_ROOTS`）。二者皆空则启动失败，不再默认使用进程工作目录。所有路径参数必须解析后落在某个受信根之内，否则拒绝并返回可操作错误。
 
 - 路径先规范化（完整路径、解析 `..`、解析符号链接/junction）再比对前缀，避免遍历绕过。
 - 拒绝时**不回显目标路径内容**，仅说明策略。
@@ -77,3 +77,13 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 证据：`spikes/s8-refactoring/CONCLUSIONS.md`、Spec #116。
 
 §3 允许名单从 rename 两步 + Diagnostic fix 三步扩为再加 `symbol_list_refactorings` / `symbol_preview_refactoring` / `symbol_apply_refactoring`。仍禁止通用写 / 补丁 / shell / 网络。受信根、打开即执行、审计不记源码正文不变。
+
+## Amendment 4（2026-09-02）：fail-closed 路径门禁
+
+证据：安全审计 High 项、`TrustedGraphGate`、`SecurityHighFixTests`。
+
+1. **显式受信根**：`TrustedRoots.FromStartup` 在 `--roots` 与 `DOTNET_MCP_TRUSTED_ROOTS` 皆空时抛错，不回落到进程 CWD。
+2. **规范化 fail-closed**：逐段 canonicalize（含父目录 reparse point）。无法解析或悬空的 symlink/junction 抛 `PathPolicyException`，`Contains` 视为不在根内。Unix 根 `"/"` 不得被 trim 成空串。
+3. **图门禁**：`.slnf` 项目条目在 MSBuild 打开前检查；加载后对磁盘上的 project/document 路径再检查，拒绝则释放已加载 solution。
+4. **apply 前最后一次根校验**：`WriteDeclaredPaths` 在 `File.WriteAllText` 之前重新规范化并 `ContainsNormalized` 闸门最终路径。
+5. **F# 快照**：随 Epoch 冻结；磁盘枚举跳过 symlink 目录并套 TrustedRoots。

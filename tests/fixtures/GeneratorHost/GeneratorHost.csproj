@@ -3,9 +3,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>SampleApp</RootNamespace>
+    <RootNamespace>GeneratorHost</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <AdditionalFiles Include="MainWindow.axaml" />
+    <ProjectReference Include="../CustomGenerator/CustomGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

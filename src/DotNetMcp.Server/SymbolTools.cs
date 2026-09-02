@@ -11,20 +11,17 @@ public sealed class SymbolTools
     private readonly WorkspaceHost _workspaceHost;
     private readonly WorkspaceEdit _workspaceEdit;
     private readonly LanguageAdapters _languages;
-    private readonly RoslynLanguageAdapter _roslyn;
     private readonly IAuditLogger _audit;
 
     public SymbolTools(
         WorkspaceHost workspaceHost,
         WorkspaceEdit workspaceEdit,
         LanguageAdapters languages,
-        RoslynLanguageAdapter roslyn,
         IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
         _workspaceEdit = workspaceEdit;
         _languages = languages;
-        _roslyn = roslyn;
         _audit = audit;
     }
 
@@ -131,7 +128,7 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _roslyn
+        var (success, error) = await _languages
             .GetAttributionAsync(session!, handle, cancellationToken)
             .ConfigureAwait(false);
 

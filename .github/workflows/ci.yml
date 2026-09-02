@@ -8,7 +8,11 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,3 +35,24 @@ jobs:
         # Build first: StdioHostSmokeTests launches DotNetMcp.Server.dll from the test output.
         # MSBuildWorkspace uses MSBuildLocator (DOTNET_ROOT from setup-dotnet).
         run: dotnet test DotNetMcp.slnx -c Release --no-build --verbosity normal
+
+      - name: Pack
+        run: dotnet pack src/DotNetMcp.Server -c Release --no-build -o artifacts
+
+      - name: Verify MCP package metadata
+        shell: pwsh
+        run: |
+          $nupkg = Get-ChildItem artifacts/*.nupkg | Select-Object -First 1
+          if (-not $nupkg) { throw "nupkg missing" }
+          if ($nupkg.Name -notlike "Skymly.DotNetMcp.*") { throw "unexpected package file $($nupkg.Name)" }
+          $tmp = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $tmp | Out-Null
+          Copy-Item $nupkg.FullName (Join-Path $tmp "pkg.zip")
+          Expand-Archive (Join-Path $tmp "pkg.zip") -DestinationPath $tmp -Force
+          $nuspec = Get-ChildItem $tmp -Filter *.nuspec | Select-Object -First 1
+          if (-not $nuspec) { throw "nuspec missing" }
+          $xml = Get-Content $nuspec.FullName -Raw
+          if ($xml -notmatch "<id>Skymly.DotNetMcp</id>") { throw "PackageId missing in nuspec" }
+          if ($xml -notmatch "McpServer") { throw "PackageType McpServer missing" }
+          $serverJson = Join-Path $tmp ".mcp/server.json"
+          if (-not (Test-Path $serverJson)) { throw "embedded .mcp/server.json missing" }

@@ -320,6 +320,13 @@ public class LanguageAdapterSeamTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult<(PagedResult<CallerLocationItem>?, SymbolQueryError?)>((null, NotFound()));
 
+
+        public Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
+            IWorkspaceSession session,
+            string handle,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<(SymbolAttributionSuccess?, SymbolQueryError?)>((null, NotFound()));
+
         public Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
             IWorkspaceSession session,
             string projectId,

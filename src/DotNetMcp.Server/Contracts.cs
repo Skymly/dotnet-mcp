@@ -16,6 +16,7 @@ public static class JsonOptions
 public static class PolicyErrorCodes
 {
     public const string PathOutsideTrustedRoots = "PathOutsideTrustedRoots";
+    public const string LoadedGraphOutsideTrustedRoots = "LoadedGraphOutsideTrustedRoots";
     public const string WorkspaceNotReady = "WorkspaceNotReady";
     public const string InvalidWorkspacePath = "InvalidWorkspacePath";
     public const string InvalidSymbolHandle = "InvalidSymbolHandle";

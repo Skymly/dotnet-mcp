@@ -260,7 +260,8 @@ public class WorkspaceEditSeamTests
         await File.WriteAllTextAsync(path, "old");
         await using var host = new WorkspaceHost(
             FakeSolutionLoader.ImmediateWithRenameOnDisk(Path.Combine(root, "lib")),
-            WorkspaceHostOptions.Default);
+            WorkspaceHostOptions.Default,
+            TrustedRoots.Create([root]));
 
         try
         {

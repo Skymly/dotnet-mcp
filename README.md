@@ -1,128 +1,112 @@
 # dotnet-mcp
 
-一个面向 .NET 的 MCP（Model Context Protocol）服务器。**路线图**目标包括：
+An MCP (Model Context Protocol) server for .NET workspaces. It gives coding agents **compiler-accurate** symbol navigation, source-generator attribution, Avalonia/MAUI XAML queries, and a **restricted** Workspace Edit surface (rename / diagnostic fix / code refactoring). It is not a generic file writer, shell, or LSP proxy.
 
-- **多语言**：C#（P0）、VB.NET（P2）、F#（P3）
-- **互操作与 DLR**：COM Interop、`dynamic` 等场景的符号分析（P3）
-- **XAML**：语义级 XAML 分析，与 code-behind 符号联动（P1 Avalonia）
-- **源生成器特别支持**：区分每个成员由哪个 Source Generator 生成（P0，已交付）
+Package id on NuGet: **`Skymly.DotNetMcp`** (CLI command remains `dotnet-mcp`). Requires .NET 10+.
 
-## 状态
+## What it can do
 
-P0 **读侧 1.0** 已可演示（`DotNetMcp.Server`）：stdio MCP 宿主、受信根路径策略、MSBuild 工作区加载（`.sln` / `.slnx` / `.slnf` / 项目）、C# 符号导航（定义/成员/引用/实现/层级/调用者）、项目诊断、源生成器列表/生成源/诊断与符号归因。P1 Avalonia + 2.0 P2 MAUI XAML 读侧已可演示（`xaml_resolve_class` / `xaml_list_xmlns` / `xaml_resolve_name` / `xaml_resolve_binding` / `xaml_diagnostics`）。P2 VB.NET 读侧已可演示（`workspace_list_projects` 语言标记、`vb:` SymbolHandle 导航/分析、`project_diagnostics`、VB 源生成器列表/生成源/归因）。2.0 P3 读侧收口已可演示（静态 DataContext Binding、XAML+VB、`project_diagnostics` 跨项目）。P3 F#·Interop·DLR 读侧已可演示（`fsharp:` FCS 独立栈导航/分析/诊断、`interopKind` COM 包装识别、`project_list_dynamic_invocations`）。**2.0 P0–P1** 已可演示受限 Workspace Edit：C# / VB `symbol_preview_rename` → `symbol_apply_rename`（不是通用写文件）。**3.0** 已可演示 Diagnostic fix（`diagnostics_list_fixes` → `diagnostics_preview_fix` → `diagnostics_apply_fix`）以及 `fsharp:` rename。**4.0** 已可演示 Code Refactoring（`symbol_list_refactorings` → `symbol_preview_refactoring` → `symbol_apply_refactoring`）以及 `diagnostics_preview_fix(scope=project)`。
+- Load `.sln` / `.slnx` / `.slnf` / SDK-style `.csproj` / `.vbproj` / `.fsproj`
+- C# and VB.NET via Roslyn; F# via an FCS stack beside the Roslyn snapshot
+- Resolve a name to a checksummed `SymbolHandle`, then go to definition, members, references, implementations, callers, type hierarchy
+- Attribute handwritten vs source-generated members (generator assembly + type + version)
+- Project diagnostics; list generators / generated sources / generator diagnostics; list `dynamic` invocations
+- Avalonia `.axaml` and MAUI `.xaml`: class, xmlns, `x:Name`, compiled-binding path, XAML diagnostics
+- Restricted writes: preview then apply for rename, diagnostic fix (including project Fix all), and code refactoring
 
-### 当前 MCP 工具面（读 + 受限 Workspace Edit）
+## What it does not do
 
-| 分组 | 工具 |
-|------|------|
-| Workspace | `workspace_open` · `workspace_status` · `workspace_list_projects` · `workspace_check_drift` |
-| Diagnostic fix | `diagnostics_list_fixes` · `diagnostics_preview_fix` · `diagnostics_apply_fix` |
-| Symbol | `symbol_resolve` · `symbol_summary` · `symbol_goto_definition` · `symbol_members` · `symbol_find_references` · `symbol_find_implementations` · `symbol_find_callers` · `symbol_type_hierarchy` · `symbol_attribution` · `symbol_preview_rename` · `symbol_apply_rename` · `symbol_list_refactorings` · `symbol_preview_refactoring` · `symbol_apply_refactoring` |
-| Project | `project_diagnostics` · `project_list_generators` · `project_list_generated_sources` · `project_list_generator_diagnostics` · `project_list_dynamic_invocations` |
-| XAML | `xaml_resolve_class` · `xaml_list_xmlns` · `xaml_resolve_name` · `xaml_resolve_binding` · `xaml_diagnostics` |
+- Generic write / patch / create / delete file tools
+- Shell, process, HTTP, or package-download tools
+- WPF / WinUI XAML
+- F# source-generator attribution, F# diagnostic fix, or F# code refactoring
+- Extract-method / change-signature UIs
+- Opening untrusted repositories safely — `workspace_open` **runs MSBuild evaluation and project analyzers/generators**
 
-工具面由快照/守护测试约束：读工具 + 显式 rename / Diagnostic fix / Code Refactoring。禁止通用写文件、补丁、命令或网络类工具。领域词汇见根目录 [`CONTEXT.md`](CONTEXT.md)。
+Tool names are locked by a snapshot test. Domain vocabulary: [`CONTEXT.md`](CONTEXT.md).
 
-## 安装 / 启用
+## Quick Start
 
-包发布到 NuGet 后，可用零安装一行启用（.NET 10+）：
+Trusted roots are **required**. The process working directory is never an implicit sandbox.
+
+### From NuGet (.NET 10+)
 
 ```bash
-dnx dotnet-mcp --yes
+dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
 ```
 
-MCP 客户端（stdio）示例：
+MCP client (stdio):
 
 ```json
 {
   "mcpServers": {
     "dotnet-mcp": {
       "command": "dnx",
-      "args": ["dotnet-mcp", "--yes"]
+      "args": ["Skymly.DotNetMcp", "--yes", "--", "--roots", "/path/to/repo"]
     }
   }
 }
 ```
 
-等价写法：`dotnet tool exec dotnet-mcp --yes`，或先 `dotnet tool install -g dotnet-mcp` 再直接跑 `dotnet-mcp`。
+Equivalent: `dotnet tool exec Skymly.DotNetMcp --yes -- --roots /path/to/repo`, or `dotnet tool install -g Skymly.DotNetMcp` then `dotnet-mcp --roots /path/to/repo`.
 
-### 本地 pack（开发验证）
+On Windows, separate multiple roots with `;`. You can also set `DOTNET_MCP_TRUSTED_ROOTS`.
 
-尚未上架 NuGet 时，从本仓库打包并运行：
+### Local pack (before NuGet)
 
 ```bash
 dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts
-dotnet tool exec --source ./artifacts --yes dotnet-mcp
+dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo
 ```
 
-### 开发运行
+### Development run
 
 ```bash
-dotnet run --project src/DotNetMcp.Server
+dotnet run --project src/DotNetMcp.Server -- --roots /path/to/repo
 ```
 
-MCP 客户端以 **stdio** 连接该进程。默认受信根为进程当前工作目录。本工具为 **framework-dependent** .NET tool，**不要求** NativeAOT。
+stdio only. Framework-dependent .NET tool; NativeAOT is not required.
 
-### 受信根配置
+Typical agent loop: `workspace_open` (returns immediately) → poll `workspace_status` until `ready` → `symbol_resolve` → navigation / attribution. Prefer a `.slnf` or a single project for a large solution.
 
-| 来源 | 说明 |
-|------|------|
-| `--roots <paths>` | 命令行；多个根用 `Path.PathSeparator` 分隔（Windows 上为 `;`） |
-| `DOTNET_MCP_TRUSTED_ROOTS` | 环境变量，分隔规则同上 |
-| 缺省 | 当前工作目录 |
+## MCP tools
 
-所有路径参数经规范化（含 `..` 与符号链接/junction 解析）后必须落在某个受信根之内，否则拒绝并返回带 `SuggestedAction` 的错误（不回显目标内容）。详见 [ADR-0004](docs/adr/0004-security-and-path-policy.md)。
+| Group | Tools |
+|------|--------|
+| Workspace | `workspace_open` · `workspace_status` · `workspace_list_projects` · `workspace_check_drift` |
+| Diagnostic fix | `diagnostics_list_fixes` · `diagnostics_preview_fix` · `diagnostics_apply_fix` |
+| Symbol | `symbol_resolve` · `symbol_summary` · `symbol_goto_definition` · `symbol_members` · `symbol_find_references` · `symbol_find_implementations` · `symbol_find_callers` · `symbol_type_hierarchy` · `symbol_attribution` · `symbol_preview_rename` · `symbol_apply_rename` · `symbol_list_refactorings` · `symbol_preview_refactoring` · `symbol_apply_refactoring` |
+| Project | `project_diagnostics` · `project_list_generators` · `project_list_generated_sources` · `project_list_generator_diagnostics` · `project_list_dynamic_invocations` |
+| XAML | `xaml_resolve_class` · `xaml_list_xmlns` · `xaml_resolve_name` · `xaml_resolve_binding` · `xaml_diagnostics` |
 
-### 软预算配置
+## Security
 
-列表/扫描类工具遵守软性时间预算（ADR-0003）：超预算返回部分结果 + `nextCursor`，而非硬错误。默认值见 ADR 表；可通过环境变量（毫秒整数）覆盖，无需重编译：
+1. **Trusted roots** — every path is canonicalized (including parent reparse points). Unresolvable links fail closed. Loaded project graphs and apply-paths are re-checked. Configure `--roots` or `DOTNET_MCP_TRUSTED_ROOTS`.
+2. **Open means execute** — loading a solution runs MSBuild and referenced analyzers / source generators. Do not point this server at untrusted trees.
+3. **Default read + named writes** — only rename / diagnostic fix / refactoring preview-apply. No generic write, command, or network tools.
+4. **Audit** — local process logs (stderr under stdio). Tool name and path metadata only; no source text; no telemetry. Disable with `DOTNET_MCP_AUDIT=0`.
 
-| 环境变量 | 默认 | 用途 |
-|----------|------|------|
-| `DOTNET_MCP_BUDGET_SINGLE_PROJECT_MS` | 5000 | 单项目编译（如 `project_diagnostics`） |
-| `DOTNET_MCP_BUDGET_FIND_REFS_SCOPED_MS` | 5000 | 作用域内 Find References |
-| `DOTNET_MCP_BUDGET_FIND_REFS_ENTIRE_MS` | 20000 | 全解决方案 Find References |
-| `DOTNET_MCP_BUDGET_BATCH_DIAGNOSTICS_MS` | 15000 | 批量诊断（预留） |
-| `DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS` | 15000 | 项目级 Fix all；超时整次 preview 失败 |
+See [ADR-0004](docs/adr/0004-security-and-path-policy.md).
 
-非法或缺失值回退到上表默认。
+## Soft budgets and long-running load
 
-### 审计日志配置
+List/scan tools honor a soft time budget ([ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)): they return partial results + `nextCursor` instead of hanging past the common ~60s client `tools/call` cap. Progress notifications are **not** a keepalive.
 
-| 环境变量 | 默认 | 说明 |
-|----------|------|------|
-| `DOTNET_MCP_AUDIT` | 开启 | 设为 `0` / `false` / `off` / `no`（大小写不敏感）可关闭本地审计 |
+| Environment variable | Default | Use |
+|----------------------|---------|-----|
+| `DOTNET_MCP_BUDGET_SINGLE_PROJECT_MS` | 5000 | Single-project compile (e.g. `project_diagnostics`) |
+| `DOTNET_MCP_BUDGET_FIND_REFS_SCOPED_MS` | 5000 | Scoped find-references |
+| `DOTNET_MCP_BUDGET_FIND_REFS_ENTIRE_MS` | 20000 | Entire-solution find-references |
+| `DOTNET_MCP_BUDGET_BATCH_DIAGNOSTICS_MS` | 15000 | Reserved batch diagnostics |
+| `DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS` | 15000 | Project Fix all; over budget fails the preview |
 
-审计写入进程本地日志（stdio 主机下为 stderr），**无外部遥测**。记录工具名与路径元数据（含路径策略拒绝），**不记录源码或生成源正文**。
+Invalid values fall back to the defaults.
 
-### 长耗时与客户端兼容
+`workspace_open` never blocks the MCP request. Clients that do not opt into MCP Tasks should poll `workspace_status`. Details: `spikes/s3-mcp-long-running/CONCLUSIONS.md`.
 
-加载与查询遵守 [ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)：
+## Development / CI
 
-- **基线（所有客户端）**：`workspace_open` **立即返回**，用 `workspace_status` 轮询至 `ready`；勿在 loading 时重试 `workspace_open`。大解决方案优先开 `.slnf` 或单个项目；加载不做全量编译。
-- **Tasks 增强**：服务器启用 MCP Tasks（`.WithTasks`）。仅当客户端协议 ≥ **2026-07-28** 且显式 opt-in `io.modelcontextprotocol/tasks` 时，可用 `tasks/get` / `tasks/cancel`；未 opt-in 仍走同步 `tools/call` + 手工 open/status。
-- **超时**：常见客户端 `tools/call` 硬顶约 **60s**；**progress 不是 keepalive**，不能靠进度通知延长超时。
-
-| 客户端 | Tasks | 建议路径 |
-|--------|--------|----------|
-| C# MCP Client（协议 2026-07-28 + opt-in） | 支持 | Tasks 或手工 open/status |
-| Claude Desktop / Cursor / VS Code Copilot（TS SDK 系） | 通常未 opt-in | 手工 open/status；按 ~60s 规划 |
-| Claude Code CLI | 勿默认依赖 | 手工 open/status；可用 `MCP_TIMEOUT`（ms）延长 |
-
-证据与细节见 `spikes/s3-mcp-long-running/CONCLUSIONS.md`。
-
-## 安全说明
-
-1. **受信根**：服务器只能读受信根内的路径。多仓库场景请通过 `--roots` 或 `DOTNET_MCP_TRUSTED_ROOTS` 显式配置额外根；越界路径会被拒绝。
-2. **打开即执行**：`workspace_open` 加载解决方案时会运行 **MSBuild 求值**以及项目引用的 **analyzer / 源生成器**——等同于在该仓库执行构建逻辑。**不要对不受信任的代码库使用。** 这是 Roslyn 语义分析固有性质，无法仅靠技术手段消除，只能显式告知。
-3. **默认只读 + 受限 Workspace Edit**：读工具之外只有 rename、Diagnostic fix 与 Code Refactoring 的 preview/apply。不提供通用写文件、任意命令执行或网络请求类工具（有快照/守护测试约束）。
-4. **日志**：已实现本地审计（默认开启）：记录工具调用与路径策略拒绝的工具名/路径元数据，不记录源码或生成源正文；写入进程本地日志（stdio 下为 stderr），可用 `DOTNET_MCP_AUDIT=0`（或 `false`/`off`/`no`）关闭；无外部遥测。
-
-## 开发 / CI
-
-- **SDK**：产品与测试目标框架为 **net10.0**，需安装 .NET 10 SDK。集成测试夹具含 net8.0 / net9.0 项目，本地若跑 `MsBuildWorkspaceIntegrationTests` 需同时具备对应 SDK。
-- **MSBuild**：真实加载路径经 `MSBuildLocator` 注册本机 SDK（优先 `DOTNET_ROOT` 下最新 SDK）。与 `dotnet build` 使用同一套求值环境。
-- **测试**（产品 solution，不含 `spikes/`）：
+Product and tests target **net10.0**. Fixtures include net8.0 / net9.0 projects (needed for `MsBuildWorkspaceIntegrationTests`).
 
 ```bash
 dotnet restore DotNetMcp.slnx
@@ -130,18 +114,27 @@ dotnet build DotNetMcp.slnx -c Release --no-restore
 dotnet test DotNetMcp.slnx -c Release --no-build
 ```
 
-GitHub Actions 工作流见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)（ubuntu + SDK 8/9/10，同上命令）。
+CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Ubuntu **and** Windows, SDK 8/9/10, pack + `McpServer` metadata check).
 
-- **性能基准**（产品 MCP 工具面，见 [`docs/perf/benchmark.md`](docs/perf/benchmark.md)）：
+Product benches: [`docs/perf/benchmark.md`](docs/perf/benchmark.md).
 
 ```bash
 dotnet run --project benches/DotNetMcp.Bench -c Release -- --suite fixtures
 dotnet run --project benches/DotNetMcp.Bench -c Release -- --suite smoke
 ```
 
+This repo uses [mattpocock/skills](https://github.com/mattpocock/skills); see `AGENTS.md` and `docs/agents/`.
 
-## 开发约定
+---
 
-本仓库使用 [mattpocock/skills](https://github.com/mattpocock/skills) 工程技能链，其仓库级配置见 `AGENTS.md` 的 `## Agent skills` 一节与 `docs/agents/` 目录（issue 跟踪方式、triage 标签、领域文档布局）。
+## 中文
 
+面向 Agent 的 .NET MCP 服务器：C# / VB / F# 符号导航、源生成器归因、Avalonia/MAUI XAML、以及受限 Workspace Edit（rename / Diagnostic fix / Code Refactoring）。**不是**通用写文件、shell 或 LSP 代理。
 
+NuGet 包 id 为 **`Skymly.DotNetMcp`**（命令名仍是 `dotnet-mcp`）。必须通过 `--roots` 或 `DOTNET_MCP_TRUSTED_ROOTS` 配置受信根，**不再默认使用进程工作目录**。`workspace_open` 会运行 MSBuild 与 analyzer/源生成器，不要对不受信任的仓库使用。
+
+安装：
+
+```bash
+dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
+```

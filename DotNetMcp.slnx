@@ -8,6 +8,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/DotNetMcp.Tests/DotNetMcp.Tests.csproj" />
     <Project Path="tests/fixtures/CustomGenerator/CustomGenerator.csproj" />
+    <Project Path="tests/fixtures/GeneratorHost/GeneratorHost.csproj" />
   </Folder>
   <Folder Name="/benches/">
     <Project Path="benches/DotNetMcp.Bench/DotNetMcp.Bench.csproj" />
