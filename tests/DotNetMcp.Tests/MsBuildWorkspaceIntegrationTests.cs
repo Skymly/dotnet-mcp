@@ -16,7 +16,6 @@ public class MsBuildWorkspaceIntegrationTests
     public static string MixedWithFsSlnx => Path.Combine(FixturesRoot, "MixedCsharpVb", "MixedWithFs.slnx");
     public static string AvaloniaProject => Path.Combine(FixturesRoot, "AvaloniaApp", "AvaloniaApp.csproj");
     public static string AvaloniaMainWindow => Path.Combine(FixturesRoot, "AvaloniaApp", "MainWindow.axaml");
-    public static string GeneratorHostProject => Path.Combine(FixturesRoot, "GeneratorHost", "GeneratorHost.csproj");
 
 
     [Fact]
@@ -348,52 +347,84 @@ public class MsBuildWorkspaceIntegrationTests
     }
 
     [Fact]
-    public async Task workspace_open_generator_host_attributes_custom_marker()
+    public async Task workspace_open_msbuild_analyzer_project_attributes_custom_marker()
     {
-        var fixtures = FindRepoFixtures();
-        var project = Path.Combine(fixtures, "GeneratorHost", "GeneratorHost.csproj");
-        Assert.True(File.Exists(project), $"Missing fixture: {project}");
-        var root = fixtures;
+        var root = CreateTempDir("genhost");
+        var dllSrc = Path.Combine(AppContext.BaseDirectory, "CustomGenerator.dll");
+        Assert.True(File.Exists(dllSrc), $"Missing CustomGenerator.dll next to tests: {dllSrc}");
+        File.Copy(dllSrc, Path.Combine(root, "CustomGenerator.dll"));
 
-        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+        var project = Path.Combine(root, "Host.csproj");
+        await File.WriteAllTextAsync(project, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+              <ItemGroup>
+                <Analyzer Include="CustomGenerator.dll" />
+              </ItemGroup>
+            </Project>
+            """);
+        await File.WriteAllTextAsync(Path.Combine(root, "Placeholder.cs"), """
+            namespace Host;
+            public static class Placeholder
+            {
+            }
+            """);
 
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = project });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-        await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        try
+        {
+            await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
 
-        var resolved = await fx.Client.CallToolAsync(
-            "symbol_resolve",
-            new Dictionary<string, object?> { ["name"] = "SampleApp.Generated.CustomMarker" });
-        Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
-        var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = project });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+            await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
 
-        var attr = await fx.Client.CallToolAsync(
-            "symbol_attribution",
-            new Dictionary<string, object?> { ["handle"] = handle });
-        Assert.True(attr.IsError is not true, InProcessMcpFixture.TextOf(attr));
-        var body = InProcessMcpFixture.Deserialize<SymbolAttributionResultDto>(attr);
-        Assert.Equal("SourceGenerator", body.OriginKind);
-        Assert.NotNull(body.Generator);
-        Assert.Equal("CustomGenerator.MarkerGenerator", body.Generator!.TypeFullName);
+            var resolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "SampleApp.Generated.CustomMarker" });
+            Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+
+            var attr = await fx.Client.CallToolAsync(
+                "symbol_attribution",
+                new Dictionary<string, object?> { ["handle"] = handle });
+            Assert.True(attr.IsError is not true, InProcessMcpFixture.TextOf(attr));
+            var body = InProcessMcpFixture.Deserialize<SymbolAttributionResultDto>(attr);
+            Assert.Equal("SourceGenerator", body.OriginKind);
+            Assert.NotNull(body.Generator);
+            Assert.Equal("CustomGenerator.MarkerGenerator", body.Generator!.TypeFullName);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
     }
 
-    private static string FindRepoFixtures()
+
+    private static string CreateTempDir(string label)
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
+        var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-{label}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
         {
-            var fixtures = Path.Combine(dir.FullName, "tests", "fixtures");
-            if (File.Exists(Path.Combine(fixtures, "GeneratorHost", "GeneratorHost.csproj")))
+            if (Directory.Exists(path))
             {
-                return Path.GetFullPath(fixtures);
+                Directory.Delete(path, recursive: true);
             }
-
-            dir = dir.Parent;
         }
-
-        return FixturesRoot;
+        catch
+        {
+        }
     }
 
     private static async Task<WorkspaceStatusDto> PollReadyAsync(InProcessMcpFixture fx, TimeSpan timeout)
