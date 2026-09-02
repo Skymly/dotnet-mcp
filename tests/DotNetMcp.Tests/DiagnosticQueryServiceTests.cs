@@ -120,6 +120,13 @@ public class DiagnosticQueryServiceTests
 
         public bool SupportsDiagnosticFix => false;
 
+
+        public Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
+            IWorkspaceSession session,
+            string handle,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
             IWorkspaceSession session,
             string projectId,

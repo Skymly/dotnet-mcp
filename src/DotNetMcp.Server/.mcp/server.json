@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.skymly/dotnet-mcp",
+  "version": "4.0.0",
+  "description": "MCP server for .NET symbols, XAML, source generators, and restricted workspace edit",
+  "title": "dotnet-mcp",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "identifier": "Skymly.DotNetMcp",
+      "version": "4.0.0",
+      "transport": { "type": "stdio" },
+      "runtimeHint": "dnx",
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--roots",
+          "description": "Trusted filesystem roots. On Windows separate multiple roots with Path.PathSeparator.",
+          "isRequired": true,
+          "format": "filepath"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "DOTNET_MCP_TRUSTED_ROOTS",
+          "description": "Trusted filesystem roots (Path.PathSeparator-delimited). Alternative to --roots.",
+          "isRequired": false
+        }
+      ]
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/Skymly/dotnet-mcp",
+    "source": "github"
+  }
+}

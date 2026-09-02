@@ -336,6 +336,13 @@ public class DiagnosticFixServiceTests
             IWorkspaceSession session, string handle, int? limit = null, string? cursor = null, TimeSpan? softBudget = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+
+        public Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
+            IWorkspaceSession session,
+            string handle,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
             IWorkspaceSession session, string projectId, int? limit = null, string? cursor = null, TimeSpan? softBudget = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

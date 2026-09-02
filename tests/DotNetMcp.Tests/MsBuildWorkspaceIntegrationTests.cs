@@ -14,6 +14,10 @@ public class MsBuildWorkspaceIntegrationTests
     public static string MixedSlnx => Path.Combine(FixturesRoot, "MixedCsharpVb", "Mixed.slnx");
     public static string FsProject => Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib", "FsLib.fsproj");
     public static string MixedWithFsSlnx => Path.Combine(FixturesRoot, "MixedCsharpVb", "MixedWithFs.slnx");
+    public static string AvaloniaProject => Path.Combine(FixturesRoot, "AvaloniaApp", "AvaloniaApp.csproj");
+    public static string AvaloniaMainWindow => Path.Combine(FixturesRoot, "AvaloniaApp", "MainWindow.axaml");
+    public static string GeneratorHostProject => Path.Combine(FixturesRoot, "GeneratorHost", "GeneratorHost.csproj");
+
 
     [Fact]
     public async Task workspace_open_slnx_status_ready_lists_sample_projects()
@@ -23,7 +27,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
+            solutionLoader: null);
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -53,7 +57,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
+            solutionLoader: null);
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -82,7 +86,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
+            solutionLoader: null);
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -116,7 +120,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
+            solutionLoader: null);
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -145,7 +149,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
+            solutionLoader: null);
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -176,7 +180,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
+            solutionLoader: null);
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -205,7 +209,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
+            solutionLoader: null);
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -236,7 +240,7 @@ public class MsBuildWorkspaceIntegrationTests
 
         await using var fx = new InProcessMcpFixture(
             TrustedRoots.Create([root]),
-            new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
+            solutionLoader: null);
 
         var open = await fx.Client.CallToolAsync(
             "workspace_open",
@@ -254,6 +258,142 @@ public class MsBuildWorkspaceIntegrationTests
         Assert.StartsWith("fsharp:", body.Handle, StringComparison.Ordinal);
         Assert.Equal("Widget", body.Summary.DisplayName);
         Assert.Equal("fsharp", body.Summary.Language);
+    }
+
+
+    [Fact]
+    public async Task workspace_open_mixed_solution_resolves_vb_widget()
+    {
+        Assert.True(File.Exists(MixedWithFsSlnx), $"Missing fixture: {MixedWithFsSlnx}");
+        var root = Path.GetDirectoryName(MixedWithFsSlnx)!;
+
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = MixedWithFsSlnx });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        Assert.Equal("ready", status.Phase);
+
+        var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+        var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+        var vb = Assert.Single(projects.Projects, p => p.Language == "vb");
+
+        var resolved = await fx.Client.CallToolAsync(
+            "symbol_resolve",
+            new Dictionary<string, object?> { ["name"] = "Widget", ["projectId"] = vb.ProjectId });
+        Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+        var body = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved);
+        Assert.StartsWith("vb:", body.Handle, StringComparison.Ordinal);
+        Assert.Equal("vb", body.Summary.Language);
+
+        var gotoDef = await fx.Client.CallToolAsync(
+            "symbol_goto_definition",
+            new Dictionary<string, object?> { ["handle"] = body.Handle });
+        Assert.True(gotoDef.IsError is not true, InProcessMcpFixture.TextOf(gotoDef));
+    }
+
+    [Fact]
+    public async Task workspace_open_mixed_solution_fsharp_attribution_is_handwritten()
+    {
+        Assert.True(File.Exists(MixedWithFsSlnx), $"Missing fixture: {MixedWithFsSlnx}");
+        var root = Path.GetDirectoryName(MixedWithFsSlnx)!;
+
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = MixedWithFsSlnx });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+        await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+
+        var resolved = await fx.Client.CallToolAsync(
+            "symbol_resolve",
+            new Dictionary<string, object?> { ["name"] = "FsLib.Widget" });
+        Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+        var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+
+        var attr = await fx.Client.CallToolAsync(
+            "symbol_attribution",
+            new Dictionary<string, object?> { ["handle"] = handle });
+        Assert.True(attr.IsError is not true, InProcessMcpFixture.TextOf(attr));
+        var body = InProcessMcpFixture.Deserialize<SymbolAttributionResultDto>(attr);
+        Assert.Equal("Handwritten", body.OriginKind);
+        Assert.Equal("InSource", body.DeclarationAvailability);
+    }
+
+    [Fact]
+    public async Task workspace_open_avalonia_resolves_xaml_class()
+    {
+        Assert.True(File.Exists(AvaloniaProject), $"Missing fixture: {AvaloniaProject}");
+        Assert.True(File.Exists(AvaloniaMainWindow), $"Missing fixture: {AvaloniaMainWindow}");
+        var root = Path.GetDirectoryName(AvaloniaProject)!;
+
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = AvaloniaProject });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+        await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+
+        var resolved = await fx.Client.CallToolAsync(
+            "xaml_resolve_class",
+            new Dictionary<string, object?> { ["path"] = AvaloniaMainWindow });
+        Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+        var body = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved);
+        Assert.Equal("MainWindow", body.Summary.DisplayName);
+        Assert.Contains("SampleApp", body.Handle, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task workspace_open_generator_host_attributes_custom_marker()
+    {
+        var fixtures = FindRepoFixtures();
+        var project = Path.Combine(fixtures, "GeneratorHost", "GeneratorHost.csproj");
+        Assert.True(File.Exists(project), $"Missing fixture: {project}");
+        var root = fixtures;
+
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = project });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+        await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+
+        var resolved = await fx.Client.CallToolAsync(
+            "symbol_resolve",
+            new Dictionary<string, object?> { ["name"] = "SampleApp.Generated.CustomMarker" });
+        Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+        var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+
+        var attr = await fx.Client.CallToolAsync(
+            "symbol_attribution",
+            new Dictionary<string, object?> { ["handle"] = handle });
+        Assert.True(attr.IsError is not true, InProcessMcpFixture.TextOf(attr));
+        var body = InProcessMcpFixture.Deserialize<SymbolAttributionResultDto>(attr);
+        Assert.Equal("SourceGenerator", body.OriginKind);
+        Assert.NotNull(body.Generator);
+        Assert.Equal("CustomGenerator.MarkerGenerator", body.Generator!.TypeFullName);
+    }
+
+    private static string FindRepoFixtures()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var fixtures = Path.Combine(dir.FullName, "tests", "fixtures");
+            if (File.Exists(Path.Combine(fixtures, "GeneratorHost", "GeneratorHost.csproj")))
+            {
+                return Path.GetFullPath(fixtures);
+            }
+
+            dir = dir.Parent;
+        }
+
+        return FixturesRoot;
     }
 
     private static async Task<WorkspaceStatusDto> PollReadyAsync(InProcessMcpFixture fx, TimeSpan timeout)

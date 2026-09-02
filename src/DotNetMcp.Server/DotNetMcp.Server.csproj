@@ -7,18 +7,22 @@
     <Nullable>enable</Nullable>
 
     <PackAsTool>true</PackAsTool>
+    <PackageType>McpServer</PackageType>
     <ToolCommandName>dotnet-mcp</ToolCommandName>
-    <PackageId>dotnet-mcp</PackageId>
+    <PackageId>Skymly.DotNetMcp</PackageId>
     <Version>4.0.0</Version>
     <Authors>Skymly</Authors>
-    <Description>MCP server for .NET symbol analysis (stdio).</Description>
+    <Description>MCP server for .NET symbol analysis, XAML, source-generator attribution, and restricted workspace edit (stdio).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/Skymly/dotnet-mcp</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Skymly/dotnet-mcp</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>mcp;dotnet;roslyn;fsharp;xaml;source-generators</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include=".mcp\server.json" Pack="true" PackagePath=".mcp\" />
   </ItemGroup>
 
   <ItemGroup>

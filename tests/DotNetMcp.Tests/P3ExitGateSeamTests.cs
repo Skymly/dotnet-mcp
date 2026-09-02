@@ -105,18 +105,21 @@ public class P3ExitGateSeamTests
 
     private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx)
     {
-        for (var i = 0; i < 200; i++)
+        WorkspaceStatusDto? last = null;
+        for (var i = 0; i < 400; i++)
         {
             var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
+            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
+            if (last.Phase is "ready" or "failed" or "cancelled")
             {
-                return;
+                break;
             }
 
             await Task.Delay(25);
         }
 
-        Assert.Fail("workspace did not become ready");
+        Assert.NotNull(last);
+        Assert.True(last!.Phase == "ready", $"workspace phase={last.Phase} error={last.Error}");
     }
 
     private static string CreateTempDir(string label)

@@ -33,7 +33,6 @@ internal sealed class McpBenchHost : IAsyncDisposable
         ServerHost.AddDotNetMcp(
             services,
             roots,
-            solutionLoader: new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])),
             workspaceHostOptions: WorkspaceHostOptions.Default,
             softBudgetOptions: SoftBudgetOptions.FromEnvironment(),
             auditOptions: new AuditOptions { Enabled = false });

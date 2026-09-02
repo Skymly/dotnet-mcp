@@ -131,6 +131,31 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         return (new SymbolDefinitionSuccess(item.Locations), null);
     }
 
+    public async Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
+        IWorkspaceSession session,
+        string handle,
+        CancellationToken cancellationToken = default)
+    {
+        var (item, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        static SymbolAttribution ForItem(FSharpCatalogItem catalogItem) =>
+            new(
+                catalogItem.Locations.Count > 0 ? DeclarationAvailability.InSource : DeclarationAvailability.InMetadata,
+                SymbolOrigin.Handwritten,
+                Generator: null);
+
+        var members = item!.Members.ToDictionary(
+            static m => m.SignatureQualifiedName,
+            ForItem,
+            StringComparer.Ordinal);
+        return (new SymbolAttributionSuccess(ForItem(item), members), null);
+    }
+
     public async Task<(PagedResult<MemberListItem>? Success, SymbolQueryError? Error)> GetMembersAsync(
         IWorkspaceSession session,
         string handle,

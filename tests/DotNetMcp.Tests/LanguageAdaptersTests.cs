@@ -106,6 +106,25 @@ public class LanguageAdaptersTests
     }
 
     [Fact]
+    public async Task get_attribution_dispatches_to_handle_owner()
+    {
+        var csharpFake = new FakeAdapter(LanguageAdapters.CSharpLanguage, LanguageNames.CSharp);
+        var fsharpFake = new FakeAdapter(LanguageAdapters.FSharpLanguage, LanguageNames.FSharp);
+        var adapters = new LanguageAdapters([csharpFake, fsharpFake]);
+        using var workspace = CreateWorkspace(out _, out _);
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var handle = SymbolHandle.Create(LanguageAdapters.CSharpLanguage, "proj", "Ns.Type").Format();
+
+        var (success, error) = await adapters.GetAttributionAsync(session, handle);
+
+        Assert.Null(error);
+        Assert.NotNull(success);
+        Assert.Equal(1, csharpFake.AttributionCalls);
+        Assert.Equal(0, fsharpFake.AttributionCalls);
+        Assert.Equal(SymbolOrigin.Handwritten, success!.Attribution.OriginKind);
+    }
+
+    [Fact]
     public async Task build_rename_preview_rejects_illegal_name_before_selecting_adapter()
     {
         var csharpFake = new FakeAdapter(LanguageAdapters.CSharpLanguage, LanguageNames.CSharp);
@@ -305,6 +324,23 @@ public class LanguageAdaptersTests
             TimeSpan? softBudget = null,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+
+        public int AttributionCalls { get; private set; }
+
+        public Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
+            IWorkspaceSession session,
+            string handle,
+            CancellationToken cancellationToken = default)
+        {
+            AttributionCalls++;
+            var attribution = new SymbolAttribution(
+                DeclarationAvailability.InSource,
+                SymbolOrigin.Handwritten,
+                Generator: null);
+            return Task.FromResult<(SymbolAttributionSuccess?, SymbolQueryError?)>(
+                (new SymbolAttributionSuccess(attribution, new Dictionary<string, SymbolAttribution>()), null));
+        }
 
         public Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
             IWorkspaceSession session,

@@ -190,6 +190,12 @@ public sealed class LanguageAdapters
         CancellationToken cancellationToken = default) =>
         Dispatch(handle, adapter => adapter.GetDefinitionAsync(session, handle, cancellationToken));
 
+    public Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
+        IWorkspaceSession session,
+        string handle,
+        CancellationToken cancellationToken = default) =>
+        Dispatch(handle, adapter => adapter.GetAttributionAsync(session, handle, cancellationToken));
+
     public Task<(PagedResult<MemberListItem>? Success, SymbolQueryError? Error)> GetMembersAsync(
         IWorkspaceSession session,
         string handle,
