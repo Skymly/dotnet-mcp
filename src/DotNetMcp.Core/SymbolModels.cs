@@ -114,6 +114,7 @@ public static class SymbolQueryErrorCodes
     public const string CompilationUnavailable = "CompilationUnavailable";
     public const string SoftBudgetExceeded = "SoftBudgetExceeded";
     public const string GeneratorNotFound = "GeneratorNotFound";
+    public const string GeneratorAttributionAmbiguous = "GeneratorAttributionAmbiguous";
     public const string GeneratedSymbolRenameRefused = "GeneratedSymbolRenameRefused";
     public const string RenameLanguageNotSupported = "RenameLanguageNotSupported";
     public const string InvalidRenameName = "InvalidRenameName";

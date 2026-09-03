@@ -31,6 +31,12 @@ public sealed record DriverRunSnapshot(
     IReadOnlyList<GeneratorRunSources> ByGenerator,
     IReadOnlyList<GeneratedSourceMatch> FlatSources);
 
+/// <summary>
+/// Result of matching a <see cref="Microsoft.CodeAnalysis.SyntaxTree"/> to a driver run.
+/// <see cref="Ambiguous"/> means content matched more than one generator identity.
+/// </summary>
+public readonly record struct GeneratorTreeMatch(GeneratorIdentity? Identity, bool Ambiguous);
+
 public sealed record SymbolAttribution(
     string DeclarationAvailability,
     string OriginKind,
