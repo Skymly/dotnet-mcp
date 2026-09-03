@@ -188,7 +188,15 @@ public sealed class GeneratorQueryService
             return (null, error);
         }
 
-        return (GeneratorDriverRunner.MatchTree(snapshot!, tree), null);
+        var match = GeneratorDriverRunner.MatchTree(snapshot!, tree);
+        if (match.Ambiguous)
+        {
+            return (null, new GeneratorAttributionAmbiguousError(
+                "Generated source content matches more than one generator; Origin cannot be bound uniquely.",
+                "Call project_list_generated_sources for each candidate generator; do not treat this symbol's Origin as a single generator identity."));
+        }
+
+        return (match.Identity, null);
     }
 
     private static bool TryResolveSupportedProject(

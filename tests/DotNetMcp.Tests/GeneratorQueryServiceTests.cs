@@ -134,6 +134,37 @@ public class GeneratorQueryServiceTests
     }
 
     [Fact]
+    public async Task match_syntax_tree_identical_content_from_two_generators_is_ambiguous()
+    {
+        using var workspace = CreateWorkspace();
+        var projectId = workspace.CurrentSolution.Projects.Single().Id.Id.ToString("D");
+        const string shared = "class Shared {}";
+        var snapshot = new DriverRunSnapshot(
+            [],
+            [
+                new GeneratedSourceMatch(
+                    new GeneratorIdentity("Alpha", "Alpha.Gen", "1.0.0.0"),
+                    "A.g.cs",
+                    shared,
+                    CSharpSyntaxTree.ParseText(shared, path: "A.g.cs")),
+                new GeneratedSourceMatch(
+                    new GeneratorIdentity("Beta", "Beta.Gen", "1.0.0.0"),
+                    "B.g.cs",
+                    shared,
+                    CSharpSyntaxTree.ParseText(shared, path: "B.g.cs"))
+            ]);
+        var service = new GeneratorQueryService();
+        using var session = new FakeSession(workspace.CurrentSolution, epoch: 1, snapshot: snapshot);
+
+        var (_, error) = await service.MatchSyntaxTreeAsync(
+            session,
+            projectId,
+            CSharpSyntaxTree.ParseText(shared, path: "query.cs"));
+
+        Assert.IsType<GeneratorAttributionAmbiguousError>(error);
+    }
+
+    [Fact]
     public async Task get_driver_run_unavailable_compilation_is_compilation_unavailable()
     {
         using var workspace = CreateWorkspace();
@@ -250,18 +281,21 @@ public class GeneratorQueryServiceTests
     {
         private readonly GeneratorRunCache _cache;
         private readonly bool _compilationUnavailable;
+        private readonly DriverRunSnapshot? _snapshot;
 
         public FakeSession(
             Solution solution,
             long epoch,
             GeneratorRunCache? cache = null,
-            bool compilationUnavailable = false)
+            bool compilationUnavailable = false,
+            DriverRunSnapshot? snapshot = null)
         {
             Solution = solution;
             Epoch = epoch;
             FSharpSnapshot = new FSharpWorkspaceSnapshot(epoch, []);
             _cache = cache ?? new GeneratorRunCache();
             _compilationUnavailable = compilationUnavailable;
+            _snapshot = snapshot;
         }
 
         public long Epoch { get; }
@@ -301,6 +335,11 @@ public class GeneratorQueryServiceTests
             ProjectId projectId,
             CancellationToken cancellationToken = default)
         {
+            if (_snapshot is not null)
+            {
+                return _snapshot;
+            }
+
             var key = projectId.Id.ToString("D");
             if (_cache.TryGet(key, Epoch, out var cached))
             {

@@ -108,28 +108,41 @@ public static class GeneratorDriverRunner
         return new DriverRunSnapshot(byGenerator, flat);
     }
 
-    public static GeneratorIdentity? MatchTree(DriverRunSnapshot snapshot, SyntaxTree tree)
+    public static GeneratorTreeMatch MatchTree(DriverRunSnapshot snapshot, SyntaxTree tree)
     {
         foreach (var source in snapshot.FlatSources)
         {
             if (ReferenceEquals(tree, source.SyntaxTree))
             {
-                return source.Identity;
+                return new GeneratorTreeMatch(source.Identity, Ambiguous: false);
             }
         }
 
         // Content is the public contract (ADR-0001 §6). Do not trust FilePath/HintName alone —
         // colliding HintNames share the same short path segment across generators.
+        // Identical content from distinct generators is ambiguous — never first-match.
         var targetText = tree.GetText().ToString();
+        GeneratorIdentity? unique = null;
         foreach (var source in snapshot.FlatSources)
         {
-            if (string.Equals(source.Content, targetText, StringComparison.Ordinal))
+            if (!string.Equals(source.Content, targetText, StringComparison.Ordinal))
             {
-                return source.Identity;
+                continue;
+            }
+
+            if (unique is null)
+            {
+                unique = source.Identity;
+                continue;
+            }
+
+            if (unique != source.Identity)
+            {
+                return new GeneratorTreeMatch(null, Ambiguous: true);
             }
         }
 
-        return null;
+        return new GeneratorTreeMatch(unique, Ambiguous: false);
     }
 
     public static bool TreesMatch(SyntaxTree a, SyntaxTree b)
