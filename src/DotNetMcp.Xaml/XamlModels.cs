@@ -10,6 +10,9 @@ public sealed record MissingXamlClassError(string Message, string SuggestedActio
 public sealed record XamlDocumentNotFoundError(string Message, string SuggestedAction)
     : XamlQueryError(XamlQueryErrorCodes.XamlDocumentNotFound, Message, SuggestedAction);
 
+public sealed record XamlDocumentAmbiguousError(string Message, string SuggestedAction)
+    : XamlQueryError(XamlQueryErrorCodes.XamlDocumentAmbiguous, Message, SuggestedAction);
+
 public sealed record UnsupportedXamlDocumentError(string Message, string SuggestedAction)
     : XamlQueryError(XamlQueryErrorCodes.UnsupportedXamlDocument, Message, SuggestedAction);
 
@@ -35,6 +38,7 @@ public static class XamlQueryErrorCodes
 {
     public const string MissingXamlClass = "MissingXamlClass";
     public const string XamlDocumentNotFound = "XamlDocumentNotFound";
+    public const string XamlDocumentAmbiguous = "XamlDocumentAmbiguous";
     public const string UnsupportedXamlDocument = "UnsupportedXamlDocument";
     public const string UnknownXmlnsPrefix = "UnknownXmlnsPrefix";
     public const string MissingXamlName = "MissingXamlName";
