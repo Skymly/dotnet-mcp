@@ -30,6 +30,7 @@ public static class PolicyErrorCodes
     public const string GeneratorNotFound = "GeneratorNotFound";
     public const string MissingXamlClass = "MissingXamlClass";
     public const string XamlDocumentNotFound = "XamlDocumentNotFound";
+    public const string XamlDocumentAmbiguous = "XamlDocumentAmbiguous";
     public const string UnsupportedXamlDocument = "UnsupportedXamlDocument";
     public const string UnknownXmlnsPrefix = "UnknownXmlnsPrefix";
     public const string MissingXamlName = "MissingXamlName";

@@ -193,6 +193,32 @@ public class XamlDocumentServiceTests
         Assert.NotNull(page);
     }
 
+    [Fact]
+    public async Task resolve_class_scopes_to_xaml_owning_project()
+    {
+        using var workspace = TwoProjectSharedTypeWorkspace();
+        using var session = new FakeSession(workspace);
+        var avaloniaId = workspace.CurrentSolution.Projects.Single(p => p.Name == "AvaloniaApp").Id.Id.ToString("D");
+        var otherId = workspace.CurrentSolution.Projects.Single(p => p.Name == "OtherApp").Id.Id.ToString("D");
+
+        var (success, xamlError, symbolError) = await Service().ResolveClassAsync(session, AxamlPath);
+        Assert.Null(xamlError);
+        Assert.Null(symbolError);
+        Assert.NotNull(success);
+        Assert.Equal("MainWindow", success!.Summary.DisplayName);
+        Assert.Equal(avaloniaId, success.Summary.ProjectId);
+        Assert.NotEqual(otherId, success.Summary.ProjectId);
+    }
+
+    [Fact]
+    public async Task resolve_class_same_path_in_two_projects_is_ambiguous()
+    {
+        using var workspace = LinkedXamlTwoProjectWorkspace();
+        using var session = new FakeSession(workspace);
+        var (_, xamlError, _) = await Service().ResolveClassAsync(session, AxamlPath);
+        Assert.IsType<XamlDocumentAmbiguousError>(xamlError);
+    }
+
     private static AdhocWorkspace AvaloniaWorkspace(string axaml, bool includeNameField = true)
     {
         var workspace = new AdhocWorkspace();
@@ -291,6 +317,122 @@ public class XamlDocumentServiceTests
         if (!workspace.TryApplyChanges(solution))
         {
             throw new InvalidOperationException("Failed to apply MAUI AdhocWorkspace.");
+        }
+
+        return workspace;
+    }
+
+    private static AdhocWorkspace TwoProjectSharedTypeWorkspace()
+    {
+        var workspace = new AdhocWorkspace();
+        var avaloniaId = ProjectId.CreateNewId();
+        var otherId = ProjectId.CreateNewId();
+        var avaloniaCs = DocumentId.CreateNewId(avaloniaId);
+        var avaloniaXaml = DocumentId.CreateNewId(avaloniaId);
+        var otherCs = DocumentId.CreateNewId(otherId);
+        const string source = """
+            namespace SampleApp;
+
+            public partial class MainWindow
+            {
+            }
+            """;
+
+        // OtherApp is first so an unscoped first-match would bind the wrong project.
+        var solution = workspace.CurrentSolution
+            .AddProject(ProjectInfo.Create(
+                otherId,
+                VersionStamp.Create(),
+                "OtherApp",
+                "OtherApp",
+                LanguageNames.CSharp,
+                filePath: @"C:\fake-xaml-unit\OtherApp.csproj"))
+            .AddProject(ProjectInfo.Create(
+                avaloniaId,
+                VersionStamp.Create(),
+                "AvaloniaApp",
+                "AvaloniaApp",
+                LanguageNames.CSharp,
+                filePath: @"C:\fake-xaml-unit\AvaloniaApp.csproj"));
+        solution = solution.AddDocument(
+            avaloniaCs, "MainWindow.axaml.cs", SourceText.From(source),
+            filePath: @"C:\fake-xaml-unit\MainWindow.axaml.cs");
+        solution = solution.AddAdditionalDocument(
+            avaloniaXaml, "MainWindow.axaml", SourceText.From(AvaloniaWindow("SampleApp.MainWindow")),
+            filePath: AxamlPath);
+        solution = solution.AddDocument(
+            otherCs, "MainWindow.cs", SourceText.From(source),
+            filePath: @"C:\fake-xaml-unit\other\MainWindow.cs");
+        solution = solution.WithProjectCompilationOptions(
+            avaloniaId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.WithProjectCompilationOptions(
+            otherId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            avaloniaId, MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        solution = solution.AddMetadataReference(
+            otherId, MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply two-project AdhocWorkspace.");
+        }
+
+        return workspace;
+    }
+
+    private static AdhocWorkspace LinkedXamlTwoProjectWorkspace()
+    {
+        var workspace = new AdhocWorkspace();
+        var net8 = ProjectId.CreateNewId();
+        var windows = ProjectId.CreateNewId();
+        var net8Cs = DocumentId.CreateNewId(net8);
+        var net8Xaml = DocumentId.CreateNewId(net8);
+        var windowsCs = DocumentId.CreateNewId(windows);
+        var windowsXaml = DocumentId.CreateNewId(windows);
+        const string source = """
+            namespace SampleApp;
+
+            public partial class MainWindow
+            {
+            }
+            """;
+        var axaml = AvaloniaWindow("SampleApp.MainWindow");
+
+        var solution = workspace.CurrentSolution
+            .AddProject(ProjectInfo.Create(
+                net8,
+                VersionStamp.Create(),
+                "AvaloniaApp",
+                "AvaloniaApp",
+                LanguageNames.CSharp,
+                filePath: @"C:\fake-xaml-unit\AvaloniaApp.csproj"))
+            .AddProject(ProjectInfo.Create(
+                windows,
+                VersionStamp.Create(),
+                "AvaloniaApp_windows",
+                "AvaloniaApp_windows",
+                LanguageNames.CSharp,
+                filePath: @"C:\fake-xaml-unit\AvaloniaApp_windows.csproj"));
+        solution = solution.AddDocument(
+            net8Cs, "MainWindow.axaml.cs", SourceText.From(source),
+            filePath: @"C:\fake-xaml-unit\MainWindow.axaml.cs");
+        solution = solution.AddAdditionalDocument(
+            net8Xaml, "MainWindow.axaml", SourceText.From(axaml), filePath: AxamlPath);
+        solution = solution.AddDocument(
+            windowsCs, "MainWindow.axaml.cs", SourceText.From(source),
+            filePath: @"C:\fake-xaml-unit\windows\MainWindow.axaml.cs");
+        solution = solution.AddAdditionalDocument(
+            windowsXaml, "MainWindow.axaml", SourceText.From(axaml), filePath: AxamlPath);
+        solution = solution.WithProjectCompilationOptions(
+            net8, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.WithProjectCompilationOptions(
+            windows, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            net8, MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        solution = solution.AddMetadataReference(
+            windows, MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply linked-XAML AdhocWorkspace.");
         }
 
         return workspace;

@@ -44,8 +44,8 @@ public sealed class XamlDocumentService
             return (null, MissingClassError(), null);
         }
 
-        var (success, symbolError) = await _languages
-            .ResolveByNameAsync(session, root.ClassName, projectId: null, cancellationToken)
+        var (success, symbolError) = await ResolveNameInDocumentProjectAsync(
+                session, root!, root.ClassName, cancellationToken)
             .ConfigureAwait(false);
         return (success, null, symbolError);
     }
@@ -83,8 +83,8 @@ public sealed class XamlDocumentService
             return (null, MissingClassError(), null);
         }
 
-        var (resolved, symbolError) = await _languages
-            .ResolveByNameAsync(session, root.ClassName, projectId: null, cancellationToken)
+        var (resolved, symbolError) = await ResolveNameInDocumentProjectAsync(
+                session, root!, root.ClassName, cancellationToken)
             .ConfigureAwait(false);
         if (symbolError is not null)
         {
@@ -167,8 +167,8 @@ public sealed class XamlDocumentService
         }
 
         var resolvedTypeName = ResolveTypeName(typeName.Trim(), xmlns!);
-        var (resolved, symbolError) = await _languages
-            .ResolveByNameAsync(session, resolvedTypeName, projectId: null, cancellationToken)
+        var (resolved, symbolError) = await ResolveNameInDocumentProjectAsync(
+                session, root!, resolvedTypeName, cancellationToken)
             .ConfigureAwait(false);
         if (symbolError is not null)
         {
@@ -307,7 +307,8 @@ public sealed class XamlDocumentService
             }
         }
 
-        var defaultAssembly = await ResolveDefaultAssemblyNameAsync(session, root.ClassName, cancellationToken)
+        var defaultAssembly = await ResolveDefaultAssemblyNameAsync(
+                session, root.ClassName, root.ProjectId, cancellationToken)
             .ConfigureAwait(false);
         var definitions = await CollectXmlnsDefinitionsAsync(session, cancellationToken).ConfigureAwait(false);
 
@@ -361,7 +362,13 @@ public sealed class XamlDocumentService
                 "Pass an Avalonia .axaml path or a MAUI .xaml path (MAUI xmlns). WPF/WinUI .xaml is not registered."));
         }
 
-        var text = await TryGetSnapshotTextAsync(session, path, cancellationToken).ConfigureAwait(false);
+        var (text, projectId, snapshotError) = await TryGetSnapshotTextAsync(session, path, cancellationToken)
+            .ConfigureAwait(false);
+        if (snapshotError is not null)
+        {
+            return (null, snapshotError);
+        }
+
         if (text is null)
         {
             return (null, new XamlDocumentNotFoundError(
@@ -379,7 +386,7 @@ public sealed class XamlDocumentService
                     ? (null, new UnsupportedXamlDocumentError(
                         "This .xaml document is not a registered MAUI document.",
                         "Pass a MAUI .xaml whose default xmlns is http://schemas.microsoft.com/dotnet/2021/maui."))
-                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text), null);
+                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text, ProjectId: projectId), null);
             }
 
             reader.MoveToContent();
@@ -389,7 +396,7 @@ public sealed class XamlDocumentService
                     ? (null, new UnsupportedXamlDocumentError(
                         "This .xaml document is not a registered MAUI document.",
                         "Pass a MAUI .xaml whose default xmlns is http://schemas.microsoft.com/dotnet/2021/maui."))
-                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text), null);
+                    : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text, ProjectId: projectId), null);
             }
 
             var className = reader.GetAttribute("Class", XamlXmlns.Xaml);
@@ -422,14 +429,21 @@ public sealed class XamlDocumentService
                 path,
                 string.IsNullOrWhiteSpace(className) ? null : className.Trim(),
                 xmlns,
-                text), null);
+                text,
+                projectId), null);
         }
         catch (XmlException)
         {
-            return (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text), null);
+            return (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text, ProjectId: projectId), null);
         }
     }
 
+    private Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveNameInDocumentProjectAsync(
+        IWorkspaceSession session,
+        XamlDocumentRoot root,
+        string name,
+        CancellationToken cancellationToken) =>
+        _languages.ResolveByNameAsync(session, name, root.ProjectId, cancellationToken);
 
     private static IEnumerable<XamlXmlnsMapping> ResolveDeclaration(
         string prefix,
@@ -513,8 +527,8 @@ public sealed class XamlDocumentService
             return (null, null);
         }
 
-        var (resolved, symbolError) = await _languages
-            .ResolveByNameAsync(session, root.ClassName, projectId: null, cancellationToken)
+        var (resolved, symbolError) = await ResolveNameInDocumentProjectAsync(
+                session, root, root.ClassName, cancellationToken)
             .ConfigureAwait(false);
         if (symbolError is not null || resolved is null)
         {
@@ -581,11 +595,30 @@ public sealed class XamlDocumentService
     private static async Task<string?> ResolveDefaultAssemblyNameAsync(
         IWorkspaceSession session,
         string? className,
+        string? projectId,
         CancellationToken cancellationToken)
     {
+        var owner = FindRoslynProject(session, projectId);
+        if (owner is not null)
+        {
+            try
+            {
+                var compilation = await session.GetCompilationAsync(owner.Id, cancellationToken)
+                    .ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(className) ||
+                    compilation.GetTypeByMetadataName(className) is not null)
+                {
+                    return compilation.AssemblyName ?? owner.Name;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(className))
         {
-            foreach (var project in session.Solution.Projects.Where(p => p.Language is LanguageNames.CSharp or LanguageNames.VisualBasic))
+            foreach (var project in session.Solution.Projects.Where(IsRoslynProject))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 Compilation compilation;
@@ -605,7 +638,7 @@ public sealed class XamlDocumentService
             }
         }
 
-        var first = session.Solution.Projects.FirstOrDefault(p => p.Language is LanguageNames.CSharp or LanguageNames.VisualBasic);
+        var first = session.Solution.Projects.FirstOrDefault(IsRoslynProject);
         return first?.AssemblyName ?? first?.Name;
     }
 
@@ -761,13 +794,15 @@ public sealed class XamlDocumentService
         CancellationToken cancellationToken)
     {
         var items = new List<DiagnosticItem>();
-        var projectId = session.Solution.Projects.FirstOrDefault(IsRoslynProject)
-            ?.Id.Id.ToString("D") ?? "";
+        var projectId = root.ProjectId
+            ?? session.Solution.Projects.FirstOrDefault(IsRoslynProject)?.Id.Id.ToString("D")
+            ?? "";
 
         INamedTypeSymbol? classType = null;
         if (!string.IsNullOrWhiteSpace(root.ClassName))
         {
-            var (resolved, _) = await _languages.ResolveByNameAsync(session, root.ClassName, cancellationToken: cancellationToken)
+            var (resolved, _) = await ResolveNameInDocumentProjectAsync(
+                    session, root, root.ClassName, cancellationToken)
                 .ConfigureAwait(false);
             if (resolved is not null)
             {
@@ -807,7 +842,8 @@ public sealed class XamlDocumentService
                 var local = reader.LocalName;
                 if (!string.Equals(local, "Window", StringComparison.Ordinal) || prefix.Length > 0)
                 {
-                    var elementType = await ResolveElementTypeAsync(session, prefix, local, xmlns, cancellationToken)
+                    var elementType = await ResolveElementTypeAsync(
+                            session, prefix, local, xmlns, projectId, cancellationToken)
                         .ConfigureAwait(false);
                     if (elementType is null && !IsLanguageElement(prefix, local))
                     {
@@ -905,6 +941,7 @@ public sealed class XamlDocumentService
         string prefix,
         string localName,
         IReadOnlyList<XamlXmlnsMapping> xmlns,
+        string? projectId,
         CancellationToken cancellationToken)
     {
         var mapping = xmlns.FirstOrDefault(x =>
@@ -915,7 +952,14 @@ public sealed class XamlDocumentService
         }
 
         var metadataName = $"{mapping.ClrNamespace}.{localName}";
-        foreach (var project in session.Solution.Projects.Where(IsRoslynProject))
+        IEnumerable<Project> projects = session.Solution.Projects.Where(IsRoslynProject);
+        var owner = FindRoslynProject(session, projectId);
+        if (owner is not null)
+        {
+            projects = [owner];
+        }
+
+        foreach (var project in projects)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Compilation compilation;
@@ -1020,6 +1064,18 @@ public sealed class XamlDocumentService
     private static bool IsRoslynProject(Project project) =>
         project.Language is LanguageNames.CSharp or LanguageNames.VisualBasic;
 
+    private static Project? FindRoslynProject(IWorkspaceSession session, string? projectId)
+    {
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            return null;
+        }
+
+        return session.Solution.Projects.FirstOrDefault(p =>
+            IsRoslynProject(p) &&
+            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static XmlReader CreateReader(string text, bool ignoreWhitespace = false) =>
         XmlReader.Create(new StringReader(text), new XmlReaderSettings
         {
@@ -1030,11 +1086,13 @@ public sealed class XamlDocumentService
             IgnoreWhitespace = ignoreWhitespace
         });
 
-    private static async Task<string?> TryGetSnapshotTextAsync(
+    private static async Task<(string? Text, string? ProjectId, XamlQueryError? Error)> TryGetSnapshotTextAsync(
         IWorkspaceSession session,
         string path,
         CancellationToken cancellationToken)
     {
+        var hits = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var candidate in SnapshotPathCandidates(path))
         {
             foreach (var documentId in session.Solution.GetDocumentIdsWithFilePath(candidate))
@@ -1046,51 +1104,81 @@ public sealed class XamlDocumentService
                     continue;
                 }
 
-                var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
-                return text.ToString();
+                await AddSnapshotHitAsync(hits, document, cancellationToken).ConfigureAwait(false);
             }
         }
 
-        string? fullPath = null;
-        try
+        if (hits.Count == 0)
         {
-            fullPath = Path.GetFullPath(path);
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-
-        foreach (var project in session.Solution.Projects)
-        {
-            foreach (var document in EnumerateTextDocuments(project))
+            string? fullPath;
+            try
             {
-                if (string.IsNullOrWhiteSpace(document.FilePath))
-                {
-                    continue;
-                }
+                fullPath = Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                return (null, null, null);
+            }
 
-                string documentPath;
-                try
+            foreach (var project in session.Solution.Projects)
+            {
+                foreach (var document in EnumerateTextDocuments(project))
                 {
-                    documentPath = Path.GetFullPath(document.FilePath);
-                }
-                catch (Exception)
-                {
-                    continue;
-                }
+                    if (string.IsNullOrWhiteSpace(document.FilePath))
+                    {
+                        continue;
+                    }
 
-                if (!string.Equals(documentPath, fullPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
+                    string documentPath;
+                    try
+                    {
+                        documentPath = Path.GetFullPath(document.FilePath);
+                    }
+                    catch (Exception)
+                    {
+                        continue;
+                    }
 
-                var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
-                return text.ToString();
+                    if (!string.Equals(documentPath, fullPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    await AddSnapshotHitAsync(hits, document, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
 
-        return null;
+        if (hits.Count == 0)
+        {
+            return (null, null, null);
+        }
+
+        if (hits.Count > 1)
+        {
+            var ids = string.Join(", ", hits.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase));
+            return (null, null, new XamlDocumentAmbiguousError(
+                $"The XAML document is included in {hits.Count} projects (projectId: {ids}).",
+                "The same path belongs to more than one project (for example multi-TFM inner projects). Ensure the document is in a single project, then retry."));
+        }
+
+        var hit = hits.Single();
+        return (hit.Value, hit.Key, null);
+    }
+
+    private static async Task AddSnapshotHitAsync(
+        Dictionary<string, string> hits,
+        TextDocument document,
+        CancellationToken cancellationToken)
+    {
+        var projectId = document.Project.Id.Id.ToString("D");
+        if (hits.ContainsKey(projectId))
+        {
+            return;
+        }
+
+        var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        hits[projectId] = text.ToString();
     }
 
     private static IEnumerable<string> SnapshotPathCandidates(string path)
@@ -1134,7 +1222,8 @@ public sealed class XamlDocumentService
         string Path,
         string? ClassName,
         IReadOnlyList<(string Prefix, string XmlNamespace)> XmlnsDeclarations,
-        string Text);
+        string Text,
+        string? ProjectId);
 
     private sealed record XmlnsDefinition(string XmlNamespace, string ClrNamespace, string AssemblyName);
 }
