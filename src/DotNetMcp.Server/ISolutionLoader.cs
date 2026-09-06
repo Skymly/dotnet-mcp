@@ -14,7 +14,7 @@ public sealed class LoadedSolution : IAsyncDisposable
 {
     private readonly Workspace _workspace;
     private Dictionary<string, DocumentId> _docsByPath;
-    private readonly Dictionary<string, DateTime> _projectFileMtimes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTime> _projectFileMtimes = new(PathPolicy.Comparer);
 
     public LoadedSolution(
         Workspace workspace,
@@ -63,7 +63,7 @@ public sealed class LoadedSolution : IAsyncDisposable
     /// <summary>
     /// Read-only drift scan. Performs disk I/O; do not hold the host gate across this call.
     /// </summary>
-    public IReadOnlyList<DocumentDrift> DetectDrift(IReadOnlyList<string> extraProjectOrSolutionPaths)
+    public IReadOnlyList<DocumentDrift> DetectDrift(IReadOnlyList<string> extraProjectOrSolutionPaths, Func<string, bool>? allowRead = null)
     {
         var drifts = new List<DocumentDrift>();
 
@@ -81,6 +81,12 @@ public sealed class LoadedSolution : IAsyncDisposable
                 continue;
             }
 
+            if (allowRead is not null && !allowRead(path))
+            {
+                drifts.Add(new DocumentDrift(path, "OutsideTrustedRoots", Repaired: false));
+                continue;
+            }
+
             var workspaceText = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult().ToString();
             var diskText = File.ReadAllText(path);
             if (!string.Equals(workspaceText, diskText, StringComparison.Ordinal))
@@ -92,10 +98,16 @@ public sealed class LoadedSolution : IAsyncDisposable
         foreach (var projectPath in extraProjectOrSolutionPaths
                      .Where(static p => !string.IsNullOrWhiteSpace(p))
                      .Select(Normalize)
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+                     .Distinct(PathPolicy.Comparer))
         {
             if (_docsByPath.ContainsKey(projectPath))
             {
+                continue;
+            }
+
+            if (allowRead is not null && !allowRead(projectPath))
+            {
+                drifts.Add(new DocumentDrift(projectPath, "OutsideTrustedRoots", Repaired: false));
                 continue;
             }
 
@@ -148,7 +160,7 @@ public sealed class LoadedSolution : IAsyncDisposable
         foreach (var path in paths
                      .Where(static p => !string.IsNullOrWhiteSpace(p))
                      .Select(Normalize)
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+                     .Distinct(PathPolicy.Comparer))
         {
             if (File.Exists(path))
             {
@@ -194,7 +206,7 @@ public sealed class LoadedSolution : IAsyncDisposable
 
     private static Dictionary<string, DocumentId> BuildIndex(Solution solution)
     {
-        var map = new Dictionary<string, DocumentId>(StringComparer.OrdinalIgnoreCase);
+        var map = new Dictionary<string, DocumentId>(PathPolicy.Comparer);
         foreach (var project in solution.Projects)
         {
             foreach (var document in project.Documents)
@@ -204,14 +216,31 @@ public sealed class LoadedSolution : IAsyncDisposable
                     continue;
                 }
 
-                map[Normalize(document.FilePath)] = document.Id;
+                try
+                {
+                    map[Normalize(document.FilePath)] = document.Id;
+                }
+                catch (PathPolicyException)
+                {
+                    // Fail closed: unresolvable reparse points stay out of the index.
+                }
             }
         }
 
         return map;
     }
 
-    private static string Normalize(string path) => Path.GetFullPath(path);
+    private static string Normalize(string path)
+    {
+        try
+        {
+            return PathPolicy.Normalize(path);
+        }
+        catch (PathPolicyException)
+        {
+            return Path.GetFullPath(path);
+        }
+    }
 }
 
 public interface ISolutionLoader

@@ -8,8 +8,13 @@ public interface IWorkspaceFileWatcher : IDisposable
     /// <summary>
     /// Begin watching <paramref name="roots"/> (directories). Invokes <paramref name="onPathsChanged"/>
     /// with changed file paths (may be coalesced by the caller).
+    /// <paramref name="onWatchLost"/> is raised when the underlying watcher reports an error
+    /// (including internal buffer overflow) so the host can fall back to drift scan.
     /// </summary>
-    void Start(IReadOnlyList<string> roots, Action<IReadOnlyList<string>> onPathsChanged);
+    void Start(
+        IReadOnlyList<string> roots,
+        Action<IReadOnlyList<string>> onPathsChanged,
+        Action? onWatchLost = null);
 
     void Stop();
 }
@@ -21,15 +26,20 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
 {
     private readonly List<FileSystemWatcher> _watchers = [];
     private Action<IReadOnlyList<string>>? _onPathsChanged;
+    private Action? _onWatchLost;
     private bool _disposed;
 
-    public void Start(IReadOnlyList<string> roots, Action<IReadOnlyList<string>> onPathsChanged)
+    public void Start(
+        IReadOnlyList<string> roots,
+        Action<IReadOnlyList<string>> onPathsChanged,
+        Action? onWatchLost = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         Stop();
         _onPathsChanged = onPathsChanged;
+        _onWatchLost = onWatchLost;
 
-        foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var root in roots.Distinct(PathPolicy.Comparer))
         {
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
             {
@@ -51,6 +61,7 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
             watcher.Created += OnEvent;
             watcher.Deleted += OnEvent;
             watcher.Renamed += OnRenamed;
+            watcher.Error += OnError;
             watcher.EnableRaisingEvents = true;
             _watchers.Add(watcher);
         }
@@ -65,10 +76,12 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
             watcher.Created -= OnEvent;
             watcher.Deleted -= OnEvent;
             watcher.Renamed -= OnRenamed;
+            watcher.Error -= OnError;
             watcher.Dispose();
         }
 
         _watchers.Clear();
+        _onWatchLost = null;
     }
 
     public void Dispose()
@@ -110,5 +123,10 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
         {
             _onPathsChanged?.Invoke(paths);
         }
+    }
+
+    private void OnError(object sender, ErrorEventArgs e)
+    {
+        _onWatchLost?.Invoke();
     }
 }

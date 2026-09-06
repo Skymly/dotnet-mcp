@@ -33,6 +33,7 @@ public class XamlResolveClassSeamTests
             Assert.Equal("NamedType", body.Summary.Kind);
             Assert.Equal("MainWindow", body.Summary.DisplayName);
             Assert.Equal("SampleApp", body.Summary.ContainingSymbol);
+            Assert.Equal("None", body.Summary.InteropKind);
         }
         finally
         {

@@ -37,7 +37,7 @@ public sealed class TrustedRoots
             }
         }
 
-        return new TrustedRoots(normalized.Distinct(PathComparer).ToArray());
+        return new TrustedRoots(normalized.Distinct(PathPolicy.Comparer).ToArray());
     }
 
     /// <summary>
@@ -115,6 +115,4 @@ public sealed class TrustedRoots
     private static IEnumerable<string> SplitRootList(string value) =>
         value.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    private static StringComparer PathComparer =>
-        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 }

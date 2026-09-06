@@ -5,12 +5,14 @@ namespace DotNetMcp.Core;
 /// <summary>
 /// Workspace-owned compilation cache with LRU eviction (ADR-0002 / Spike S2).
 /// Shared across request sessions of the same epoch; capacity &lt;= 0 means unlimited.
+/// Parallel misses for the same project share one in-flight factory.
 /// </summary>
 public sealed class CompilationLru
 {
     private readonly int? _capacity;
     private readonly LinkedList<ProjectId> _order = new();
     private readonly Dictionary<ProjectId, Compilation> _map = new();
+    private readonly Dictionary<ProjectId, Task<Compilation>> _inflight = new();
     private readonly object _gate = new();
 
     public CompilationLru(int capacity)
@@ -50,6 +52,8 @@ public sealed class CompilationLru
         Func<Project, CancellationToken, Task<Compilation>> factory,
         CancellationToken cancellationToken = default)
     {
+        Task<Compilation> pending;
+        var owner = false;
         lock (_gate)
         {
             if (TryGetAndTouch(project.Id, out var existing))
@@ -58,16 +62,48 @@ public sealed class CompilationLru
                 return existing;
             }
 
-            Misses++;
+            if (_inflight.TryGetValue(project.Id, out var inflight))
+            {
+                pending = inflight;
+            }
+            else
+            {
+                Misses++;
+                pending = factory(project, cancellationToken);
+                _inflight[project.Id] = pending;
+                owner = true;
+            }
         }
 
-        var compilation = await factory(project, cancellationToken).ConfigureAwait(false);
+        Compilation compilation;
+        try
+        {
+            compilation = await pending.ConfigureAwait(false);
+        }
+        catch
+        {
+            if (owner)
+            {
+                ClearInflight(project.Id, pending);
+            }
+
+            throw;
+        }
 
         lock (_gate)
         {
+            if (owner && _inflight.TryGetValue(project.Id, out var current) && ReferenceEquals(current, pending))
+            {
+                _inflight.Remove(project.Id);
+            }
+
             if (TryGetAndTouch(project.Id, out var existing))
             {
-                Hits++;
+                if (!owner)
+                {
+                    Hits++;
+                }
+
                 return existing;
             }
 
@@ -82,6 +118,17 @@ public sealed class CompilationLru
             _map[project.Id] = compilation;
             _order.AddFirst(project.Id);
             return compilation;
+        }
+    }
+
+    private void ClearInflight(ProjectId id, Task<Compilation> pending)
+    {
+        lock (_gate)
+        {
+            if (_inflight.TryGetValue(id, out var current) && ReferenceEquals(current, pending))
+            {
+                _inflight.Remove(id);
+            }
         }
     }
 

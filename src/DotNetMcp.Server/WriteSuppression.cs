@@ -6,7 +6,7 @@ namespace DotNetMcp.Server;
 public sealed class WriteSuppression
 {
     private readonly object _gate = new();
-    private readonly HashSet<string> _paths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _paths = new(PathPolicy.Comparer);
 
     public IDisposable Suppress(params string[] paths) => Suppress((IEnumerable<string>)paths);
 
@@ -15,7 +15,7 @@ public sealed class WriteSuppression
         var normalized = paths
             .Where(static p => !string.IsNullOrWhiteSpace(p))
             .Select(Normalize)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(PathPolicy.Comparer)
             .ToArray();
 
         lock (_gate)
@@ -47,7 +47,17 @@ public sealed class WriteSuppression
         }
     }
 
-    private static string Normalize(string path) => Path.GetFullPath(path);
+    private static string Normalize(string path)
+    {
+        try
+        {
+            return PathPolicy.Normalize(path);
+        }
+        catch (PathPolicyException)
+        {
+            return Path.GetFullPath(path);
+        }
+    }
 
     private sealed class Releaser(Action release) : IDisposable
     {

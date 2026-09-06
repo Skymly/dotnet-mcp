@@ -32,7 +32,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private readonly Stopwatch _elapsed = new();
     private long _estimatedRemainingMs;
 
-    private readonly HashSet<string> _pendingPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _pendingPaths = new(PathPolicy.Comparer);
     private CancellationTokenSource? _debounceCts;
     private readonly GeneratorRunCache _generatorRunCache = new();
     private readonly FindHitCache _findHitCache = new();
@@ -109,7 +109,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
         var cts = _loadCts!;
         var openedPath = _openedPath!;
-        _loadTask = Task.Run(() => RunLoadAsync(openedPath, cts.Token));
+        _loadTask = Task.Run(() => RunLoadAsync(openedPath, cts));
 
         return GetStatus();
     }
@@ -346,19 +346,24 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
         var extras = loaded.TrackedProjectFilePaths
             .Concat(openedPath is null ? [] : [openedPath])
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(PathPolicy.Comparer)
             .ToArray();
 
-        var detected = loaded.DetectDrift(extras);
+        var detected = loaded.DetectDrift(extras, _trustedRoots.Contains);
 
-        var repairTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var repairTexts = new Dictionary<string, string>(PathPolicy.Comparer);
         foreach (var drift in detected)
         {
             if (drift.Kind == "ContentMismatch"
                 && LoadedSolution.IsSourceFile(drift.Path)
+                && _trustedRoots.Contains(drift.Path)
                 && File.Exists(drift.Path))
             {
-                repairTexts[Path.GetFullPath(drift.Path)] = File.ReadAllText(drift.Path);
+                var key = TryNormalize(drift.Path);
+                if (key is not null)
+                {
+                    repairTexts[key] = File.ReadAllText(drift.Path);
+                }
             }
         }
 
@@ -412,10 +417,13 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     {
         var filtered = paths
             .Where(static p => !string.IsNullOrWhiteSpace(p))
-            .Select(Path.GetFullPath)
+            .Where(_trustedRoots.Contains)
+            .Select(TryNormalize)
+            .Where(static p => p is not null)
+            .Cast<string>()
             .Where(p => LoadedSolution.IsWatchedFile(p))
             .Where(p => !_options.WriteSuppression.IsSuppressed(p))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(PathPolicy.Comparer)
             .ToArray();
 
         if (filtered.Length == 0)
@@ -440,7 +448,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             return;
         }
 
-        var diskTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var diskTexts = new Dictionary<string, string>(PathPolicy.Comparer);
         foreach (var path in filtered)
         {
             if (File.Exists(path))
@@ -502,7 +510,13 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                     continue;
                 }
 
-                _pendingPaths.Add(Path.GetFullPath(path));
+                var normalized = TryNormalize(path);
+                if (normalized is null || !_trustedRoots.ContainsNormalized(normalized))
+                {
+                    continue;
+                }
+
+                _pendingPaths.Add(normalized);
             }
 
             if (_pendingPaths.Count == 0)
@@ -556,8 +570,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
     }
 
-    private async Task RunLoadAsync(string path, CancellationToken ct)
+    private async Task RunLoadAsync(string path, CancellationTokenSource cts)
     {
+        var ct = cts.Token;
         await _loadMutex.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -653,7 +668,23 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
         finally
         {
-            _loadMutex.Release();
+            try
+            {
+                _loadMutex.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
+            lock (_gate)
+            {
+                if (ReferenceEquals(_loadCts, cts))
+                {
+                    _loadCts = null;
+                }
+            }
+
+            cts.Dispose();
         }
     }
 
@@ -663,8 +694,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             .Select(static p => Path.GetDirectoryName(p))
             .Where(static d => !string.IsNullOrWhiteSpace(d))
             .Cast<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Where(Directory.Exists)
+            .Distinct(PathPolicy.Comparer)
+            .Where(d => Directory.Exists(d) && _trustedRoots.Contains(d))
             .ToArray();
 
         // Also watch the opened solution's directory.
@@ -675,10 +706,13 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 var openDir = Path.GetDirectoryName(_openedPath);
                 if (!string.IsNullOrWhiteSpace(openDir) && Directory.Exists(openDir))
                 {
-                    roots = roots
-                        .Append(openDir)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToArray();
+                    if (_trustedRoots.Contains(openDir))
+                    {
+                        roots = roots
+                            .Append(openDir)
+                            .Distinct(PathPolicy.Comparer)
+                            .ToArray();
+                    }
                 }
             }
         }
@@ -690,7 +724,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
         try
         {
-            _watcher.Start(roots, OnWatcherPathsChanged);
+            _watcher.Start(roots, OnWatcherPathsChanged, OnWatchLost);
         }
         catch
         {
@@ -731,7 +765,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
         try
         {
-            // Cancel but do not Dispose yet — the in-flight load still holds Token.
+            // Cancel only. RunLoadAsync disposes the CTS after the in-flight load releases Token.
             oldCts?.Cancel();
         }
         catch (ObjectDisposedException)
@@ -793,27 +827,51 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         catch (ObjectDisposedException)
         {
         }
-
-        _warmCts = null;
     }
 
     private void StartBackgroundWarm(LoadedSolution loaded, string openedPath)
     {
-        CancellationToken token;
+        CancellationTokenSource cts;
         CompilationLru lru;
         long epoch;
         FSharpWorkspaceSnapshot? fsharpSnapshot;
         lock (_gate)
         {
-            _warmCts?.Cancel();
-            _warmCts = new CancellationTokenSource();
-            token = _warmCts.Token;
+            try
+            {
+                _warmCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
+            cts = new CancellationTokenSource();
+            _warmCts = cts;
             lru = _compilationLru;
             epoch = _epoch;
             fsharpSnapshot = _fsharpSnapshot;
         }
 
-        _ = Task.Run(() => WarmCompilationsAsync(loaded, openedPath, lru, epoch, fsharpSnapshot, token));
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await WarmCompilationsAsync(loaded, openedPath, lru, epoch, fsharpSnapshot, cts.Token)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (_gate)
+                {
+                    if (ReferenceEquals(_warmCts, cts))
+                    {
+                        _warmCts = null;
+                    }
+                }
+
+                cts.Dispose();
+            }
+        });
     }
 
     private async Task WarmCompilationsAsync(
@@ -888,6 +946,31 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         if (name.Contains("Bench", StringComparison.OrdinalIgnoreCase)) return 90;
         if (name.Contains("Dummy", StringComparison.OrdinalIgnoreCase)) return 80;
         return 0;
+    }
+
+
+    private void OnWatchLost()
+    {
+        try
+        {
+            CheckDrift();
+        }
+        catch
+        {
+            // Drift fallback must not throw out of the watcher thread.
+        }
+    }
+
+    private static string? TryNormalize(string path)
+    {
+        try
+        {
+            return PathPolicy.Normalize(path);
+        }
+        catch (Exception ex) when (ex is PathPolicyException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     public async ValueTask DisposeAsync()

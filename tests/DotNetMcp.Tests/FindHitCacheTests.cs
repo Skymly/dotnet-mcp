@@ -36,4 +36,17 @@ public class FindHitCacheTests
         Assert.False(cache.TryGetByDocument<string>(7L, "handle", "document-scope", out var found));
         Assert.Null(found);
     }
+
+    [Fact]
+    public void set_by_document_drops_other_epochs()
+    {
+        var cache = new FindHitCache();
+        cache.SetByDocument(7L, "handle", "document-scope", new[] { new[] { "loc-a" } });
+        cache.SetByDocument(8L, "other", "document-scope", new[] { new[] { "loc-b" } });
+
+        Assert.False(cache.TryGetByDocument<string>(7L, "handle", "document-scope", out var stale));
+        Assert.Null(stale);
+        Assert.True(cache.TryGetByDocument<string>(8L, "other", "document-scope", out var found));
+        Assert.Equal("loc-b", Assert.Single(Assert.Single(found!)));
+    }
 }
