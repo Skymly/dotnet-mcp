@@ -25,12 +25,43 @@ public static class PathPolicy
     private static readonly char[] DirectorySeparators =
         [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar];
 
+    public static StringComparer Comparer =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    public static StringComparison Comparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
     public static string Normalize(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        var full = Path.GetFullPath(path);
+        var full = StripExtendedPrefix(Path.GetFullPath(path));
         return Canonicalize(full);
+    }
+
+    /// <summary>
+    /// Strip Windows <c>\\?\</c> / <c>\\?\UNC\</c> prefixes so prefix checks match lexical roots.
+    /// </summary>
+    internal static string StripExtendedPrefix(string path)
+    {
+        if (!OperatingSystem.IsWindows() || string.IsNullOrEmpty(path))
+        {
+            return path;
+        }
+
+        const string extendedUnc = @"\\?\UNC\";
+        const string extended = @"\\?\";
+        if (path.StartsWith(extendedUnc, StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + path[extendedUnc.Length..];
+        }
+
+        if (path.StartsWith(extended, StringComparison.OrdinalIgnoreCase))
+        {
+            return path[extended.Length..];
+        }
+
+        return path;
     }
 
     public static bool IsUnderRoot(string normalizedPath, string normalizedRoot)

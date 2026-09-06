@@ -73,15 +73,7 @@ public sealed class XamlTools
         return McpToolEnvelope.OkResult(new SymbolResolveResultDto
         {
             Handle = success!.Handle,
-            Summary = new SymbolSummaryDto
-            {
-                Kind = success.Summary.Kind,
-                DisplayName = success.Summary.DisplayName,
-                ContainingSymbol = success.Summary.ContainingSymbol,
-                Accessibility = success.Summary.Accessibility,
-                ProjectId = success.Summary.ProjectId,
-                Language = success.Summary.Language
-            }
+            Summary = ToSummaryDto(success.Summary)
         });
     }
 
@@ -185,15 +177,7 @@ public sealed class XamlTools
         return McpToolEnvelope.OkResult(new SymbolResolveResultDto
         {
             Handle = success!.Handle,
-            Summary = new SymbolSummaryDto
-            {
-                Kind = success.Summary.Kind,
-                DisplayName = success.Summary.DisplayName,
-                ContainingSymbol = success.Summary.ContainingSymbol,
-                Accessibility = success.Summary.Accessibility,
-                ProjectId = success.Summary.ProjectId,
-                Language = success.Summary.Language
-            }
+            Summary = ToSummaryDto(success.Summary)
         });
     }
 
@@ -250,15 +234,7 @@ public sealed class XamlTools
             {
                 Name = s.Name,
                 Handle = s.Handle,
-                Summary = new SymbolSummaryDto
-                {
-                    Kind = s.Summary.Kind,
-                    DisplayName = s.Summary.DisplayName,
-                    ContainingSymbol = s.Summary.ContainingSymbol,
-                    Accessibility = s.Summary.Accessibility,
-                    ProjectId = s.Summary.ProjectId,
-                    Language = s.Summary.Language
-                }
+                Summary = ToSummaryDto(s.Summary)
             }).ToArray()
         });
     }
@@ -328,4 +304,16 @@ public sealed class XamlTools
             Message = success.Message
         });
     }
+
+    private static SymbolSummaryDto ToSummaryDto(SymbolSummary summary) => new()
+    {
+        Kind = summary.Kind,
+        DisplayName = summary.DisplayName,
+        ContainingSymbol = summary.ContainingSymbol,
+        Accessibility = summary.Accessibility,
+        ProjectId = summary.ProjectId,
+        Language = summary.Language,
+        InteropKind = summary.InteropKind
+    };
 }
+

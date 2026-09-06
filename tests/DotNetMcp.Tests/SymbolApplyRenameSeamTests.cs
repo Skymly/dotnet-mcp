@@ -265,12 +265,20 @@ public class SymbolApplyRenameSeamTests
                 InProcessMcpFixture.Deserialize<PolicyErrorDto>(expired).Error);
 
             clock.Advance(TimeSpan.FromMinutes(-6));
+            var freshPreview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = handle,
+                    ["newName"] = "Pong"
+                });
+            var freshPreviewId = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(freshPreview).PreviewId;
             var widget = Path.Combine(projectDir, "Widget.cs");
             await File.WriteAllTextAsync(widget, (await File.ReadAllTextAsync(widget)) + "\n");
             watcher.Raise(widget);
             var stale = await fx.Client.CallToolAsync(
                 "symbol_apply_rename",
-                new Dictionary<string, object?> { ["previewId"] = previewId });
+                new Dictionary<string, object?> { ["previewId"] = freshPreviewId });
             Assert.Equal(
                 PolicyErrorCodes.PreviewEpochMismatch,
                 InProcessMcpFixture.Deserialize<PolicyErrorDto>(stale).Error);

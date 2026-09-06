@@ -36,6 +36,7 @@ public readonly record struct WorkspaceEditOutcome<T>(T? Value, PolicyErrorDto? 
 /// <summary>
 /// Deep Workspace Edit module (ADR-0005): one store, kind-tagged previews, apply must match kind.
 /// Apply is single-flight per previewId; write/backfill/Epoch is one outcome (ADR-0002).
+/// Disk I/O and the writer run outside <c>_gate</c>. Expired entries are swept on Preview/Apply.
 /// </summary>
 public sealed class WorkspaceEdit
 {
@@ -89,6 +90,7 @@ public sealed class WorkspaceEdit
         lock (_gate)
         {
             DropIfGenerationChangedUnlocked();
+            SweepExpiredUnlocked(now);
             _items[preview.PreviewId] = new Stored(preview, _observedGeneration);
         }
 
@@ -107,10 +109,12 @@ public sealed class WorkspaceEdit
                 "Call " + tools.Preview + " first, then pass that previewId to " + tools.Apply + ".");
         }
 
+        Stored stored;
         lock (_gate)
         {
             DropIfGenerationChangedUnlocked();
-            if (!_items.TryGetValue(previewId, out var stored))
+            SweepExpiredUnlocked(_time.GetUtcNow(), keepId: previewId);
+            if (!_items.TryGetValue(previewId, out stored!))
             {
                 return Fail<WorkspaceEditApplied>(
                     PolicyErrorCodes.PreviewNotFound,
@@ -121,6 +125,7 @@ public sealed class WorkspaceEdit
             var now = _time.GetUtcNow();
             if (stored.Preview.ExpiresAt <= now)
             {
+                _items.Remove(previewId);
                 return Fail<WorkspaceEditApplied>(
                     PolicyErrorCodes.PreviewExpired,
                     "The preview has expired.",
@@ -144,55 +149,77 @@ public sealed class WorkspaceEdit
                     "Call " + storedTools.Apply + " with this previewId, or call " + tools.Preview + " for a " + KindNoun(kind) + ".");
             }
 
-            foreach (var document in stored.Preview.Documents)
-            {
-                if (!_trustedRoots.Contains(document.Path))
-                {
-                    return Fail<WorkspaceEditApplied>(
-                        PolicyErrorCodes.PathOutsideTrustedRoots,
-                        "A preview document is outside trusted roots; nothing was written.",
-                        "Re-open the workspace under a trusted root that contains every preview path.");
-                }
-
-                if (!_writer.PathExists(document.Path))
-                {
-                    return Fail<WorkspaceEditApplied>(
-                        PolicyErrorCodes.PreviewTargetMissing,
-                        "A preview document no longer exists on disk; nothing was written.",
-                        "Call " + tools.Preview + " again on the current snapshot.");
-                }
-            }
-
-            var written = _writer.WriteDeclaredPaths(stored.Preview.Documents);
-            if (written.Error is not null)
-            {
-                var error = written.Error;
-                if (error.Error is PolicyErrorCodes.WorkspaceNotReady
-                    or PolicyErrorCodes.PreviewTargetMissing
-                    or PolicyErrorCodes.PreviewTextMismatch)
-                {
-                    error = new PolicyErrorDto
-                    {
-                        Error = error.Error,
-                        Message = error.Message,
-                        SuggestedAction = error.Error == PolicyErrorCodes.WorkspaceNotReady
-                            ? "Call workspace_status until ready, then preview and apply again."
-                            : "Call " + tools.Preview + " again on the current snapshot."
-                    };
-                }
-
-                return new WorkspaceEditOutcome<WorkspaceEditApplied>(null, error);
-            }
-
             _items.Remove(previewId);
+        }
 
-            return new WorkspaceEditOutcome<WorkspaceEditApplied>(
-                new WorkspaceEditApplied(
-                    stored.Preview.PreviewId,
-                    written.Value,
-                    stored.Preview.Documents.Select(static d => d.Path).ToArray(),
-                    stored.Preview.InvalidatedHandles),
-                null);
+        foreach (var document in stored.Preview.Documents)
+        {
+            if (!_trustedRoots.Contains(document.Path))
+            {
+                Restore(stored);
+                return Fail<WorkspaceEditApplied>(
+                    PolicyErrorCodes.PathOutsideTrustedRoots,
+                    "A preview document is outside trusted roots; nothing was written.",
+                    "Re-open the workspace under a trusted root that contains every preview path.");
+            }
+
+            if (!_writer.PathExists(document.Path))
+            {
+                Restore(stored);
+                return Fail<WorkspaceEditApplied>(
+                    PolicyErrorCodes.PreviewTargetMissing,
+                    "A preview document no longer exists on disk; nothing was written.",
+                    "Call " + tools.Preview + " again on the current snapshot.");
+            }
+        }
+
+        var written = _writer.WriteDeclaredPaths(stored.Preview.Documents);
+        if (written.Error is not null)
+        {
+            Restore(stored);
+            var error = written.Error;
+            if (error.Error is PolicyErrorCodes.WorkspaceNotReady
+                or PolicyErrorCodes.PreviewTargetMissing
+                or PolicyErrorCodes.PreviewTextMismatch)
+            {
+                error = new PolicyErrorDto
+                {
+                    Error = error.Error,
+                    Message = error.Message,
+                    SuggestedAction = error.Error == PolicyErrorCodes.WorkspaceNotReady
+                        ? "Call workspace_status until ready, then preview and apply again."
+                        : "Call " + tools.Preview + " again on the current snapshot."
+                };
+            }
+
+            return new WorkspaceEditOutcome<WorkspaceEditApplied>(null, error);
+        }
+
+        return new WorkspaceEditOutcome<WorkspaceEditApplied>(
+            new WorkspaceEditApplied(
+                stored.Preview.PreviewId,
+                written.Value,
+                stored.Preview.Documents.Select(static d => d.Path).ToArray(),
+                stored.Preview.InvalidatedHandles),
+            null);
+    }
+
+    private void Restore(Stored stored)
+    {
+        lock (_gate)
+        {
+            DropIfGenerationChangedUnlocked();
+            if (stored.Generation != _observedGeneration)
+            {
+                return;
+            }
+
+            if (stored.Preview.ExpiresAt <= _time.GetUtcNow())
+            {
+                return;
+            }
+
+            _items.TryAdd(stored.Preview.PreviewId, stored);
         }
     }
 
@@ -206,6 +233,34 @@ public sealed class WorkspaceEdit
 
         _items.Clear();
         _observedGeneration = generation;
+    }
+
+    private void SweepExpiredUnlocked(DateTimeOffset now, string? keepId = null)
+    {
+        List<string>? expired = null;
+        foreach (var (id, stored) in _items)
+        {
+            if (keepId is not null && string.Equals(id, keepId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (stored.Preview.ExpiresAt <= now)
+            {
+                expired ??= [];
+                expired.Add(id);
+            }
+        }
+
+        if (expired is null)
+        {
+            return;
+        }
+
+        foreach (var id in expired)
+        {
+            _items.Remove(id);
+        }
     }
 
     private static WorkspaceEditOutcome<T> Fail<T>(string code, string message, string suggested)

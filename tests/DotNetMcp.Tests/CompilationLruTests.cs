@@ -6,21 +6,22 @@ namespace DotNetMcp.Tests;
 public class CompilationLruTests
 {
     [Fact]
-    public async Task concurrent_get_or_add_same_project_returns_one_cached_compilation()
+    public async Task concurrent_get_or_add_same_project_runs_one_factory()
     {
         using var workspace = CreateWorkspace(out var project);
         var lru = new CompilationLru(50);
-        using var started = new CountdownEvent(8);
+        using var started = new CountdownEvent(1);
         var release = new TaskCompletionSource();
-        var n = 0;
+        var factories = 0;
 
         async Task<Compilation> DistinctFactory(Project p, CancellationToken ct)
         {
+            Interlocked.Increment(ref factories);
             started.Signal();
             await release.Task.WaitAsync(ct);
             var compilation = await p.GetCompilationAsync(ct)
                 ?? throw new InvalidOperationException("Compilation was null.");
-            return compilation.WithAssemblyName(compilation.AssemblyName + Interlocked.Increment(ref n));
+            return compilation.WithAssemblyName(compilation.AssemblyName + factories);
         }
 
         var tasks = Enumerable.Range(0, 8)
@@ -31,7 +32,9 @@ public class CompilationLruTests
         release.SetResult();
         var results = await Task.WhenAll(tasks);
 
+        Assert.Equal(1, factories);
         Assert.Equal(1, lru.Count);
+        Assert.Equal(1, lru.Misses);
         Assert.All(results, c => Assert.Same(results[0], c));
         Assert.True(lru.TryGet(project.Id, out var cached));
         Assert.Same(results[0], cached);

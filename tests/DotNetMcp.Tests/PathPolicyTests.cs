@@ -50,6 +50,47 @@ public class PathPolicyTests
         }
     }
 
+    [Fact]
+    public void unc_path_is_not_under_local_trusted_root()
+    {
+        var root = CreateTempDir("unc");
+        try
+        {
+            var trusted = TrustedRoots.Create([root]);
+            Assert.False(trusted.Contains(@"\\server\share\secret.cs"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public void extended_prefix_path_matches_same_local_root_on_windows()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = CreateTempDir("ext");
+        var inside = Path.Combine(root, "a.txt");
+        File.WriteAllText(inside, "x");
+
+        try
+        {
+            var full = Path.GetFullPath(inside);
+            var extended = @"\\?\" + full;
+            Assert.Equal(PathPolicy.Normalize(full), PathPolicy.Normalize(extended));
+            var trusted = TrustedRoots.Create([root]);
+            Assert.True(trusted.Contains(extended));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-pp-{label}-{Guid.NewGuid():N}");

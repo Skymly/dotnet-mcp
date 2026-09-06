@@ -286,6 +286,74 @@ public class WorkspaceFreshnessSeamTests
         }
     }
 
+    [Fact]
+    public async Task watch_lost_falls_back_to_drift_repair()
+    {
+        var root = CreateTempDir("root");
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        var watcher = new ManualWorkspaceFileWatcher();
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithSymbolsOnDisk(projectDir),
+                new WorkspaceHostOptions
+                {
+                    Debounce = TimeSpan.Zero,
+                    FileWatcher = watcher
+                });
+
+            await OpenUntilReadyAsync(fx, solution);
+            var epoch = fx.WorkspaceHost.CurrentEpoch;
+            var calcCs = Path.Combine(projectDir, "Calculator.cs");
+            await File.WriteAllTextAsync(calcCs, await File.ReadAllTextAsync(calcCs) + "\n");
+            watcher.RaiseWatchLost();
+            Assert.Equal(epoch + 1, fx.WorkspaceHost.CurrentEpoch);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task watcher_event_outside_trusted_roots_does_not_advance_epoch()
+    {
+        var root = CreateTempDir("root");
+        var outside = CreateTempDir("out");
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        var secret = Path.Combine(outside, "Calculator.cs");
+        await File.WriteAllTextAsync(secret, "TOP_SECRET");
+        var watcher = new ManualWorkspaceFileWatcher();
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithSymbolsOnDisk(projectDir),
+                new WorkspaceHostOptions
+                {
+                    Debounce = TimeSpan.Zero,
+                    FileWatcher = watcher
+                });
+
+            await OpenUntilReadyAsync(fx, solution);
+            var epoch = fx.WorkspaceHost.CurrentEpoch;
+            watcher.Raise(secret);
+            Assert.Equal(epoch, fx.WorkspaceHost.CurrentEpoch);
+        }
+        finally
+        {
+            TryDelete(root);
+            TryDelete(outside);
+        }
+    }
+
     private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solutionPath)
     {
         var open = await fx.Client.CallToolAsync(

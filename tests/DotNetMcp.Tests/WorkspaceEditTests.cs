@@ -146,6 +146,62 @@ public class WorkspaceEditTests
         }
     }
 
+    [Fact]
+    public void preview_sweeps_other_expired_entries()
+    {
+        var root = CreateTempDir("root");
+        var path = Path.Combine(root, "Widget.cs");
+        File.WriteAllText(path, "old");
+        var writer = ReadyWriter(path, "old");
+        var clock = new MutableTime { Now = DateTimeOffset.UnixEpoch };
+        var edits = new WorkspaceEdit(writer, TrustedRoots.Create([root]), clock, TimeSpan.FromMinutes(5));
+
+        try
+        {
+            var first = edits.Preview(Draft(path));
+            Assert.False(first.Failed, first.Error?.Message);
+            clock.Now = clock.Now.AddMinutes(6);
+            var second = edits.Preview(Draft(path));
+            Assert.False(second.Failed, second.Error?.Message);
+            var stale = edits.Apply(first.Value!.PreviewId, WorkspaceEditKind.RenamePreview);
+            Assert.Equal(PolicyErrorCodes.PreviewNotFound, stale.Error!.Error);
+            var applied = edits.Apply(second.Value!.PreviewId, WorkspaceEditKind.RenamePreview);
+            Assert.False(applied.Failed, applied.Error?.Message);
+            Assert.Equal(1, writer.WriteCalls);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public void apply_does_not_hold_store_lock_during_write()
+    {
+        var root = CreateTempDir("root");
+        var path = Path.Combine(root, "Widget.cs");
+        File.WriteAllText(path, "old");
+        var writer = ReadyWriter(path, "old");
+        var edits = new WorkspaceEdit(writer, TrustedRoots.Create([root]), TimeProvider.System, TimeSpan.FromMinutes(5));
+        writer.DuringWrite = () =>
+        {
+            var nested = edits.Preview(Draft(path));
+            Assert.False(nested.Failed, nested.Error?.Message);
+        };
+
+        try
+        {
+            var held = edits.Preview(Draft(path));
+            var applied = edits.Apply(held.Value!.PreviewId, WorkspaceEditKind.RenamePreview);
+            Assert.False(applied.Failed, applied.Error?.Message);
+            Assert.Equal(1, writer.WriteCalls);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static WorkspaceEditDraft Draft(string path) =>
         new(WorkspaceEditKind.RenamePreview, [new WorkspaceEditDocument(path, "old", "new")], []);
 
@@ -199,8 +255,11 @@ public class WorkspaceEditTests
 
         public bool PathExists(string path) => Existing.Contains(path);
 
+        public Action? DuringWrite { get; set; }
+
         public WorkspaceEditOutcome<long> WriteDeclaredPaths(IReadOnlyList<WorkspaceEditDocument> documents)
         {
+            DuringWrite?.Invoke();
             WriteCalls++;
             foreach (var document in documents)
             {

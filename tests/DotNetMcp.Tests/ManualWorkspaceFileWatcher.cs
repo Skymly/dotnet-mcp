@@ -8,14 +8,19 @@ namespace DotNetMcp.Tests;
 public sealed class ManualWorkspaceFileWatcher : IWorkspaceFileWatcher
 {
     private Action<IReadOnlyList<string>>? _onPathsChanged;
+    private Action? _onWatchLost;
     private bool _disposed;
 
     public bool IsStarted { get; private set; }
 
-    public void Start(IReadOnlyList<string> roots, Action<IReadOnlyList<string>> onPathsChanged)
+    public void Start(
+        IReadOnlyList<string> roots,
+        Action<IReadOnlyList<string>> onPathsChanged,
+        Action? onWatchLost = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _onPathsChanged = onPathsChanged;
+        _onWatchLost = onWatchLost;
         IsStarted = true;
     }
 
@@ -23,6 +28,7 @@ public sealed class ManualWorkspaceFileWatcher : IWorkspaceFileWatcher
     {
         IsStarted = false;
         _onPathsChanged = null;
+        _onWatchLost = null;
     }
 
     public void Raise(params string[] paths)
@@ -34,6 +40,12 @@ public sealed class ManualWorkspaceFileWatcher : IWorkspaceFileWatcher
         }
 
         _onPathsChanged(paths);
+    }
+
+    public void RaiseWatchLost()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _onWatchLost?.Invoke();
     }
 
     public void Dispose()
