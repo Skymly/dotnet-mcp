@@ -842,10 +842,14 @@ public sealed class XamlDocumentService
                 var local = reader.LocalName;
                 if (!string.Equals(local, "Window", StringComparison.Ordinal) || prefix.Length > 0)
                 {
-                    var elementType = await ResolveElementTypeAsync(
-                            session, prefix, local, xmlns, projectId, cancellationToken)
-                        .ConfigureAwait(false);
-                    if (elementType is null && !IsLanguageElement(prefix, local))
+                    var elementType = IsPropertyElementName(local)
+                        ? null
+                        : await ResolveElementTypeAsync(
+                                session, prefix, local, xmlns, projectId, cancellationToken)
+                            .ConfigureAwait(false);
+                    if (elementType is null &&
+                        !IsLanguageElement(prefix, local) &&
+                        !IsPropertyElementName(local))
                     {
                         items.Add(Diag("XAML0001", "Error",
                             $"Unknown element '{FormatName(prefix, local)}' given xmlns.",
@@ -879,6 +883,7 @@ public sealed class XamlDocumentService
                             }
 
                             if (elementType is not null &&
+                                !IsAttachedPropertyName(reader.LocalName, reader.Name) &&
                                 !HasPublicMember(elementType, reader.LocalName))
                             {
                                 items.Add(Diag("XAML0002", "Error",
@@ -944,14 +949,14 @@ public sealed class XamlDocumentService
         string? projectId,
         CancellationToken cancellationToken)
     {
-        var mapping = xmlns.FirstOrDefault(x =>
-            string.Equals(x.Prefix, prefix, StringComparison.Ordinal) && x.ClrNamespace is not null);
-        if (mapping?.ClrNamespace is null)
+        var mappings = xmlns
+            .Where(x => string.Equals(x.Prefix, prefix, StringComparison.Ordinal) && x.ClrNamespace is not null)
+            .ToList();
+        if (mappings.Count == 0)
         {
             return null;
         }
 
-        var metadataName = $"{mapping.ClrNamespace}.{localName}";
         IEnumerable<Project> projects = session.Solution.Projects.Where(IsRoslynProject);
         var owner = FindRoslynProject(session, projectId);
         if (owner is not null)
@@ -972,10 +977,14 @@ public sealed class XamlDocumentService
                 continue;
             }
 
-            var type = compilation.GetTypeByMetadataName(metadataName);
-            if (type is not null)
+            foreach (var mapping in mappings)
             {
-                return type;
+                var metadataName = $"{mapping.ClrNamespace}.{localName}";
+                var type = compilation.GetTypeByMetadataName(metadataName);
+                if (type is not null)
+                {
+                    return type;
+                }
             }
         }
 
@@ -999,6 +1008,13 @@ public sealed class XamlDocumentService
 
     private static bool IsLanguageElement(string prefix, string local) =>
         string.Equals(prefix, "x", StringComparison.Ordinal);
+
+    private static bool IsPropertyElementName(string localName) =>
+        localName.Contains('.', StringComparison.Ordinal);
+
+    private static bool IsAttachedPropertyName(string localName, string qualifiedName) =>
+        localName.Contains('.', StringComparison.Ordinal) ||
+        qualifiedName.Contains('.', StringComparison.Ordinal);
 
     private static bool IsSkippableAttribute(string prefix, string local, string name) =>
         name.StartsWith("xmlns", StringComparison.Ordinal) ||
