@@ -40,13 +40,19 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private long _generation;
     private CompilationLru _compilationLru;
     private readonly TrustedRoots _trustedRoots;
+    private readonly GeneratorQueryService? _generators;
     private FSharpWorkspaceSnapshot? _fsharpSnapshot;
 
-    public WorkspaceHost(ISolutionLoader loader, WorkspaceHostOptions options, TrustedRoots trustedRoots)
+    public WorkspaceHost(
+        ISolutionLoader loader,
+        WorkspaceHostOptions options,
+        TrustedRoots trustedRoots,
+        GeneratorQueryService? generators = null)
     {
         _loader = loader;
         _options = options;
         _trustedRoots = trustedRoots ?? throw new ArgumentNullException(nameof(trustedRoots));
+        _generators = generators;
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
         if (_options.FileWatcher is not null)
         {
@@ -148,6 +154,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         _epoch++;
         _generatorRunCache.Clear();
         _findHitCache.Clear();
+        _generators?.DiscardListCacheExceptEpoch(_epoch);
         CancelWarmUnlocked();
         // Replace the instance so in-flight sessions keep the previous epoch's compilations.
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
