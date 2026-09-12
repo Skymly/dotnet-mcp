@@ -87,3 +87,11 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 3. **图门禁**：`.slnf` 项目条目在 MSBuild 打开前检查；加载后对磁盘上的 project/document 路径再检查，拒绝则释放已加载 solution。
 4. **apply 前最后一次根校验**：`WriteDeclaredPaths` 在 `File.WriteAllText` 之前重新规范化并 `ContainsNormalized` 闸门最终路径。
 5. **F# 快照**：随 Epoch 冻结；磁盘枚举跳过 symlink 目录并套 TrustedRoots。
+
+## Amendment 5（2026-09-12）：`.sln` / `.slnx` / 单项目图门禁时机
+
+证据：复查 #228 / #241。
+
+- **`.slnf`**：`TrustedGraphGate.EnsureProjectPathsUnderRoots` 在 MSBuild 打开任何项目**之前**跑（pre-open）。
+- **`.sln` / `.slnx` / 单项目**：入口路径仍先过 `workspace_open` 的 trusted root。图上的 `ProjectReference` 是 **post-load**：`OpenSolutionAsync` / `OpenProjectAsync` 完成 MSBuild 求值之后才 `EnsureLoadedSolutionUnderRoots`。根外项目引用会在被拒绝之前被求值。这是明确残余，不是漏检。
+- 入口路径本身必须先过 trusted root（现有 `workspace_open` 检查保留）。

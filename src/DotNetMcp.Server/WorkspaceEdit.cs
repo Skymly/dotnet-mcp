@@ -177,21 +177,7 @@ public sealed class WorkspaceEdit
         if (written.Error is not null)
         {
             Restore(stored);
-            var error = written.Error;
-            if (error.Error is PolicyErrorCodes.WorkspaceNotReady
-                or PolicyErrorCodes.PreviewTargetMissing
-                or PolicyErrorCodes.PreviewTextMismatch)
-            {
-                error = new PolicyErrorDto
-                {
-                    Error = error.Error,
-                    Message = error.Message,
-                    SuggestedAction = error.Error == PolicyErrorCodes.WorkspaceNotReady
-                        ? "Call workspace_status until ready, then preview and apply again."
-                        : "Call " + tools.Preview + " again on the current snapshot."
-                };
-            }
-
+            var error = MapApplyError(written.Error, kind, tools);
             return new WorkspaceEditOutcome<WorkspaceEditApplied>(null, error);
         }
 
@@ -202,6 +188,41 @@ public sealed class WorkspaceEdit
                 stored.Preview.Documents.Select(static d => d.Path).ToArray(),
                 stored.Preview.InvalidatedHandles),
             null);
+    }
+
+    private static PolicyErrorDto MapApplyError(PolicyErrorDto error, WorkspaceEditKind kind, (string Preview, string Apply) tools)
+    {
+        if (error.Error == PolicyErrorCodes.WorkspaceEditApplyFailed)
+        {
+            var code = kind switch
+            {
+                WorkspaceEditKind.FixPreview => PolicyErrorCodes.FixApplyFailed,
+                WorkspaceEditKind.RefactoringPreview => PolicyErrorCodes.RefactoringApplyFailed,
+                _ => PolicyErrorCodes.RenameApplyFailed,
+            };
+            return new PolicyErrorDto
+            {
+                Error = code,
+                Message = error.Message,
+                SuggestedAction = "Retry " + tools.Apply + " with the same previewId, or preview again if the disk changed."
+            };
+        }
+
+        if (error.Error is PolicyErrorCodes.WorkspaceNotReady
+            or PolicyErrorCodes.PreviewTargetMissing
+            or PolicyErrorCodes.PreviewTextMismatch)
+        {
+            return new PolicyErrorDto
+            {
+                Error = error.Error,
+                Message = error.Message,
+                SuggestedAction = error.Error == PolicyErrorCodes.WorkspaceNotReady
+                    ? "Call workspace_status until ready, then preview and apply again."
+                    : "Call " + tools.Preview + " again on the current snapshot."
+            };
+        }
+
+        return error;
     }
 
     private void Restore(Stored stored)

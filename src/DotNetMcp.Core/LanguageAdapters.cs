@@ -223,11 +223,13 @@ public sealed class LanguageAdapters
     public Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(
         IWorkspaceSession session,
         string handle,
+        bool entireSolution = false,
         int? limit = null,
         string? cursor = null,
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default) =>
-        Dispatch(handle, adapter => adapter.FindCallersAsync(session, handle, limit, cursor, softBudget, cancellationToken));
+        Dispatch(handle, adapter => adapter.FindCallersAsync(
+            session, handle, entireSolution, limit, cursor, softBudget, cancellationToken));
 
     public Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> FindReferencesAsync(
         IWorkspaceSession session,

@@ -118,7 +118,7 @@ public class VbSymbolSeamTests
             var defaultBody = InProcessMcpFixture.Deserialize<SymbolFindReferencesResultDto>(refsDefault);
             Assert.Contains(defaultBody.Items, i =>
                 (i.FilePath ?? string.Empty).Contains("Uses.vb", StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(defaultBody.Items, i =>
+            Assert.Contains(defaultBody.Items, i =>
                 (i.FilePath ?? string.Empty).Contains("Caller.cs", StringComparison.OrdinalIgnoreCase));
 
             var refsAll = await fx.Client.CallToolAsync(
@@ -158,7 +158,7 @@ public class VbSymbolSeamTests
             var callerBody = InProcessMcpFixture.Deserialize<SymbolFindCallersResultDto>(callers);
             Assert.Contains(callerBody.Items, i =>
                 (i.FilePath ?? string.Empty).Contains("Uses.vb", StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(callerBody.Items, i =>
+            Assert.Contains(callerBody.Items, i =>
                 (i.FilePath ?? string.Empty).Contains("Caller.cs", StringComparison.OrdinalIgnoreCase));
         }
         finally

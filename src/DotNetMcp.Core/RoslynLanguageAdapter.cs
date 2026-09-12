@@ -571,32 +571,32 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         CancellationToken cancellationToken)
     {
         var cache = session as IWorkspaceSessionCaches;
-        var remaining = new List<Project>();
+        var warmMain = new List<Project>();
+        var warmTestLike = new List<Project>();
+        var remainingMain = new List<Project>();
+        var remainingTestLike = new List<Project>();
         foreach (var project in projects)
         {
-            if (cache is not null && cache.CompilationCache.TryGet(project.Id, out var warm))
+            var testLike = IsTestLikeProject(project.Name);
+            if (cache is not null && cache.CompilationCache.TryGet(project.Id, out _))
             {
-                foreach (var symbol in FindSymbols(warm, query))
-                {
-                    matches.Add((project, symbol));
-                }
+                (testLike ? warmTestLike : warmMain).Add(project);
             }
             else
             {
-                remaining.Add(project);
+                (testLike ? remainingTestLike : remainingMain).Add(project);
             }
         }
 
+        AddWarmResolveMatches(cache, warmMain, query, matches);
         if (TryFinishResolve(matches))
         {
             return;
         }
 
         var segment = query.Split('.', 2)[0];
-        var named = remaining
-            .Where(p => ProjectNameLooksLike(p, segment) && !IsTestLikeProject(p.Name))
-            .ToList();
-        var rest = remaining.Except(named).Where(p => !IsTestLikeProject(p.Name)).ToList();
+        var named = remainingMain.Where(p => ProjectNameLooksLike(p, segment)).ToList();
+        var rest = remainingMain.Except(named).ToList();
 
         using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budgetCts.CancelAfter(_softBudgets.SingleProjectCompile);
@@ -612,9 +612,51 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                     return;
                 }
             }
+
+            AddWarmResolveMatches(cache, warmTestLike, query, matches);
+            if (TryFinishResolve(matches))
+            {
+                return;
+            }
+
+            foreach (var project in remainingTestLike)
+            {
+                budgetCts.Token.ThrowIfCancellationRequested();
+                await AddResolveMatchesAsync(session, project, query, matches, budgetCts.Token)
+                    .ConfigureAwait(false);
+                if (TryFinishResolve(matches))
+                {
+                    return;
+                }
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+        }
+    }
+
+    private static void AddWarmResolveMatches(
+        IWorkspaceSessionCaches? cache,
+        IEnumerable<Project> projects,
+        string query,
+        List<(Project Project, ISymbol Symbol)> matches)
+    {
+        if (cache is null)
+        {
+            return;
+        }
+
+        foreach (var project in projects)
+        {
+            if (!cache.CompilationCache.TryGet(project.Id, out var warm))
+            {
+                continue;
+            }
+
+            foreach (var symbol in FindSymbols(warm, query))
+            {
+                matches.Add((project, symbol));
+            }
         }
     }
 
@@ -659,10 +701,32 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         project.Name.Contains(segment, StringComparison.OrdinalIgnoreCase) ||
         (project.DefaultNamespace?.Contains(segment, StringComparison.OrdinalIgnoreCase) ?? false);
 
-    private static bool IsTestLikeProject(string name) =>
-        name.Contains("Test", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("Bench", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("Dummy", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Test/bench/dummy projects are searched after other projects when <c>projectId</c> is omitted.
+    /// Match whole name segments (<c>Foo.Tests</c>, <c>Foo.Test</c>, <c>Foo.Benches</c>), not substrings
+    /// like <c>Contest</c> / <c>Latest</c> / <c>Attest</c>. Warm and cold compilation paths share this rule.
+    /// </summary>
+    internal static bool IsTestLikeProject(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        foreach (var segment in name.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (segment.Equals("Test", StringComparison.OrdinalIgnoreCase) ||
+                segment.Equals("Tests", StringComparison.OrdinalIgnoreCase) ||
+                segment.Equals("Bench", StringComparison.OrdinalIgnoreCase) ||
+                segment.Equals("Benches", StringComparison.OrdinalIgnoreCase) ||
+                segment.Equals("Dummy", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static IReadOnlyList<Project> FilterProjects(
         Solution solution,

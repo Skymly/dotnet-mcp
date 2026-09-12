@@ -33,6 +33,34 @@ public class GeneratorQueryServiceTests
     }
 
     [Fact]
+    public async Task list_cache_drops_other_epochs_and_keeps_current()
+    {
+        using var workspace = CreateWorkspace();
+        var projectId = workspace.CurrentSolution.Projects.Single().Id.Id.ToString("D");
+        var service = new GeneratorQueryService();
+
+        using var session7 = new FakeSession(workspace.CurrentSolution, epoch: 7);
+        var (first, error1) = await service.ListGeneratorsAsync(session7, projectId);
+        Assert.Null(error1);
+        Assert.Equal(1, service.ListCacheCount);
+
+        service.DiscardListCacheExceptEpoch(8);
+        Assert.Equal(0, service.ListCacheCount);
+
+        using var session8 = new FakeSession(workspace.CurrentSolution, epoch: 8);
+        var (second, error2) = await service.ListGeneratorsAsync(session8, projectId);
+        Assert.Null(error2);
+        Assert.Equal(1, service.ListCacheCount);
+
+        using var session8b = new FakeSession(workspace.CurrentSolution, epoch: 8);
+        var (third, error3) = await service.ListGeneratorsAsync(session8b, projectId);
+        Assert.Null(error3);
+        Assert.Same(second, third);
+        Assert.NotSame(first, second);
+        Assert.Equal(1, service.ListCacheCount);
+    }
+
+    [Fact]
     public async Task list_generated_sources_and_driver_cache_share_epoch_key()
     {
         using var workspace = CreateWorkspace();

@@ -43,8 +43,8 @@ Acceptance: re-run the four OSS subjects; Serilog `Log` callers p95 **< 300 ms**
 
 1. **One finder call per page, not per document.**
    Build the remaining document set from `docIndex`, call `FindReferencesAsync` / `FindCallersAsync` **once** with that set, flatten, then slice by `locOffset` + `limit`. Keep the same cursor encoding so existing clients do not change.
-2. **Callers default to the defining project's dependency closure.**
-   Today callers ignore `FindRefsScopes`, walk every `Solution` document, and use the 20 s entire-solution Soft budget. Align with Find References: closure + 5 s; entire-solution remains opt-in if we ever add a flag (do not add a new MCP tool).
+2. **Callers and scoped find-refs default to the defining project plus dependents.**
+   Outgoing `ProjectReferences` are the wrong direction: callers live in consumers. `symbol_find_callers` takes the same `entireSolution` flag as find-refs. Do not walk every `Solution` document by default.
 3. **Optional same-Epoch hit cache** keyed by `(Epoch, handle, scope)`.
    First page pays the finder; `nextCursor` reuses the flattened hit list until Epoch advances. Invalidate with the compilation LRU on Epoch bump. This is an implementation cache, not a workspace index.
 

@@ -194,6 +194,36 @@ public class XamlDocumentServiceTests
     }
 
     [Fact]
+    public async Task get_diagnostics_does_not_flag_property_elements_or_attached_properties()
+    {
+        const string axaml = """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:c="clr-namespace:SampleControls"
+                    x:Class="SampleApp.MainWindow">
+                <c:Grid>
+                    <c:Grid.RowDefinitions>
+                        <c:RowDefinition />
+                    </c:Grid.RowDefinitions>
+                    <c:TextBlock c:Grid.Row="0" Text="hi" />
+                    <c:TextBlock NotAProp="1" />
+                    <c:NoSuchControl />
+                </c:Grid>
+            </Window>
+            """;
+        using var workspace = AvaloniaControlsWorkspace(axaml);
+        using var session = new FakeSession(workspace);
+        var (page, xamlError, symbolError) = await Service().GetDiagnosticsAsync(session, AxamlPath);
+        Assert.Null(xamlError);
+        Assert.Null(symbolError);
+        Assert.NotNull(page);
+        Assert.DoesNotContain(page!.Items, i => i.Message.Contains("RowDefinitions", StringComparison.Ordinal));
+        Assert.DoesNotContain(page.Items, i => i.Message.Contains("Grid.Row", StringComparison.Ordinal));
+        Assert.Contains(page.Items, i => i.Id == "XAML0001" && i.Message.Contains("NoSuchControl", StringComparison.Ordinal));
+        Assert.Contains(page.Items, i => i.Id == "XAML0002" && i.Message.Contains("NotAProp", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task resolve_class_scopes_to_xaml_owning_project()
     {
         using var workspace = TwoProjectSharedTypeWorkspace();
@@ -217,6 +247,78 @@ public class XamlDocumentServiceTests
         using var session = new FakeSession(workspace);
         var (_, xamlError, _) = await Service().ResolveClassAsync(session, AxamlPath);
         Assert.IsType<XamlDocumentAmbiguousError>(xamlError);
+    }
+
+    private static AdhocWorkspace AvaloniaControlsWorkspace(string axaml)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var csId = DocumentId.CreateNewId(projectId);
+        var xamlId = DocumentId.CreateNewId(projectId);
+        const string source = """
+            using Avalonia.Metadata;
+
+            [assembly: XmlnsDefinition("https://github.com/avaloniaui", "SampleControls")]
+            [assembly: XmlnsDefinition("https://github.com/avaloniaui", "SampleApp")]
+
+            namespace Avalonia.Metadata
+            {
+                [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+                public sealed class XmlnsDefinitionAttribute : Attribute
+                {
+                    public XmlnsDefinitionAttribute(string xmlNamespace, string clrNamespace)
+                    {
+                        XmlNamespace = xmlNamespace;
+                        ClrNamespace = clrNamespace;
+                    }
+
+                    public string XmlNamespace { get; }
+                    public string ClrNamespace { get; }
+                }
+            }
+
+            namespace SampleApp
+            {
+                public partial class MainWindow
+                {
+                    public MainWindow() { }
+                }
+            }
+
+            namespace SampleControls
+            {
+                public class Grid
+                {
+                    public RowDefinitions RowDefinitions { get; } = new();
+                }
+
+                public class RowDefinitions { }
+
+                public class RowDefinition { }
+
+                public class TextBlock
+                {
+                    public string Text { get; set; } = "";
+                }
+            }
+            """;
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "AvaloniaApp",
+            "AvaloniaApp",
+            LanguageNames.CSharp,
+            filePath: @"C:\fake-xaml-unit\AvaloniaApp.csproj"));
+        solution = solution.AddDocument(csId, "Controls.cs", SourceText.From(source), filePath: @"C:\fake-xaml-unit\Controls.cs");
+        solution = solution.AddAdditionalDocument(xamlId, "MainWindow.axaml", SourceText.From(axaml), filePath: AxamlPath);
+        solution = solution.WithProjectCompilationOptions(projectId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(projectId, MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply Avalonia controls AdhocWorkspace.");
+        }
+
+        return workspace;
     }
 
     private static AdhocWorkspace AvaloniaWorkspace(string axaml, bool includeNameField = true)

@@ -178,13 +178,13 @@ public sealed class SymbolTools
     }
 
     [McpServerTool(Name = "symbol_find_references"), Description(
-        "Find references to a SymbolHandle. Default scope is the defining project's dependency closure; " +
+        "Find references to a SymbolHandle. Default scope is the defining project plus projects that depend on it; " +
         "pass entireSolution=true to search the whole solution. Soft time budget may truncate with nextCursor " +
         "(do not restart from scratch). Cursors bind to the workspace epoch.")]
     public async Task<CallToolResult> SymbolFindReferences(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
         string handle,
-        [Description("When true, search the entire solution; default false uses dependency closure.")]
+        [Description("When true, search the entire solution; default false uses the defining project and its dependents.")]
         bool entireSolution = false,
         [Description("Page size (default 50, max 100).")]
         int? limit = null,
@@ -285,10 +285,13 @@ public sealed class SymbolTools
 
     [McpServerTool(Name = "symbol_find_callers"), Description(
         "Find direct call sites of a method SymbolHandle (shallow callers, not a full call graph). " +
-        "Default scope is the defining project's dependency closure. Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch.")]
+        "Default scope is the defining project plus projects that depend on it; pass entireSolution=true to search the whole solution. " +
+        "Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch.")]
     public async Task<CallToolResult> SymbolFindCallers(
         [Description("Method SymbolHandle from symbol_resolve.")]
         string handle,
+        [Description("When true, search the entire solution; default false uses the defining project and its dependents.")]
+        bool entireSolution = false,
         [Description("Page size (default 50, max 100).")]
         int? limit = null,
         [Description("Opaque nextCursor from a previous symbol_find_callers page.")]
@@ -304,7 +307,7 @@ public sealed class SymbolTools
         }
 
         var (success, error) = await _languages
-            .FindCallersAsync(session!, handle, limit, cursor, softBudget: null, cancellationToken)
+            .FindCallersAsync(session!, handle, entireSolution, limit, cursor, softBudget: null, cancellationToken)
             .ConfigureAwait(false);
 
         if (error is not null)

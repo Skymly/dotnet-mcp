@@ -34,6 +34,24 @@ public sealed class GeneratorQueryService
         return Task.FromResult<(IReadOnlyList<GeneratorIdentity>?, SymbolQueryError?)>((identities, null));
     }
 
+    /// <summary>
+    /// Drop list-cache entries that are not for <paramref name="currentEpoch"/>.
+    /// Same-epoch <c>project_list_generators</c> hits are preserved.
+    /// </summary>
+    public void DiscardListCacheExceptEpoch(long currentEpoch)
+    {
+        foreach (var key in _listCache.Keys)
+        {
+            if (key.Epoch != currentEpoch)
+            {
+                _listCache.TryRemove(key, out _);
+            }
+        }
+    }
+
+    internal int ListCacheCount => _listCache.Count;
+
+
     public async Task<(PagedResult<GeneratedSourceItem>? Success, SymbolQueryError? Error)> ListGeneratedSourcesAsync(
         IWorkspaceSession session,
         string projectId,

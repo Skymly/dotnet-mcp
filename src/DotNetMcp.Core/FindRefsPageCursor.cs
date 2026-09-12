@@ -8,7 +8,7 @@ namespace DotNetMcp.Core;
 /// </summary>
 public static class FindRefsPageCursor
 {
-    private const string Version = "v1";
+    private const string Version = "v2";
     public static readonly TimeSpan DefaultTtl = TimeSpan.FromMinutes(30);
 
     private sealed record Payload(

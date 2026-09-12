@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using DotNetMcp.Core;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
@@ -40,13 +41,19 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private long _generation;
     private CompilationLru _compilationLru;
     private readonly TrustedRoots _trustedRoots;
+    private readonly GeneratorQueryService? _generators;
     private FSharpWorkspaceSnapshot? _fsharpSnapshot;
 
-    public WorkspaceHost(ISolutionLoader loader, WorkspaceHostOptions options, TrustedRoots trustedRoots)
+    public WorkspaceHost(
+        ISolutionLoader loader,
+        WorkspaceHostOptions options,
+        TrustedRoots trustedRoots,
+        GeneratorQueryService? generators = null)
     {
         _loader = loader;
         _options = options;
         _trustedRoots = trustedRoots ?? throw new ArgumentNullException(nameof(trustedRoots));
+        _generators = generators;
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
         if (_options.FileWatcher is not null)
         {
@@ -148,19 +155,33 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         _epoch++;
         _generatorRunCache.Clear();
         _findHitCache.Clear();
+        _generators?.DiscardListCacheExceptEpoch(_epoch);
         CancelWarmUnlocked();
         // Replace the instance so in-flight sessions keep the previous epoch's compilations.
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
-        if (_loaded is not null)
+        // F# snapshot capture does disk I/O / GetResult — run outside _gate.
+    }
+
+    private void CaptureFSharpOutsideGate()
+    {
+        LoadedSolution? loaded;
+        long epoch;
+        lock (_gate)
         {
-            _fsharpSnapshot = WorkspaceSession.CaptureFSharpSnapshot(
-                _loaded.Solution,
-                _epoch,
-                _trustedRoots);
+            loaded = _loaded;
+            epoch = _epoch;
         }
-        else
+
+        var snap = loaded is null
+            ? null
+            : WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch, _trustedRoots);
+
+        lock (_gate)
         {
-            _fsharpSnapshot = null;
+            if (_epoch == epoch)
+            {
+                _fsharpSnapshot = snap;
+            }
         }
     }
 
@@ -168,6 +189,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(documents);
 
+        LoadedSolution loaded;
+        long epochAtStart;
         lock (_gate)
         {
             if (_phase != "ready" || _loaded is null)
@@ -178,100 +201,131 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                     "Call workspace_status until ready, then preview and apply again.");
             }
 
-            var loaded = _loaded;
-            foreach (var document in documents)
-            {
-                if (!_trustedRoots.Contains(document.Path))
-                {
-                    return FailWrite(
-                        PolicyErrorCodes.PathOutsideTrustedRoots,
-                        "A preview document is outside trusted roots; nothing was written.",
-                        "Re-open the workspace under a trusted root that contains every preview path.");
-                }
+            loaded = _loaded;
+            epochAtStart = _epoch;
+        }
 
-                if (!TryReadSnapshotText(loaded, document.Path, out var snapshotText)
-                    || !File.Exists(document.Path))
+        var prepared = new List<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)>(documents.Count);
+        foreach (var document in documents)
+        {
+            if (!_trustedRoots.Contains(document.Path))
+            {
+                return FailWrite(
+                    PolicyErrorCodes.PathOutsideTrustedRoots,
+                    "A preview document is outside trusted roots; nothing was written.",
+                    "Re-open the workspace under a trusted root that contains every preview path.");
+            }
+
+            if (!TryReadSnapshotText(loaded, document.Path, out var snapshotText)
+                || !File.Exists(document.Path))
+            {
+                return FailWrite(
+                    PolicyErrorCodes.PreviewTargetMissing,
+                    "A preview document is not in the ready workspace; nothing was written.",
+                    "Call the matching preview tool again on the current snapshot.");
+            }
+
+            string diskText;
+            Encoding encoding;
+            try
+            {
+                (diskText, encoding) = FileTextCodec.Read(document.Path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return FailWrite(
+                    PolicyErrorCodes.WorkspaceEditApplyFailed,
+                    "A preview document could not be read: " + ex.Message,
+                    "Retry apply with the same previewId, or preview again if the disk changed.");
+            }
+
+            if (!string.Equals(snapshotText, document.OldText, StringComparison.Ordinal)
+                || !string.Equals(diskText, document.OldText, StringComparison.Ordinal))
+            {
+                return FailWrite(
+                    PolicyErrorCodes.PreviewTextMismatch,
+                    "A preview document no longer matches OldText; nothing was written.",
+                    "Call the matching preview tool again on the current snapshot.");
+            }
+
+            string finalPath;
+            try
+            {
+                finalPath = PathPolicy.Normalize(document.Path);
+            }
+            catch (Exception ex) when (ex is PathPolicyException or ArgumentException)
+            {
+                return FailWrite(
+                    PolicyErrorCodes.PathOutsideTrustedRoots,
+                    "A preview document path could not be canonicalized; nothing was written.",
+                    "Call the matching preview tool again on the current snapshot under a trusted root.");
+            }
+
+            if (!_trustedRoots.ContainsNormalized(finalPath))
+            {
+                return FailWrite(
+                    PolicyErrorCodes.PathOutsideTrustedRoots,
+                    "A preview document resolves outside trusted roots; nothing was written.",
+                    "Re-open the workspace under a trusted root that contains every preview path.");
+            }
+
+            prepared.Add((document, finalPath, encoding));
+        }
+
+        var paths = prepared.Select(static r => r.FinalPath).ToArray();
+        using (_options.WriteSuppression.Suppress(paths))
+        {
+            var writtenCount = 0;
+            try
+            {
+                foreach (var (document, finalPath, encoding) in prepared)
                 {
+                    FileTextCodec.Write(finalPath, document.NewText, encoding);
+                    writtenCount++;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: true);
+                return FailWrite(
+                    PolicyErrorCodes.WorkspaceEditApplyFailed,
+                    "Apply failed while writing preview documents: " + ex.Message,
+                    "Retry apply with the same previewId; disk was rolled back to OldText.");
+            }
+
+            lock (_gate)
+            {
+                if (_phase != "ready" || !ReferenceEquals(_loaded, loaded) || _epoch != epochAtStart)
+                {
+                    RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: false);
                     return FailWrite(
-                        PolicyErrorCodes.PreviewTargetMissing,
-                        "A preview document is not in the ready workspace; nothing was written.",
+                        PolicyErrorCodes.PreviewEpochMismatch,
+                        "Workspace epoch changed before apply could commit; disk was rolled back.",
                         "Call the matching preview tool again on the current snapshot.");
                 }
 
-                var diskText = File.ReadAllText(document.Path);
-                if (!string.Equals(snapshotText, document.OldText, StringComparison.Ordinal)
-                    || !string.Equals(diskText, document.OldText, StringComparison.Ordinal))
+                foreach (var (document, _, _) in prepared)
                 {
-                    return FailWrite(
-                        PolicyErrorCodes.PreviewTextMismatch,
-                        "A preview document no longer matches OldText; nothing was written.",
-                        "Call the matching preview tool again on the current snapshot.");
-                }
-            }
-
-            // Re-canonicalize immediately before write so a post-check symlink retarget cannot escape.
-            var resolvedWrites = new List<(WorkspaceEditDocument Document, string FinalPath)>(documents.Count);
-            foreach (var document in documents)
-            {
-                string finalPath;
-                try
-                {
-                    finalPath = PathPolicy.Normalize(document.Path);
-                }
-                catch (PathPolicyException)
-                {
-                    return FailWrite(
-                        PolicyErrorCodes.PathOutsideTrustedRoots,
-                        "A preview document path could not be canonicalized; nothing was written.",
-                        "Call the matching preview tool again on the current snapshot under a trusted root.");
-                }
-
-                if (!_trustedRoots.ContainsNormalized(finalPath))
-                {
-                    return FailWrite(
-                        PolicyErrorCodes.PathOutsideTrustedRoots,
-                        "A preview document resolves outside trusted roots; nothing was written.",
-                        "Re-open the workspace under a trusted root that contains every preview path.");
-                }
-
-                resolvedWrites.Add((document, finalPath));
-            }
-
-            var paths = resolvedWrites.Select(static r => r.FinalPath).ToArray();
-            using (_options.WriteSuppression.Suppress(paths))
-            {
-                var writtenCount = 0;
-                try
-                {
-                    foreach (var (document, finalPath) in resolvedWrites)
+                    if (!loaded.TryUpdateDocumentFromText(
+                            document.Path,
+                            SourceText.From(document.NewText)))
                     {
-                        File.WriteAllText(finalPath, document.NewText);
-                        writtenCount++;
+                        RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: false);
+                        return FailWrite(
+                            PolicyErrorCodes.PreviewTargetMissing,
+                            "A preview document is not in the ready workspace; nothing was written.",
+                            "Call the matching preview tool again on the current snapshot.");
                     }
-
-                    foreach (var document in documents)
-                    {
-                        if (!loaded.TryUpdateDocumentFromText(
-                                document.Path,
-                                SourceText.From(document.NewText)))
-                        {
-                            RollbackDeclaredPaths(loaded, resolvedWrites, writtenCount);
-                            return FailWrite(
-                                PolicyErrorCodes.PreviewTargetMissing,
-                                "A preview document is not in the ready workspace; nothing was written.",
-                                "Call the matching preview tool again on the current snapshot.");
-                        }
-                    }
-
-                    AdvanceEpochUnlocked();
-                    return new WorkspaceEditOutcome<long>(_epoch, null);
                 }
-                catch
-                {
-                    RollbackDeclaredPaths(loaded, resolvedWrites, writtenCount);
-                    throw;
-                }
+
+                AdvanceEpochUnlocked();
             }
+        }
+
+        CaptureFSharpOutsideGate();
+        lock (_gate)
+        {
+            return new WorkspaceEditOutcome<long>(_epoch, null);
         }
     }
 
@@ -305,15 +359,24 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
     private static void RollbackDeclaredPaths(
         LoadedSolution loaded,
-        IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath)> writes,
-        int writtenCount)
+        IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)> writes,
+        int writtenCount,
+        bool includeCurrent)
     {
-        for (var i = 0; i < writtenCount && i < writes.Count; i++)
+        var end = Math.Min(writes.Count, includeCurrent ? writtenCount + 1 : writtenCount);
+        for (var i = 0; i < end; i++)
         {
-            File.WriteAllText(writes[i].FinalPath, writes[i].Document.OldText);
+            try
+            {
+                FileTextCodec.Write(writes[i].FinalPath, writes[i].Document.OldText, writes[i].Encoding);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Keep the original apply failure; do not replace it with rollback I/O.
+            }
         }
 
-        foreach (var (document, _) in writes)
+        foreach (var (document, _, _) in writes)
         {
             loaded.TryUpdateDocumentFromText(document.Path, SourceText.From(document.OldText));
         }
@@ -390,6 +453,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             epoch = _epoch;
         }
+
+        CaptureFSharpOutsideGate();
 
         var projectDrift = drifts.Any(d =>
             !d.Repaired && (d.Kind is "ProjectFileChanged" || LoadedSolution.IsProjectOrSolutionFile(d.Path)));
@@ -471,6 +536,12 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 {
                     changed = true;
                 }
+                else if (LoadedSolution.IsSourceFile(path) &&
+                         (path.EndsWith(".fs", StringComparison.OrdinalIgnoreCase) ||
+                          path.EndsWith(".fsi", StringComparison.OrdinalIgnoreCase)))
+                {
+                    changed = true;
+                }
             }
 
             if (changed)
@@ -478,6 +549,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 AdvanceEpochUnlocked();
             }
         }
+
+        CaptureFSharpOutsideGate();
     }
 
     private static DriftItemDto ToDto(DocumentDrift d) => new()
@@ -644,6 +717,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 }
             }
 
+            CaptureFSharpOutsideGate();
             StartWatcherForLoaded(loaded);
             StartBackgroundWarm(loaded, path);
         }

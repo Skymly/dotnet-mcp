@@ -101,6 +101,38 @@ public class WorkspaceEditTests
     }
 
     [Fact]
+    public void apply_write_failure_keeps_preview_id_and_maps_apply_failed()
+    {
+        var root = CreateTempDir("root");
+        var path = Path.Combine(root, "Widget.cs");
+        File.WriteAllText(path, "old");
+        var writer = ReadyWriter(path, "old");
+        writer.WriteError = new PolicyErrorDto
+        {
+            Error = PolicyErrorCodes.WorkspaceEditApplyFailed,
+            Message = "disk exploded",
+            SuggestedAction = "retry"
+        };
+        var edits = new WorkspaceEdit(writer, TrustedRoots.Create([root]), TimeProvider.System, TimeSpan.FromMinutes(5));
+
+        try
+        {
+            var held = edits.Preview(Draft(path));
+            var first = edits.Apply(held.Value!.PreviewId, WorkspaceEditKind.RenamePreview);
+            Assert.True(first.Failed);
+            Assert.Equal(PolicyErrorCodes.RenameApplyFailed, first.Error!.Error);
+            writer.WriteError = null;
+            var second = edits.Apply(held.Value.PreviewId, WorkspaceEditKind.RenamePreview);
+            Assert.False(second.Failed, second.Error?.Message);
+            Assert.Equal("new", writer.Texts[path]);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public void apply_unknown_id_is_not_found()
     {
         var root = CreateTempDir("root");
@@ -257,10 +289,17 @@ public class WorkspaceEditTests
 
         public Action? DuringWrite { get; set; }
 
+        public PolicyErrorDto? WriteError { get; set; }
+
         public WorkspaceEditOutcome<long> WriteDeclaredPaths(IReadOnlyList<WorkspaceEditDocument> documents)
         {
             DuringWrite?.Invoke();
             WriteCalls++;
+            if (WriteError is not null)
+            {
+                return new WorkspaceEditOutcome<long>(0, WriteError);
+            }
+
             foreach (var document in documents)
             {
                 Texts[document.Path] = document.NewText;

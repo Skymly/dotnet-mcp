@@ -134,11 +134,15 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
             }
 
             var documents = ReadFSharpDocuments(project, trustedRoots);
+            var defines = string.IsNullOrWhiteSpace(project.FilePath)
+                ? Array.Empty<string>()
+                : FSharpProjectFile.ReadDefines(project.FilePath);
             projects.Add(new FSharpProjectSnapshot(
                 project.Id.Id.ToString("D"),
                 project.Name,
                 project.FilePath,
-                documents));
+                documents,
+                defines));
         }
 
         return new FSharpWorkspaceSnapshot(epoch, projects);
@@ -181,10 +185,30 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(project.FilePath))
+        {
+            foreach (var compilePath in FSharpProjectFile.ReadCompilePaths(project.FilePath))
+            {
+                try
+                {
+                    Add(compilePath, File.ReadAllText(compilePath), requireTrusted: true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+                {
+                }
+            }
+
+            if (documents.Count > 0)
+            {
+                return documents;
+            }
+        }
+
         foreach (var document in project.Documents)
         {
             if (document.FilePath is null ||
-                !document.FilePath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase))
+                (!document.FilePath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase) &&
+                 !document.FilePath.EndsWith(".fsi", StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
@@ -267,7 +291,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
             IEnumerable<string> files;
             try
             {
-                files = Directory.EnumerateFiles(dir, "*.fs");
+                files = Directory.EnumerateFiles(dir, "*.fs").Concat(Directory.EnumerateFiles(dir, "*.fsi"));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

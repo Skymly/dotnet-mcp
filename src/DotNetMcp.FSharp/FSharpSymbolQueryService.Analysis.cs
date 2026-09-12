@@ -155,6 +155,7 @@ public sealed partial class FSharpSymbolQueryService
     public async Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(
         IWorkspaceSession session,
         string handle,
+        bool entireSolution = false,
         int? limit = null,
         string? cursor = null,
         TimeSpan? softBudget = null,
@@ -174,7 +175,9 @@ public sealed partial class FSharpSymbolQueryService
                 "Call symbol_resolve for a method name/FQN, then call symbol_find_callers with that handle."));
         }
 
-        var budget = softBudget ?? _softBudgets.FindRefsScoped;
+        var budget = softBudget ?? (entireSolution
+            ? _softBudgets.FindRefsEntireSolution
+            : _softBudgets.FindRefsScoped);
         var clock = Stopwatch.StartNew();
         var hits = new List<CallerLocationItem>();
         var truncatedByBudget = false;

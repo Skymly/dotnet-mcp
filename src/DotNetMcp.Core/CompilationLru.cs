@@ -69,7 +69,9 @@ public sealed class CompilationLru
             else
             {
                 Misses++;
-                pending = factory(project, cancellationToken);
+                // Decouple the shared factory from any single caller token (A cancel must not
+                // fault B's wait, and a successful compile must still enter the LRU).
+                pending = factory(project, CancellationToken.None);
                 _inflight[project.Id] = pending;
                 owner = true;
             }
@@ -78,21 +80,21 @@ public sealed class CompilationLru
         Compilation compilation;
         try
         {
-            compilation = await pending.ConfigureAwait(false);
+            compilation = await pending.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested && !pending.IsCompleted)
+        {
+            throw;
         }
         catch
         {
-            if (owner)
-            {
-                ClearInflight(project.Id, pending);
-            }
-
+            ClearInflight(project.Id, pending);
             throw;
         }
 
         lock (_gate)
         {
-            if (owner && _inflight.TryGetValue(project.Id, out var current) && ReferenceEquals(current, pending))
+            if (_inflight.TryGetValue(project.Id, out var current) && ReferenceEquals(current, pending))
             {
                 _inflight.Remove(project.Id);
             }

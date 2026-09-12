@@ -59,10 +59,11 @@ public sealed class DiagnosticQueryService
         var started = System.Diagnostics.Stopwatch.StartNew();
         var collected = new List<DiagnosticItem>();
         var stoppedEarly = false;
+        var projectFailures = new List<string>();
         foreach (var project in session.Solution.Projects)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (started.Elapsed >= budget)
+            if (budget > TimeSpan.Zero && started.Elapsed >= budget)
             {
                 stoppedEarly = true;
                 break;
@@ -74,24 +75,64 @@ public sealed class DiagnosticQueryService
                 continue;
             }
 
-            var remaining = budget - started.Elapsed;
-            var (page, error) = await adapter.GetProjectDiagnosticsAsync(
-                    session,
-                    project.Id.Id.ToString("D"),
-                    limit: 100,
-                    cursor: null,
-                    softBudget: remaining,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (error is not null)
+            var projectId = project.Id.Id.ToString("D");
+            string? projectCursor = null;
+            while (true)
             {
-                continue;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (budget > TimeSpan.Zero && started.Elapsed >= budget)
+                {
+                    stoppedEarly = true;
+                    break;
+                }
+
+                var remaining = budget <= TimeSpan.Zero ? budget : budget - started.Elapsed;
+                var (page, error) = await adapter.GetProjectDiagnosticsAsync(
+                        session,
+                        projectId,
+                        limit: LanguageAdapters.MaxMemberPageLimit,
+                        cursor: projectCursor,
+                        softBudget: remaining,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (error is not null)
+                {
+                    collected.Add(new DiagnosticItem(
+                        error.Code,
+                        "Error",
+                        $"Project '{project.Name}' diagnostics failed: {error.Message}",
+                        project.FilePath,
+                        StartLine: null,
+                        StartCharacter: null,
+                        EndLine: null,
+                        EndCharacter: null,
+                        projectId));
+                    projectFailures.Add(project.Name);
+                    break;
+                }
+
+                collected.AddRange(page!.Items);
+                if (!page.Truncated || string.IsNullOrWhiteSpace(page.NextCursor))
+                {
+                    break;
+                }
+
+                if (page.Message.Contains("Soft budget", StringComparison.OrdinalIgnoreCase))
+                {
+                    stoppedEarly = true;
+                    break;
+                }
+
+                projectCursor = page.NextCursor;
             }
 
-            collected.AddRange(page!.Items);
+            if (stoppedEarly)
+            {
+                break;
+            }
         }
 
-        return SoftBudgetPage.Page(
+        var (paged, pageError) = SoftBudgetPage.Page(
             collected,
             epoch,
             budgetHit: stoppedEarly,
@@ -101,6 +142,17 @@ public sealed class DiagnosticQueryService
             "Workspace has no error or warning diagnostics.",
             "Batch diagnostics page complete.",
             "the diagnostics list");
+        if (paged is not null && projectFailures.Count > 0)
+        {
+            var failed = string.Join(", ", projectFailures);
+            paged = paged with
+            {
+                Message = paged.Message +
+                    $" One or more projects failed to produce diagnostics ({failed}); those rows are not a clean project."
+            };
+        }
+
+        return (paged, pageError);
     }
 
     private static int ClampLimit(int? limit)

@@ -161,6 +161,7 @@ public sealed partial class RoslynLanguageAdapter
     public async Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(
         IWorkspaceSession session,
         string handle,
+        bool entireSolution = false,
         int? limit = null,
         string? cursor = null,
         TimeSpan? softBudget = null,
@@ -182,21 +183,31 @@ public sealed partial class RoslynLanguageAdapter
         }
 
         var pageLimit = ClampLimit(limit);
-        var budget = softBudget ?? _softBudgets.FindRefsScoped;
+        var requested = softBudget ?? (entireSolution
+            ? _softBudgets.FindRefsEntireSolution
+            : _softBudgets.FindRefsScoped);
+        var budget = FinderDocumentScan.ResolveBudget(
+            requested,
+            entireSolution
+                ? SoftBudgetOptions.Default.FindRefsEntireSolution
+                : SoftBudgetOptions.Default.FindRefsScoped);
         if (!SoftBudgetPage.TryReadFindRefs(
                 cursor,
                 session.Epoch,
-                entireSolution: false,
+                entireSolution,
                 "symbol_find_callers",
                 out var docIndex,
                 out var locOffset,
                 out var cursorError,
-                scopeMismatchMessage: "Cursor payload is invalid."))
+                scopeMismatchMessage: "Cursor scope does not match the entireSolution parameter for this request."))
         {
             return (null, cursorError);
         }
 
-        var documents = FindRefsScopes.DocumentsForScope(solution, project!, FindRefsScopeKind.DependencyClosure)
+        var scope = entireSolution
+            ? FindRefsScopeKind.EntireSolution
+            : FindRefsScopeKind.DependencyClosure;
+        var documents = FindRefsScopes.DocumentsForScope(solution, project!, scope)
             .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Id.Id)
@@ -205,8 +216,8 @@ public sealed partial class RoslynLanguageAdapter
         return await PageFinderHitsAsync<CallerLocationItem>(
                 session,
                 handle,
-                scopeKey: "callers-closure",
-                entireSolution: false,
+                scopeKey: entireSolution ? "callers-entire" : "callers-closure",
+                entireSolution,
                 tool: "symbol_find_callers",
                 documents,
                 budget,
@@ -251,9 +262,14 @@ public sealed partial class RoslynLanguageAdapter
         }
 
         var pageLimit = ClampLimit(limit);
-        var budget = softBudget ?? (entireSolution
+        var requested = softBudget ?? (entireSolution
             ? _softBudgets.FindRefsEntireSolution
             : _softBudgets.FindRefsScoped);
+        var budget = FinderDocumentScan.ResolveBudget(
+            requested,
+            entireSolution
+                ? SoftBudgetOptions.Default.FindRefsEntireSolution
+                : SoftBudgetOptions.Default.FindRefsScoped);
         if (!SoftBudgetPage.TryReadFindRefs(
                 cursor,
                 session.Epoch,
@@ -334,70 +350,35 @@ public sealed partial class RoslynLanguageAdapter
         IReadOnlyList<IReadOnlyList<T>>? byDocument = null;
         var fromCache = cache?.FindHits.TryGetByDocument(session.Epoch, handle, scopeKey, out byDocument) == true;
         var truncatedByBudget = false;
+        var scannedThrough = documents.Count;
 
         if (!fromCache)
         {
-            if (budget <= TimeSpan.Zero)
+            var scan = await FinderDocumentScan.ScanAsync(
+                    documents,
+                    docIndex,
+                    budget,
+                    findAligned,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            byDocument = scan.ByDocument;
+            truncatedByBudget = scan.TruncatedByBudget;
+            scannedThrough = scan.ScannedThrough;
+            if (!truncatedByBudget && docIndex == 0 && locOffset == 0)
             {
-                var filled = new IReadOnlyList<T>[documents.Count];
-                for (var i = 0; i < documents.Count; i++)
-                {
-                    filled[i] = Array.Empty<T>();
-                }
-
-                for (var i = docIndex; i < documents.Count; i++)
-                {
-                    var one = await findAligned([documents[i]], cancellationToken).ConfigureAwait(false);
-                    filled[i] = one.Count > 0 ? one[0] : Array.Empty<T>();
-                    if (filled[i].Count > 0)
-                    {
-                        break;
-                    }
-                }
-
-                byDocument = filled;
-                truncatedByBudget = true;
-            }
-            else
-            {
-                IReadOnlyList<IReadOnlyList<T>> aligned;
-                using (var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-                {
-                    budgetCts.CancelAfter(budget);
-                    try
-                    {
-                        aligned = documents.Count == 0
-                            ? Array.Empty<IReadOnlyList<T>>()
-                            : await findAligned(documents, budgetCts.Token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                    {
-                        truncatedByBudget = true;
-                        aligned = Array.Empty<IReadOnlyList<T>>();
-                    }
-                }
-
-                var filled = AlignByDocument(documents, documents, aligned);
-                byDocument = filled;
-                if (!truncatedByBudget)
-                {
-                    cache?.FindHits.SetByDocument(session.Epoch, handle, scopeKey, filled);
-                }
+                cache?.FindHits.SetByDocument(session.Epoch, handle, scopeKey, scan.ByDocument);
             }
         }
 
-        if (docIndex < documents.Count && locOffset > byDocument![docIndex].Count)
+        if (docIndex < scannedThrough && locOffset > byDocument![docIndex].Count)
         {
             return (null, new StaleCursorError(
                 "Cursor location offset is past the end of hits for a document.",
                 $"Call {tool} again without a cursor to start a fresh page."));
         }
 
-        var (page, exhausted, nextDoc, nextLoc) = SliceByDocument(byDocument!, docIndex, locOffset, pageLimit);
-        if (budget <= TimeSpan.Zero && !exhausted)
-        {
-            truncatedByBudget = true;
-        }
+        var (page, exhausted, nextDoc, nextLoc) = FinderDocumentScan.Slice(
+            byDocument!, docIndex, locOffset, pageLimit, scannedThrough);
 
         return (SoftBudgetPage.Finish(
             page,
@@ -407,52 +388,6 @@ public sealed partial class RoslynLanguageAdapter
             tool,
             page.Count == 0 ? emptyMessage : completeMessage), null);
     }
-
-    private static IReadOnlyList<IReadOnlyList<T>> AlignByDocument<T>(
-        IReadOnlyList<Document> documents,
-        IReadOnlyList<Document> scan,
-        IReadOnlyList<IReadOnlyList<T>> aligned)
-    {
-        var map = new Dictionary<DocumentId, IReadOnlyList<T>>();
-        for (var i = 0; i < scan.Count && i < aligned.Count; i++)
-        {
-            map[scan[i].Id] = aligned[i];
-        }
-
-        var filled = new IReadOnlyList<T>[documents.Count];
-        for (var i = 0; i < documents.Count; i++)
-        {
-            filled[i] = map.TryGetValue(documents[i].Id, out var hits) ? hits : Array.Empty<T>();
-        }
-
-        return filled;
-    }
-
-    private static (List<T> Page, bool Exhausted, int NextDoc, int NextLoc) SliceByDocument<T>(
-        IReadOnlyList<IReadOnlyList<T>> byDocument,
-        int docIndex,
-        int locOffset,
-        int pageLimit)
-    {
-        var page = new List<T>();
-        for (var i = docIndex; i < byDocument.Count; i++)
-        {
-            var hits = byDocument[i];
-            var start = i == docIndex ? locOffset : 0;
-            for (var loc = start; loc < hits.Count; loc++)
-            {
-                if (page.Count >= pageLimit)
-                {
-                    return (page, false, i, loc);
-                }
-
-                page.Add(hits[loc]);
-            }
-        }
-
-        return (page, true, byDocument.Count, 0);
-    }
-
 
     private async Task<(ImplementationItem? Item, SymbolQueryError? Error)> ToImplementationItemAsync(
         IWorkspaceSession session,

@@ -105,9 +105,15 @@ public sealed class DiagnosticFixService
             }
             else
             {
-                changed = await ApplyDocumentScopeAsync(
+                var (documentSolution, documentError) = await ApplyDocumentScopeAsync(
                         document!, diagnostic!.Id, chosen.EquivalenceKey, cancellationToken)
                     .ConfigureAwait(false);
+                if (documentError is not null)
+                {
+                    return (null, documentError);
+                }
+
+                changed = documentSolution;
             }
         }
         else
@@ -374,7 +380,7 @@ public sealed class DiagnosticFixService
             .ToArray();
     }
 
-    private static async Task<Solution?> ApplyDocumentScopeAsync(
+    private static async Task<(Solution? Solution, SymbolQueryError? Error)> ApplyDocumentScopeAsync(
         Document document,
         string diagnosticId,
         string equivalenceKey,
@@ -383,8 +389,10 @@ public sealed class DiagnosticFixService
         var currentSolution = document.Project.Solution;
         var currentDocId = document.Id;
         var applied = false;
+        const int cap = 32;
+        var skipped = new HashSet<(int Start, int Length)>();
 
-        for (var i = 0; i < 32; i++)
+        for (var i = 0; i < cap; i++)
         {
             var currentDoc = currentSolution.GetDocument(currentDocId);
             if (currentDoc is null)
@@ -400,7 +408,9 @@ public sealed class DiagnosticFixService
             }
 
             var nextOccurrence = compilation.GetDiagnostics()
-                .Where(d => d.Location.SourceTree == tree && string.Equals(d.Id, diagnosticId, StringComparison.Ordinal))
+                .Where(d => d.Location.SourceTree == tree &&
+                            string.Equals(d.Id, diagnosticId, StringComparison.Ordinal) &&
+                            !skipped.Contains((d.Location.SourceSpan.Start, d.Location.SourceSpan.Length)))
                 .OrderByDescending(d => d.Location.SourceSpan.Start)
                 .FirstOrDefault();
             if (nextOccurrence is null)
@@ -413,20 +423,54 @@ public sealed class DiagnosticFixService
                 string.Equals(a.EquivalenceKey, equivalenceKey, StringComparison.Ordinal));
             if (match is null)
             {
-                break;
+                skipped.Add((nextOccurrence.Location.SourceSpan.Start, nextOccurrence.Location.SourceSpan.Length));
+                continue;
             }
 
             var next = await CodeActionDocuments.ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
             if (next is null)
             {
-                break;
+                skipped.Add((nextOccurrence.Location.SourceSpan.Start, nextOccurrence.Location.SourceSpan.Length));
+                continue;
             }
 
             currentSolution = next;
             applied = true;
         }
 
-        return applied ? currentSolution : null;
+        var leftover = await DocumentHasRemainingAsync(
+                currentSolution.GetDocument(currentDocId), diagnosticId, cancellationToken)
+            .ConfigureAwait(false);
+        if (leftover)
+        {
+            return (null, new FixAllBudgetExceededError(
+                "Document-scope Fix all stopped before every matching occurrence could be applied.",
+                "Retry with scope=occurrence for the remaining diagnostics, or raise the document Fix all cap."));
+        }
+
+        return (applied ? currentSolution : null, null);
+    }
+
+    private static async Task<bool> DocumentHasRemainingAsync(
+        Document? document,
+        string diagnosticId,
+        CancellationToken cancellationToken)
+    {
+        if (document is null)
+        {
+            return false;
+        }
+
+        var compilation = await document.Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
+        var tree = await document.GetSyntaxTreeAsync(cancellationToken).ConfigureAwait(false);
+        if (compilation is null || tree is null)
+        {
+            return false;
+        }
+
+        return compilation.GetDiagnostics().Any(d =>
+            d.Location.SourceTree == tree &&
+            string.Equals(d.Id, diagnosticId, StringComparison.Ordinal));
     }
 
     private async Task<(Solution? Solution, SymbolQueryError? Error)> ApplyProjectScopeAsync(

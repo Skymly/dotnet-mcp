@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using DotNetMcp.Core;
 
 namespace DotNetMcp.Tests;
@@ -66,6 +68,25 @@ public class SoftBudgetPageTests
         Assert.Equal(items.Length, docIndex);
         Assert.Equal(0, locOffset);
         Assert.DoesNotContain("Page complete.", page.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void find_refs_v1_cursor_is_rejected_after_dependent_scope_flip()
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            V = "v1",
+            Epoch = 1L,
+            EntireSolution = false,
+            DocIndex = 0,
+            LocOffset = 0,
+            IssuedAtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        });
+        var cursor = Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+
+        Assert.False(FindRefsPageCursor.TryDecode(
+            cursor, out _, out _, out _, out _, out var error));
+        Assert.False(string.IsNullOrWhiteSpace(error));
     }
 
     [Fact]
