@@ -15,7 +15,7 @@ public class DynamicInvocationSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithDynamic());
-            await OpenReady(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
             var projectId = Assert.Single(InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list).Projects).ProjectId;
@@ -42,19 +42,6 @@ public class DynamicInvocationSeamTests
         await using var fx = new InProcessMcpFixture();
         var tools = await fx.Client.ListToolsAsync();
         Assert.Contains(tools, t => t.Name == "project_list_dynamic_invocations");
-    }
-
-    private static async Task OpenReady(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync("workspace_open", new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true);
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready") return;
-            await Task.Delay(25);
-        }
-        Assert.Fail("not ready");
     }
 
     private static string CreateTempDir(string label)

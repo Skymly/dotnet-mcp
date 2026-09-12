@@ -20,7 +20,7 @@ public class LanguageAdapterSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFsharpSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
@@ -185,29 +185,6 @@ public class LanguageAdapterSeamTests
         }
 
         throw new InvalidOperationException("Could not locate src/DotNetMcp.Core from the test assembly.");
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-
-        WorkspaceStatusDto? last = null;
-        for (var i = 0; i < 400; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (last.Phase is "ready" or "failed")
-            {
-                break;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.True(last?.Phase == "ready", $"phase={last?.Phase} error={last?.Error} message={last?.Message}");
     }
 
     private static string CreateTempDir(string label)

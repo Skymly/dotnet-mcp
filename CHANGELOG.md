@@ -2,6 +2,28 @@
 
 All notable product changes are recorded here. Version numbers match `src/DotNetMcp.Server/DotNetMcp.Server.csproj` and git tags `vMAJOR.MINOR.PATCH`.
 
+## Unreleased
+
+### Fixed
+
+- Find-refs / callers soft-budget cancel no longer treats the document table as exhausted; `ms<=0` budgets fall back to the ADR default instead of emitting a stuck cursor (`#242`)
+- Scoped find-refs and `symbol_find_callers` walk dependents (plus the defining project); callers takes `entireSolution` like find-refs (`#242`)
+- Workspace Edit apply maps I/O failures to `*ApplyFailed`, restores the previewId, rolls back the in-progress file, and preserves encoding/BOM (`#242`)
+- `CompilationLru` in-flight compiles are no longer bound to the first caller's cancellation token (`#242`)
+- `xaml_diagnostics` no longer flags property elements / attached properties as unknown (`#242`)
+- `symbol_resolve` without `projectId` matches test-like project names by segment, not substring (`#242`)
+- Batch `project_diagnostics` pages past 100 and surfaces per-project compile failures instead of looking clean (`#242`)
+- Document Fix all reports leftover after the 32-application cap and skips EquivalenceKey mismatches instead of stopping the document (`#242`)
+- Empty / illegal paths in `TrustedRoots.Contains` return a structured policy error instead of throwing out of `workspace_open` (`#242`)
+- F# snapshots freeze `<Compile>` order, defines, and `.fs` / `.fsi` disk changes (Epoch advances even when Roslyn has no F# documents) (`#242`)
+- `project_list_generator_diagnostics` reports generator exceptions as `MCPGEN0001` Error rows; a driver-level failure maps to `CompilationUnavailable` instead of a clean empty page
+- `PathPolicy` attribute-read failures fail closed (`PathPolicyException`), except missing path components which still append lexically
+
+### Changed
+
+- Docs: real `.fsproj` `symbol_resolve` is a required fixtures gate (`docs/perf/optimization.md`, `docs/perf/benchmark.md`)
+- ADR-0001 Amendment 3 no longer says F# still reads from `WorkspaceSession.Solution` (Amendment 5 already moved the snapshot)
+
 ## 4.0.0 - 2026-09-02
 
 First tagged 4.0 line. Shipping identity is **`Skymly.DotNetMcp`** (`dotnet-mcp` remains the tool command). The previous NuGet id `dotnet-mcp` is occupied by an unrelated unlisted package.

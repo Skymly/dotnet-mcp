@@ -56,22 +56,7 @@ public class WorkspaceLoadSeamTests
                 new Dictionary<string, object?> { ["path"] = solution });
             Assert.True(open.IsError is not true);
 
-            WorkspaceStatusDto? status = null;
-            for (var i = 0; i < 40; i++)
-            {
-                var result = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-                Assert.True(result.IsError is not true);
-                status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(result);
-                if (status.Phase == "ready")
-                {
-                    break;
-                }
-
-                await Task.Delay(50);
-            }
-
-            Assert.NotNull(status);
-            Assert.Equal("ready", status!.Phase);
+            var status = await WorkspaceReady.WaitUntilReadyAsync(fx);
             Assert.True(status.CompletedUnits >= 1);
             Assert.True(status.TotalUnits >= 1);
             Assert.Contains("Proceed", status.SuggestedAction, StringComparison.OrdinalIgnoreCase);
@@ -129,25 +114,7 @@ public class WorkspaceLoadSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateMultiTfm());
 
-            var open = await fx.Client.CallToolAsync(
-                "workspace_open",
-                new Dictionary<string, object?> { ["path"] = solution });
-            Assert.True(open.IsError is not true);
-
-            WorkspaceStatusDto? status = null;
-            for (var i = 0; i < 40; i++)
-            {
-                var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-                status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-                if (status.Phase == "ready")
-                {
-                    break;
-                }
-
-                await Task.Delay(25);
-            }
-
-            Assert.Equal("ready", status?.Phase);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var list = await fx.Client.CallToolAsync(
                 "workspace_list_projects",

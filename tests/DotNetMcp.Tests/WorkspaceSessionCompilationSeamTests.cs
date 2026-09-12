@@ -116,7 +116,7 @@ public class WorkspaceSessionCompilationSeamTests
     public async Task ready_sessions_in_the_same_epoch_share_host_compilation_lru()
     {
         await using var host = CreateHost(FakeSolutionLoader.ImmediateWithSymbols());
-        await OpenUntilReadyAsync(host, @"C:\fake\SampleLib.csproj");
+        await WorkspaceReady.OpenUntilReadyAsync(host, @"C:\fake\SampleLib.csproj");
 
         Assert.True(host.TryGetReadySession(out var firstSession));
         Assert.True(host.TryGetReadySession(out var secondSession));
@@ -144,7 +144,7 @@ public class WorkspaceSessionCompilationSeamTests
             await using var host = CreateHost(
                 FakeSolutionLoader.ImmediateWithSymbolsOnDisk(dir),
                 trustedRoots: TrustedRoots.Create([dir]));
-            await OpenUntilReadyAsync(host, projectPath);
+            await WorkspaceReady.OpenUntilReadyAsync(host, projectPath);
 
             Assert.True(host.TryGetReadySession(out var firstSession));
             var sessionA = Assert.IsType<WorkspaceSession>(firstSession);
@@ -200,19 +200,4 @@ public class WorkspaceSessionCompilationSeamTests
             },
             trustedRoots ?? TrustedRoots.Create([Directory.GetCurrentDirectory()]));
 
-    private static async Task OpenUntilReadyAsync(WorkspaceHost host, string path)
-    {
-        host.BeginOpen(path);
-        for (var i = 0; i < 40; i++)
-        {
-            if (host.GetStatus().Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(50);
-        }
-
-        Assert.Fail($"workspace did not become ready: {host.GetStatus().Phase} {host.GetStatus().Error}");
-    }
 }

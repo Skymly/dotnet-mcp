@@ -18,7 +18,7 @@ public class SymbolImplementationsHierarchySeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithHierarchy());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveHandleAsync(fx, "SampleLib.IDrawable");
 
             var result = await fx.Client.CallToolAsync(
@@ -64,7 +64,7 @@ public class SymbolImplementationsHierarchySeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithHierarchy());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveHandleAsync(fx, "SampleLib.Shape");
 
             var result = await fx.Client.CallToolAsync(
@@ -98,7 +98,7 @@ public class SymbolImplementationsHierarchySeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithHierarchy());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveHandleAsync(fx, "SampleLib.IDrawable");
 
             var page1 = await fx.Client.CallToolAsync(
@@ -149,7 +149,7 @@ public class SymbolImplementationsHierarchySeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithHierarchy());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveHandleAsync(fx, "SampleLib.IDrawable");
             var stale = MemberPageCursor.Encode(epoch: 999, offset: 0);
 
@@ -224,7 +224,7 @@ public class SymbolImplementationsHierarchySeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithHierarchy());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveHandleAsync(fx, "SampleLib.SpecialCircle");
 
             var result = await fx.Client.CallToolAsync(
@@ -265,7 +265,7 @@ public class SymbolImplementationsHierarchySeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithHierarchy());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveHandleAsync(fx, "SampleLib.SpecialCircle");
 
             var page1 = await fx.Client.CallToolAsync(
@@ -315,7 +315,7 @@ public class SymbolImplementationsHierarchySeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithHierarchy());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var typeHandle = await ResolveHandleAsync(fx, "SampleLib.Circle");
             var stale = MemberPageCursor.Encode(epoch: 999, offset: 0);
 
@@ -392,28 +392,6 @@ public class SymbolImplementationsHierarchySeamTests
             new Dictionary<string, object?> { ["name"] = name });
         Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
         return InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution });
-        Assert.True(open.IsError is not true);
-
-        for (var i = 0; i < 40; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string label)

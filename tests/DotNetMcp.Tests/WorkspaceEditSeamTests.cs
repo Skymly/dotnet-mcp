@@ -294,7 +294,7 @@ public class WorkspaceEditSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var epoch = fx.WorkspaceHost.CurrentEpoch;
             var held = fx.WorkspaceEdit.Preview(new WorkspaceEditDraft(
                 WorkspaceEditKind.RenamePreview,
@@ -327,7 +327,7 @@ public class WorkspaceEditSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var widget = Path.Combine(projectDir, "Widget.cs");
             var oldText = await File.ReadAllTextAsync(widget);
             var newText = oldText.Replace("Ping", "Pong", StringComparison.Ordinal);
@@ -364,20 +364,7 @@ public class WorkspaceEditSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
 
-            var open = await fx.Client.CallToolAsync(
-                "workspace_open",
-                new Dictionary<string, object?> { ["path"] = solution });
-            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-            for (var i = 0; i < 80; i++)
-            {
-                var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-                if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-                {
-                    break;
-                }
-
-                await Task.Delay(25);
-            }
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -419,26 +406,6 @@ public class WorkspaceEditSeamTests
             {
             }
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir()

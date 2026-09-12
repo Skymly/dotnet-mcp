@@ -129,7 +129,7 @@ DotNetMcp.FSharp      — P3，FCS 栈（ILanguageAdapter 第二适配器）
 
 ## Amendment 3（2026-08-21）：兑现 ILanguageAdapter
 
-§5 名称与两个 adapter 的决定不变。代码长出 `ILanguageAdapter`：`LanguageAdapters` 按 `SymbolHandle.Language` / project language 选一次；Roslyn adapter（C#/VB）与 FCS adapter（F#）是两个真实 adapter。XAML 仍不是 adapter。F# 仍从 `WorkspaceSession` 快照读项目（移出 session 是后续项）。
+§5 名称与两个 adapter 的决定不变。代码长出 `ILanguageAdapter`：`LanguageAdapters` 按 `SymbolHandle.Language` / project language 选一次；Roslyn adapter（C#/VB）与 FCS adapter（F#）是两个真实 adapter。XAML 仍不是 adapter。F# 项目身份经 `ILanguageAdapter` 选择；快照形状见 Amendment 5，不再从 `IWorkspaceSession.Solution` 读 F# 源。
 
 ## Amendment 4（2026-08-21）：收拢 MCP tool envelope
 

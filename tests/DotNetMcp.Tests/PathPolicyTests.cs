@@ -109,6 +109,109 @@ public class PathPolicyTests
         }
     }
 
+    [Fact]
+    public void normalize_missing_child_still_stays_under_root()
+    {
+        var root = CreateTempDir("missing");
+        try
+        {
+            var missing = Path.Combine(root, "no", "such", "file.cs");
+            var normalized = PathPolicy.Normalize(missing);
+            Assert.True(PathPolicy.IsUnderRoot(normalized, PathPolicy.Normalize(root)));
+            var trusted = TrustedRoots.Create([root]);
+            Assert.True(trusted.Contains(missing));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public void windows_dot_dot_space_segment_does_not_escape_trusted_root()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = CreateTempDir("ddspace");
+        var parent = Path.GetDirectoryName(root)!;
+        var outside = Path.Combine(parent, $"evil-{Guid.NewGuid():N}.sln");
+        var lexical = Path.Combine(root, ".. ", Path.GetFileName(outside));
+
+        try
+        {
+            var nRoot = PathPolicy.Normalize(root);
+            var normalized = PathPolicy.Normalize(lexical);
+            Assert.True(PathPolicy.IsUnderRoot(normalized, nRoot));
+            Assert.NotEqual(PathPolicy.Normalize(outside), normalized);
+
+            var trusted = TrustedRoots.Create([root]);
+            Assert.True(trusted.Contains(lexical));
+
+            try
+            {
+                File.WriteAllText(lexical, "OUTSIDE");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Write may fail on the non-canonical segment; that is not an escape.
+            }
+
+            Assert.False(File.Exists(outside));
+            if (File.Exists(lexical) || File.Exists(normalized))
+            {
+                var written = File.Exists(normalized) ? normalized : PathPolicy.Normalize(lexical);
+                Assert.True(PathPolicy.IsUnderRoot(written, nRoot));
+            }
+        }
+        finally
+        {
+            TryDelete(root);
+            try
+            {
+                if (File.Exists(outside))
+                {
+                    File.Delete(outside);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void windows_trailing_dot_or_space_contains_does_not_escape_root()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = CreateTempDir("trail");
+        var inside = Path.Combine(root, "a.txt");
+        File.WriteAllText(inside, "x");
+        var parent = Path.GetDirectoryName(root)!;
+        var sibling = Path.Combine(parent, "b.txt");
+
+        try
+        {
+            var trusted = TrustedRoots.Create([root]);
+            Assert.True(trusted.Contains(inside));
+            Assert.True(trusted.Contains(inside + "."));
+            Assert.True(trusted.Contains(inside + " "));
+            Assert.False(trusted.Contains(sibling));
+            Assert.False(trusted.Contains(sibling + "."));
+            Assert.False(trusted.Contains(sibling + " "));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-pp-{label}-{Guid.NewGuid():N}");

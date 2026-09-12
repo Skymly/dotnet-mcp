@@ -23,7 +23,7 @@ public class P3ReadSideSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithDataContext());
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var binding = await fx.Client.CallToolAsync(
                 "xaml_resolve_binding",
                 new Dictionary<string, object?>
@@ -58,7 +58,7 @@ public class P3ReadSideSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbXaml());
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var result = await fx.Client.CallToolAsync(
                 "xaml_resolve_class",
                 new Dictionary<string, object?> { ["path"] = axaml });
@@ -93,7 +93,7 @@ public class P3ReadSideSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbXaml());
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var cls = await fx.Client.CallToolAsync(
                 "xaml_resolve_class",
@@ -128,7 +128,7 @@ public class P3ReadSideSeamTests
                 FakeSolutionLoader.ImmediateWithVbAndCSharp(
                     Path.Combine(root, "cs", "CsLib.csproj"),
                     Path.Combine(root, "vb", "VbLib.vbproj")));
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var result = await fx.Client.CallToolAsync(
                 "project_diagnostics",
                 new Dictionary<string, object?>());
@@ -140,26 +140,6 @@ public class P3ReadSideSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync
-(InProcessMcpFixture fx, string path)
-    {
-        Assert.True((await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path })).IsError is not true);
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("not ready");
     }
 
     private static string CreateTempDir(string prefix)

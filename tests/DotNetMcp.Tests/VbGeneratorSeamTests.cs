@@ -18,7 +18,7 @@ public class VbGeneratorSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var projectId = await VbProjectIdAsync(fx);
 
             var result = await fx.Client.CallToolAsync(
@@ -51,7 +51,7 @@ public class VbGeneratorSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var projectId = await VbProjectIdAsync(fx);
 
             var sources = await fx.Client.CallToolAsync(
@@ -100,7 +100,7 @@ public class VbGeneratorSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var generated = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -155,28 +155,6 @@ public class VbGeneratorSeamTests
         var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
         var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
         return Assert.Single(projects.Projects, p => p.Language == "vb").ProjectId;
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-
-        for (var i = 0; i < 40; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string label)

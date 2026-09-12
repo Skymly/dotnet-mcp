@@ -18,7 +18,7 @@ public class CodeRefactoringSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithEncapsulateFieldOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveAsync(fx, "RefactorApp.Widget.count");
             var listed = await ListAsync(fx, handle);
             Assert.NotEmpty(listed.Items);
@@ -43,7 +43,7 @@ public class CodeRefactoringSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithEncapsulateFieldOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var before = await File.ReadAllTextAsync(Path.Combine(projectDir, "Widget.cs"));
             var handle = await ResolveAsync(fx, "RefactorApp.Widget.count");
             var preview = await PreviewWorkingAsync(fx, handle);
@@ -72,7 +72,7 @@ public class CodeRefactoringSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithEncapsulateFieldOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveAsync(fx, "RefactorApp.Widget.count");
             var preview = await PreviewWorkingAsync(fx, handle);
             var apply = await fx.Client.CallToolAsync(
@@ -114,7 +114,7 @@ public class CodeRefactoringSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFsharpSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await FsharpRenameSeamTests.ResolveFsharpPingAsync(fx);
             var result = await fx.Client.CallToolAsync(
                 "symbol_list_refactorings",
@@ -144,7 +144,7 @@ public class CodeRefactoringSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbEncapsulateFieldOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveAsync(fx, "Widget.count");
             Assert.StartsWith("vb:", handle, StringComparison.Ordinal);
             var preview = await PreviewWorkingAsync(fx, handle);
@@ -182,7 +182,7 @@ public class CodeRefactoringSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveAsync(fx, "SampleApp.Generated.CustomMarker");
             var result = await fx.Client.CallToolAsync(
                 "symbol_list_refactorings",
@@ -211,7 +211,7 @@ public class CodeRefactoringSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveAsync(fx, "SampleApp.Generated.VbMarker");
             Assert.StartsWith("vb:", handle, StringComparison.Ordinal);
             var result = await fx.Client.CallToolAsync(
@@ -281,26 +281,6 @@ public class CodeRefactoringSeamTests
         text.Contains("get", StringComparison.OrdinalIgnoreCase) ||
         text.Contains("set", StringComparison.OrdinalIgnoreCase) ||
         text.Contains("Count", StringComparison.Ordinal);
-
-    internal static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        Assert.True((await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-        for (var i = 0; i < 400; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
-    }
 
     internal static string CreateTempDir(string prefix)
     {

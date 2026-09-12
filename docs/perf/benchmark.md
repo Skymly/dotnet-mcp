@@ -128,7 +128,7 @@ JSON lands in `--out` as `{stamp}-{suite}.json` and `latest-{suite}.json`. `--co
 ## Fixture notes (from the first harness run)
 
 - `SampleFilter` and `MixedWithFs` load via MSBuild and cover C# / VB / project / Workspace Edit preview.
-- F# `symbol_resolve` on a real `.fsproj` may return `SymbolNotFound`: MSBuildWorkspace does not populate F# documents into the Roslyn Solution, so `FSharpWorkspaceSnapshot` can be empty. The scenario is recorded but not a required gate. `project_diagnostics` on the F# project still runs.
+- F# `symbol_resolve` on a real `.fsproj` (`MixedWithFs` / `FsLib.Widget`) succeeds via the Epoch disk snapshot (`<Compile>` order, directory fallback). The fixtures suite treats that row as **required**. `project_diagnostics` on the F# project still runs.
 - XAML tools need the `.axaml` in the workspace snapshot (`AdditionalFiles`). The fixtures suite generates `XamlApp` rather than using `AvaloniaApp.csproj` (that project does not include the axaml as a document). `xaml_resolve_name` needs a name generator; `xaml_resolve_binding` needs `x:DataType` — both are optional.
 - `symbol_find_callers` is only issued against a method/function/property handle (types return `SymbolNotFound`).
 - Workspace Edit **apply** is out of the default suite (preview only).

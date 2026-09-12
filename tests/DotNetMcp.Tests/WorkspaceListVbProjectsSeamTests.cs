@@ -17,7 +17,7 @@ public class WorkspaceListVbProjectsSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateMultiTfm());
 
-            await OpenReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var body = await ListProjectsAsync(fx);
             Assert.Equal(2, body.Projects.Count);
@@ -44,7 +44,7 @@ public class WorkspaceListVbProjectsSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbAndCSharp());
 
-            await OpenReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var body = await ListProjectsAsync(fx);
             Assert.Contains(body.Projects, p => p.Name == "CsLib" && p.Language == "csharp");
@@ -54,29 +54,6 @@ public class WorkspaceListVbProjectsSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenReadyAsync(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-
-        WorkspaceStatusDto? status = null;
-        for (var i = 0; i < 40; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail($"Workspace did not become ready: {status?.Phase}");
     }
 
     private static async Task<WorkspaceListProjectsResultDto> ListProjectsAsync(InProcessMcpFixture fx)

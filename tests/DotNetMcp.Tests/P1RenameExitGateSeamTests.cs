@@ -20,19 +20,7 @@ public class P1RenameExitGateSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbRenameOnDisk(projectDir));
-            Assert.True((await fx.Client.CallToolAsync(
-                "workspace_open",
-                new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-            for (var i = 0; i < 80; i++)
-            {
-                var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-                if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-                {
-                    break;
-                }
-
-                await Task.Delay(25);
-            }
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",

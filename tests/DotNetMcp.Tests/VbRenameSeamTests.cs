@@ -18,7 +18,7 @@ public class VbRenameSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbRenameOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
                 new Dictionary<string, object?> { ["name"] = "Widget.Ping" });
@@ -74,7 +74,7 @@ public class VbRenameSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var preview = await fx.Client.CallToolAsync(
                 "symbol_preview_rename",
                 new Dictionary<string, object?>
@@ -106,7 +106,7 @@ public class VbRenameSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
                 new Dictionary<string, object?> { ["name"] = "SampleApp.Generated.VbMarker" });
@@ -135,26 +135,6 @@ public class VbRenameSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string prefix)

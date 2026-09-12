@@ -18,7 +18,7 @@ public class P0CodeRefactoringExitGateSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithEncapsulateFieldOnDisk(projectDir));
 
-            await CodeRefactoringSeamTests.OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await CodeRefactoringSeamTests.ResolveAsync(fx, "RefactorApp.Widget.count");
             var preview = await CodeRefactoringSeamTests.PreviewWorkingAsync(fx, handle);
             var apply = await fx.Client.CallToolAsync(
@@ -52,7 +52,7 @@ public class P1CodeRefactoringExitGateSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbEncapsulateFieldOnDisk(projectDir));
 
-            await CodeRefactoringSeamTests.OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await CodeRefactoringSeamTests.ResolveAsync(fx, "Widget.count");
             Assert.StartsWith("vb:", handle, StringComparison.Ordinal);
             var preview = await CodeRefactoringSeamTests.PreviewWorkingAsync(fx, handle);

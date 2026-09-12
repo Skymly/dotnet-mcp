@@ -18,7 +18,7 @@ public class VbSymbolSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var result = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -52,7 +52,7 @@ public class VbSymbolSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveHandleAsync(fx, "VbLib.Widget");
 
             var summary = await fx.Client.CallToolAsync(
@@ -101,7 +101,7 @@ public class VbSymbolSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var widget = await ResolveHandleAsync(fx, "VbLib.Widget");
             var pingable = await ResolveHandleAsync(fx, "VbLib.IPingable");
@@ -180,7 +180,7 @@ public class VbSymbolSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var result = await fx.Client.CallToolAsync(
                 "symbol_resolve",
                 new Dictionary<string, object?> { ["name"] = "CsLib.Caller" });
@@ -208,7 +208,7 @@ public class VbSymbolSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveHandleAsync(fx, "VbLib.Widget");
 
             var badChecksum = handle[..^1] + (handle[^1] == '0' ? '1' : '0');
@@ -262,7 +262,7 @@ public class VbSymbolSeamTests
             TrustedRoots.Create([root]),
             new MsBuildSolutionLoader(TrustedRoots.Create([Directory.GetCurrentDirectory()])));
 
-        await OpenUntilReadyAsync(fx, slnx, TimeSpan.FromSeconds(90));
+        await WorkspaceReady.OpenUntilReadyAsync(fx, slnx, WorkspaceReady.MsBuildTimeout);
         var handle = await ResolveHandleAsync(fx, "VbLib.Widget");
         Assert.StartsWith("vb:", handle, StringComparison.Ordinal);
 
@@ -282,33 +282,6 @@ public class VbSymbolSeamTests
             new Dictionary<string, object?> { ["name"] = name });
         Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
         return InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(result).Handle;
-    }
-
-    private static async Task OpenUntilReadyAsync(
-        InProcessMcpFixture fx,
-        string path,
-        TimeSpan? timeout = null)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-
-        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(5));
-        WorkspaceStatusDto? last = null;
-        while (DateTime.UtcNow < deadline)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (last.Phase is "ready" or "failed")
-            {
-                break;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.True(last?.Phase == "ready", $"phase={last?.Phase} error={last?.Error} message={last?.Message}");
     }
 
     private static string CreateTempDir(string label)

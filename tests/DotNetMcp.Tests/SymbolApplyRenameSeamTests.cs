@@ -18,7 +18,7 @@ public class SymbolApplyRenameSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var widgetPath = Path.Combine(projectDir, "Widget.cs");
             var callerPath = Path.Combine(projectDir, "Caller.cs");
             var extraPath = Path.Combine(projectDir, "RenameApp.csproj");
@@ -102,7 +102,7 @@ public class SymbolApplyRenameSeamTests
                     FileWatcher = watcher
                 });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var widget = Path.Combine(projectDir, "Widget.cs");
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -154,7 +154,7 @@ public class SymbolApplyRenameSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var widget = Path.Combine(projectDir, "Widget.cs");
             var before = await File.ReadAllTextAsync(widget);
             var resolved = await fx.Client.CallToolAsync(
@@ -228,7 +228,7 @@ public class SymbolApplyRenameSeamTests
                     WorkspaceEditPreviewTtl = TimeSpan.FromMinutes(5)
                 });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
                 new Dictionary<string, object?> { ["name"] = "RenameApp.Widget.Ping" });
@@ -307,7 +307,7 @@ public class SymbolApplyRenameSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var planted = fx.WorkspaceEdit.Preview(new WorkspaceEditDraft(
                 WorkspaceEditKind.RenamePreview,
                 [new WorkspaceEditDocument(outside, "secret-source", "leaked")],
@@ -324,27 +324,6 @@ public class SymbolApplyRenameSeamTests
             TryDelete(root);
             try { File.Delete(outside); } catch { }
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string prefix)

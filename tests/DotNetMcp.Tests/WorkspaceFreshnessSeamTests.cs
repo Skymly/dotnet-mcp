@@ -62,7 +62,7 @@ public class WorkspaceFreshnessSeamTests
                     FileWatcher = watcher
                 });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var epochBefore = fx.WorkspaceHost.CurrentEpoch;
             var calcCs = Path.Combine(projectDir, "Calculator.cs");
 
@@ -114,7 +114,7 @@ public class WorkspaceFreshnessSeamTests
                     FileWatcher = watcher
                 });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -177,7 +177,7 @@ public class WorkspaceFreshnessSeamTests
                     FileWatcher = watcher
                 });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var epochBefore = fx.WorkspaceHost.CurrentEpoch;
             var calcCs = Path.Combine(projectDir, "Calculator.cs");
 
@@ -229,7 +229,7 @@ public class WorkspaceFreshnessSeamTests
                     WriteSuppression = suppression
                 });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var epoch = fx.WorkspaceHost.CurrentEpoch;
             var calcCs = Path.Combine(projectDir, "Calculator.cs");
 
@@ -269,7 +269,7 @@ public class WorkspaceFreshnessSeamTests
                     FileWatcher = watcher
                 });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var epoch = fx.WorkspaceHost.CurrentEpoch;
             var calcCs = Path.Combine(projectDir, "Calculator.cs");
             var genCs = Path.Combine(projectDir, "Generated", "FakeGen", "Calculator.Generated.g.cs");
@@ -306,7 +306,7 @@ public class WorkspaceFreshnessSeamTests
                     FileWatcher = watcher
                 });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var epoch = fx.WorkspaceHost.CurrentEpoch;
             var calcCs = Path.Combine(projectDir, "Calculator.cs");
             await File.WriteAllTextAsync(calcCs, await File.ReadAllTextAsync(calcCs) + "\n");
@@ -342,7 +342,7 @@ public class WorkspaceFreshnessSeamTests
                     FileWatcher = watcher
                 });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var epoch = fx.WorkspaceHost.CurrentEpoch;
             watcher.Raise(secret);
             Assert.Equal(epoch, fx.WorkspaceHost.CurrentEpoch);
@@ -352,28 +352,6 @@ public class WorkspaceFreshnessSeamTests
             TryDelete(root);
             TryDelete(outside);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solutionPath)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solutionPath });
-        Assert.True(open.IsError is not true);
-
-        for (var i = 0; i < 40; i++)
-        {
-            var statusResult = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(statusResult);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(50);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string prefix)

@@ -51,7 +51,7 @@ public class ProjectDiagnosticsSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithDiagnostics());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var result = await fx.Client.CallToolAsync(
                 "project_diagnostics",
@@ -81,7 +81,7 @@ public class ProjectDiagnosticsSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithDiagnostics());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
@@ -200,7 +200,7 @@ public class ProjectDiagnosticsSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithDiagnostics());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
@@ -242,7 +242,7 @@ public class ProjectDiagnosticsSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbDiagnostics());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
@@ -301,7 +301,7 @@ public class ProjectDiagnosticsSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbAndCSharp());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var result = await fx.Client.CallToolAsync(
                 "project_diagnostics",
@@ -332,7 +332,7 @@ public class ProjectDiagnosticsSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFsharpDiagnostics());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
@@ -374,28 +374,6 @@ public class ProjectDiagnosticsSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution });
-        Assert.True(open.IsError is not true);
-
-        for (var i = 0; i < 200; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string label)

@@ -33,7 +33,7 @@ public class MsBuildWorkspaceIntegrationTests
             new Dictionary<string, object?> { ["path"] = SampleSlnx });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
 
-        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
         Assert.Equal("ready", status.Phase);
 
         var list = await fx.Client.CallToolAsync(
@@ -63,7 +63,7 @@ public class MsBuildWorkspaceIntegrationTests
             new Dictionary<string, object?> { ["path"] = SampleSlnf });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
 
-        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
         Assert.Equal("ready", status.Phase);
 
         var list = await fx.Client.CallToolAsync(
@@ -92,7 +92,7 @@ public class MsBuildWorkspaceIntegrationTests
             new Dictionary<string, object?> { ["path"] = MultiTfmProject });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
 
-        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
         Assert.Equal("ready", status.Phase);
 
         var list = await fx.Client.CallToolAsync(
@@ -126,7 +126,7 @@ public class MsBuildWorkspaceIntegrationTests
             new Dictionary<string, object?> { ["path"] = VbProject });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
 
-        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
         Assert.Equal("ready", status.Phase);
 
         var list = await fx.Client.CallToolAsync(
@@ -155,7 +155,7 @@ public class MsBuildWorkspaceIntegrationTests
             new Dictionary<string, object?> { ["path"] = MixedSlnx });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
 
-        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
         Assert.Equal("ready", status.Phase);
 
         var list = await fx.Client.CallToolAsync(
@@ -186,7 +186,7 @@ public class MsBuildWorkspaceIntegrationTests
             new Dictionary<string, object?> { ["path"] = FsProject });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
 
-        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
         Assert.Equal("ready", status.Phase);
 
         var list = await fx.Client.CallToolAsync(
@@ -215,7 +215,7 @@ public class MsBuildWorkspaceIntegrationTests
             new Dictionary<string, object?> { ["path"] = MixedWithFsSlnx });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
 
-        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
         Assert.Equal("ready", status.Phase);
 
         var list = await fx.Client.CallToolAsync(
@@ -246,7 +246,7 @@ public class MsBuildWorkspaceIntegrationTests
             new Dictionary<string, object?> { ["path"] = MixedWithFsSlnx });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
 
-        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
         Assert.Equal("ready", status.Phase);
 
         var resolved = await fx.Client.CallToolAsync(
@@ -272,7 +272,7 @@ public class MsBuildWorkspaceIntegrationTests
             "workspace_open",
             new Dictionary<string, object?> { ["path"] = MixedWithFsSlnx });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-        var status = await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
         Assert.Equal("ready", status.Phase);
 
         var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
@@ -305,7 +305,7 @@ public class MsBuildWorkspaceIntegrationTests
             "workspace_open",
             new Dictionary<string, object?> { ["path"] = MixedWithFsSlnx });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-        await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
 
         var resolved = await fx.Client.CallToolAsync(
             "symbol_resolve",
@@ -335,7 +335,7 @@ public class MsBuildWorkspaceIntegrationTests
             "workspace_open",
             new Dictionary<string, object?> { ["path"] = AvaloniaProject });
         Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-        await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+        await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
 
         var resolved = await fx.Client.CallToolAsync(
             "xaml_resolve_class",
@@ -382,7 +382,7 @@ public class MsBuildWorkspaceIntegrationTests
                 "workspace_open",
                 new Dictionary<string, object?> { ["path"] = project });
             Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-            await PollReadyAsync(fx, TimeSpan.FromSeconds(90));
+            await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
 
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -427,29 +427,4 @@ public class MsBuildWorkspaceIntegrationTests
         }
     }
 
-    private static async Task<WorkspaceStatusDto> PollReadyAsync(InProcessMcpFixture fx, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        WorkspaceStatusDto? last = null;
-        while (DateTime.UtcNow < deadline)
-        {
-            var result = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
-            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(result);
-            if (last.Phase is "ready" or "failed" or "cancelled")
-            {
-                break;
-            }
-
-            await Task.Delay(100);
-        }
-
-        Assert.NotNull(last);
-        if (last!.Phase == "failed")
-        {
-            Assert.Fail($"Workspace load failed: {last.Error}");
-        }
-
-        return last;
-    }
 }
