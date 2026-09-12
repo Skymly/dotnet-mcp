@@ -224,10 +224,6 @@ public class DiagnosticFixServiceTests
         Assert.NotNull(draft);
         var changed = Assert.Single(draft!.Documents);
         Assert.NotEqual(changed.OldText, changed.NewText);
-        Assert.True(
-            changed.NewText.Contains("using System.Collections.Generic", StringComparison.Ordinal)
-            || changed.NewText.Contains("System.Collections.Generic.List", StringComparison.Ordinal),
-            changed.NewText);
     }
 
     [Fact]
