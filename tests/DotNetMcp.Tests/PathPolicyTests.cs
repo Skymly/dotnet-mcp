@@ -51,6 +51,24 @@ public class PathPolicyTests
     }
 
     [Fact]
+    public void trusted_roots_contains_empty_or_illegal_path_is_false_not_throw()
+    {
+        var root = CreateTempDir("empty");
+        try
+        {
+            var trusted = TrustedRoots.Create([root]);
+            Assert.False(trusted.Contains(""));
+            Assert.False(trusted.Contains("   "));
+            Assert.False(trusted.Contains("not-a-path|<>"));
+            Assert.True(trusted.Contains(root));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public void unc_path_is_not_under_local_trusted_root()
     {
         var root = CreateTempDir("unc");

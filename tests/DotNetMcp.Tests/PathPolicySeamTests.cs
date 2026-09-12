@@ -65,6 +65,29 @@ public class PathPolicySeamTests
     }
 
     [Fact]
+    public async Task workspace_open_empty_path_is_structured_policy_error()
+    {
+        var root = CreateTempDir("root");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+            var result = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = "" });
+
+            Assert.True(result.IsError is true);
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(result);
+            Assert.True(
+                body.Error is PolicyErrorCodes.PathOutsideTrustedRoots or PolicyErrorCodes.InvalidWorkspacePath,
+                body.Error);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task workspace_open_accepts_path_inside_trusted_roots()
     {
         var root = CreateTempDir("root");

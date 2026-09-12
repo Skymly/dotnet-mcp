@@ -87,9 +87,9 @@ public sealed class TrustedRoots
         {
             normalized = PathPolicy.Normalize(path);
         }
-        catch (PathPolicyException)
+        catch (Exception ex) when (ex is PathPolicyException or ArgumentException)
         {
-            // Fail closed: unresolvable reparse points are outside the trust boundary.
+            // Fail closed: empty, illegal, or unresolvable paths are outside the trust boundary.
             return false;
         }
 
