@@ -87,8 +87,18 @@ public sealed class LoadedSolution : IAsyncDisposable
                 continue;
             }
 
+            if (!TryReadTrustedDiskText(path, allowRead, out var diskText))
+            {
+                // Exists lexically but the canonical target is unreadable or escaped.
+                if (allowRead is not null)
+                {
+                    drifts.Add(new DocumentDrift(path, "OutsideTrustedRoots", Repaired: false));
+                }
+
+                continue;
+            }
+
             var workspaceText = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult().ToString();
-            var diskText = File.ReadAllText(path);
             if (!string.Equals(workspaceText, diskText, StringComparison.Ordinal))
             {
                 drifts.Add(new DocumentDrift(path, "ContentMismatch", Repaired: false));
@@ -204,6 +214,53 @@ public sealed class LoadedSolution : IAsyncDisposable
 
     public static bool IsWatchedFile(string path) =>
         IsSourceFile(path) || IsProjectOrSolutionFile(path);
+
+    /// <summary>
+    /// Read a path only after canonicalize + trusted-root check. Follows the apply-time
+    /// leaf-retarget rule so a symlink swap cannot pull outside content into the workspace.
+    /// </summary>
+    public static bool TryReadTrustedDiskText(string path, TrustedRoots trustedRoots, out string text)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(trustedRoots);
+        return TryReadTrustedDiskText(path, trustedRoots.Contains, out text);
+    }
+
+    public static bool TryReadTrustedDiskText(string path, Func<string, bool>? allowRead, out string text)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        text = string.Empty;
+
+        string canonical;
+        try
+        {
+            canonical = PathPolicy.Normalize(path);
+        }
+        catch (PathPolicyException)
+        {
+            return false;
+        }
+
+        if (allowRead is not null && !allowRead(canonical))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!File.Exists(canonical))
+            {
+                return false;
+            }
+
+            text = File.ReadAllText(canonical);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     private static Dictionary<string, DocumentId> BuildIndex(Solution solution)
     {

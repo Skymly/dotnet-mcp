@@ -81,6 +81,7 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
         }
 
         _watchers.Clear();
+        _onPathsChanged = null;
         _onWatchLost = null;
     }
 

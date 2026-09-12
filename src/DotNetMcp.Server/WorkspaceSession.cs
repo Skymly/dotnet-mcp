@@ -189,13 +189,12 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         {
             foreach (var compilePath in FSharpProjectFile.ReadCompilePaths(project.FilePath))
             {
-                try
+                if (!TryReadTrustedFsFile(compilePath, trustedRoots, out var full, out var text))
                 {
-                    Add(compilePath, File.ReadAllText(compilePath), requireTrusted: true);
+                    continue;
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-                {
-                }
+
+                Add(full, text, requireTrusted: false);
             }
 
             if (documents.Count > 0)
@@ -263,27 +262,31 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
 
         foreach (var root in roots)
         {
-            if (!Directory.Exists(root) || IsSymlinkDirectory(root))
+            if (!Directory.Exists(root) || IsReparsePoint(root))
             {
                 continue;
             }
 
             EnumerateFsFilesSkippingSymlinkDirs(
                 root,
-                (path, text) => Add(path, text, requireTrusted: true));
+                trustedRoots,
+                (path, text) => Add(path, text, requireTrusted: false));
         }
 
         return documents;
     }
 
-    private static void EnumerateFsFilesSkippingSymlinkDirs(string root, Action<string, string> add)
+    private static void EnumerateFsFilesSkippingSymlinkDirs(
+        string root,
+        TrustedRoots? trustedRoots,
+        Action<string, string> add)
     {
         var stack = new Stack<string>();
         stack.Push(root);
         while (stack.Count > 0)
         {
             var dir = stack.Pop();
-            if (IsSymlinkDirectory(dir))
+            if (IsReparsePoint(dir))
             {
                 continue;
             }
@@ -308,13 +311,12 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                     continue;
                 }
 
-                try
+                if (!TryReadTrustedFsFile(path, trustedRoots, out var full, out var text))
                 {
-                    add(path, File.ReadAllText(path));
+                    continue;
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                }
+
+                add(full, text);
             }
 
             IEnumerable<string> subdirs;
@@ -336,7 +338,8 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                     continue;
                 }
 
-                if (IsSymlinkDirectory(sub))
+                // Fail closed: unreadable or reparse directories are not walked.
+                if (IsReparsePoint(sub))
                 {
                     continue;
                 }
@@ -346,16 +349,64 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         }
     }
 
-    private static bool IsSymlinkDirectory(string path)
+    private static bool TryReadTrustedFsFile(
+        string path,
+        TrustedRoots? trustedRoots,
+        out string full,
+        out string text)
     {
+        full = string.Empty;
+        text = string.Empty;
+
+        // Symlink / junction files are skipped before any follow-and-read.
+        if (IsReparsePoint(path))
+        {
+            return false;
+        }
+
         try
         {
-            var attrs = File.GetAttributes(path);
-            return (attrs & FileAttributes.ReparsePoint) != 0 && Directory.Exists(path);
+            full = PathPolicy.Normalize(path);
+        }
+        catch (PathPolicyException)
+        {
+            return false;
+        }
+
+        if (trustedRoots is not null && !trustedRoots.ContainsNormalized(full))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!File.Exists(full))
+            {
+                return false;
+            }
+
+            text = File.ReadAllText(full);
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// True when the node is a reparse point, or when attributes cannot be read (fail closed).
+    /// </summary>
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            var attrs = File.GetAttributes(path);
+            return (attrs & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return true;
         }
     }
 }
