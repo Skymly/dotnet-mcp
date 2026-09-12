@@ -16,7 +16,7 @@ Does **not** make `workspace_open` a blocking `tools/call`.
 | First `symbol_resolve` | 0.3–0.9 s when the Compilation LRU is cold | Yes, cheap: warm the opened closure after `ready`. |
 | Find References / callers | 0.2–1.7 s, symbol-dependent | **Yes. This is the product query budget.** |
 | Batch `project_diagnostics` | 50–614 ms | Later. Soft budget 15 s still has margin. |
-| F# `symbol_resolve` on real `.fsproj` | `SymbolNotFound` + ~1.6 s | Correctness first: `FSharpWorkspaceSnapshot` is empty when Roslyn has no F# documents. |
+| F# `symbol_resolve` on real `.fsproj` | Succeeds (disk snapshot + `<Compile>` order) | Done. Phase 2 landed; MixedWithFs + real `.fsproj` resolve is a required gate. |
 
 The hot implementation shape (not solution size) is the main leak:
 
@@ -59,12 +59,12 @@ Acceptance: FluentValidation first `symbol_resolve` p95 **< 80 ms** after `ready
 2. `symbol_resolve` without `projectId` must not compile the whole Workspace. Prefer: exact FQN via `GetTypeByMetadataName` on already-warm compilations, then only cold-compile projects whose name/TFM is a plausible host. Ambiguity behavior stays.
 3. Bench / audit: record `compilationsStarted`, `lruHits`, `lruEvictions` per tool call (no source text). The OSS Observables spike to ~650 MiB was the bench probing every project, not the Agent-with-`projectId` path.
 
-## Phase 2 — F# snapshot (correctness = perf)
+## Phase 2 — F# snapshot (correctness = perf) — done
 
 Owner: `WorkspaceSession.CaptureFSharp` / `MsBuildSolutionLoader`.
-Acceptance: `MixedWithFs` + a real `.fsproj` `symbol_resolve FsLib.Widget` succeeds; fixtures suite can mark that row `required`.
+Acceptance: `MixedWithFs` + a real `.fsproj` `symbol_resolve FsLib.Widget` succeeds; fixtures suite marks that row `required`. **Landed.**
 
-MSBuildWorkspace often does not put `.fs` files on `Project.Documents` (`LanguageNames.FSharp` never appears). The FCS adapter then searches an empty `FSharpWorkspaceSnapshot`. Capture `.fs` paths from the `.fsproj` / project assets (or directory enumeration under the project folder) when freezing the snapshot at Epoch, still **beside** `Solution`, not through `session.Solution`.
+MSBuildWorkspace often does not put `.fs` files on `Project.Documents` (`LanguageNames.FSharp` never appears). The FCS adapter then searches an empty `FSharpWorkspaceSnapshot`. Capture `.fs` paths from the `.fsproj` `<Compile>` items (directory enumeration under the project folder as fallback) when freezing the snapshot at Epoch, still **beside** `Solution`, not through `session.Solution`. `.fs` / `.fsi` disk changes advance Epoch even when Roslyn has no F# documents.
 
 ## Phase 3 — load wall-clock (product, not a new cache)
 
