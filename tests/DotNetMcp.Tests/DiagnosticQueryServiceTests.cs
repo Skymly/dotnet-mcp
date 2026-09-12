@@ -37,6 +37,57 @@ public class DiagnosticQueryServiceTests
     }
 
     [Fact]
+    public async Task batch_diagnostics_pages_past_100_and_marks_project_errors()
+    {
+        using var workspace = CreateTwoProjectWorkspace();
+        var projects = workspace.CurrentSolution.Projects.OrderBy(p => p.Name).ToArray();
+        var fake = new FakeAdapter
+        {
+            PagesByProject =
+            {
+                [projects[0].Id.Id.ToString("D")] = Enumerable.Range(0, 130)
+                    .Select(i => new DiagnosticItem("CS0000", "Warning", $"w{i}", @"C:.cs", i, 0, i, 1, projects[0].Id.Id.ToString("D")))
+                    .ToList(),
+            },
+            ErrorsByProject =
+            {
+                [projects[1].Id.Id.ToString("D")] = new CompilationUnavailableError(
+                    "compile missing",
+                    "retry"),
+            }
+        };
+        var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
+        using var session = new FakeSession(workspace.CurrentSolution);
+
+        var all = new List<DiagnosticItem>();
+        string? cursor = null;
+        PagedResult<DiagnosticItem>? last = null;
+        for (var i = 0; i < 10; i++)
+        {
+            var (success, error) = await service.GetProjectDiagnosticsAsync(
+                session, projectId: "  ", cursor: cursor);
+            Assert.Null(error);
+            Assert.NotNull(success);
+            last = success;
+            all.AddRange(success!.Items);
+            if (!success.Truncated)
+            {
+                break;
+            }
+
+            cursor = success.NextCursor;
+            Assert.False(string.IsNullOrWhiteSpace(cursor));
+        }
+
+        Assert.NotNull(last);
+        Assert.Contains(all, i => i.Id == "CS0000");
+        Assert.Contains(all, i => i.Id == SymbolQueryErrorCodes.CompilationUnavailable);
+        Assert.True(all.Count >= 131, $"count={all.Count}");
+        Assert.Contains("failed", last!.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(fake.Cursors, c => c is not null);
+    }
+
+    [Fact]
     public async Task get_project_diagnostics_unknown_project_is_not_found()
     {
         using var workspace = CreateWorkspace();
@@ -54,6 +105,14 @@ public class DiagnosticQueryServiceTests
     {
         var workspace = new AdhocWorkspace();
         workspace.AddProject("Lib", LanguageNames.CSharp);
+        return workspace;
+    }
+
+    private static AdhocWorkspace CreateTwoProjectWorkspace()
+    {
+        var workspace = new AdhocWorkspace();
+        workspace.AddProject("LibA", LanguageNames.CSharp);
+        workspace.AddProject("LibB", LanguageNames.CSharp);
         return workspace;
     }
 
@@ -101,6 +160,10 @@ public class DiagnosticQueryServiceTests
     {
         public PagedResult<DiagnosticItem>? DiagnosticsPage { get; set; }
 
+        public Dictionary<string, List<DiagnosticItem>> PagesByProject { get; } = new();
+
+        public Dictionary<string, SymbolQueryError> ErrorsByProject { get; } = new();
+
         public int DiagnosticCalls { get; private set; }
 
         public string? LastProjectId { get; private set; }
@@ -110,6 +173,8 @@ public class DiagnosticQueryServiceTests
         public string? LastCursor { get; private set; }
 
         public TimeSpan? LastSoftBudget { get; private set; }
+
+        public List<string?> Cursors { get; } = [];
 
         public bool OwnsLanguage(string languageToken) =>
             string.Equals(languageToken, LanguageAdapters.CSharpLanguage, StringComparison.OrdinalIgnoreCase);
@@ -140,6 +205,33 @@ public class DiagnosticQueryServiceTests
             LastLimit = limit;
             LastCursor = cursor;
             LastSoftBudget = softBudget;
+            Cursors.Add(cursor);
+            if (ErrorsByProject.TryGetValue(projectId, out var projectError))
+            {
+                return Task.FromResult<(PagedResult<DiagnosticItem>?, SymbolQueryError?)>((null, projectError));
+            }
+
+            if (PagesByProject.TryGetValue(projectId, out var all))
+            {
+                var offset = 0;
+                if (!string.IsNullOrWhiteSpace(cursor) &&
+                    MemberPageCursor.TryDecode(cursor, out _, out var decoded, out _))
+                {
+                    offset = decoded;
+                }
+
+                var take = limit is null or <= 0 ? 50 : Math.Min(limit.Value, 100);
+                var slice = all.Skip(offset).Take(take).ToList();
+                var next = offset + slice.Count;
+                var truncated = next < all.Count;
+                var page = new PagedResult<DiagnosticItem>(
+                    slice,
+                    truncated,
+                    truncated ? MemberPageCursor.Encode(1, next) : null,
+                    truncated ? "Results truncated; pass nextCursor" : "done");
+                return Task.FromResult<(PagedResult<DiagnosticItem>?, SymbolQueryError?)>((page, null));
+            }
+
             return Task.FromResult<(PagedResult<DiagnosticItem>?, SymbolQueryError?)>((DiagnosticsPage, null));
         }
 
