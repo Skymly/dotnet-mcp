@@ -28,7 +28,7 @@ public class MauiXamlSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithMaui());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var cls = await fx.Client.CallToolAsync(
                 "xaml_resolve_class",
@@ -94,7 +94,7 @@ public class MauiXamlSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithMaui());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var result = await fx.Client.CallToolAsync(
                 "xaml_resolve_class",
                 new Dictionary<string, object?> { ["path"] = xaml });
@@ -107,26 +107,6 @@ public class MauiXamlSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string prefix)

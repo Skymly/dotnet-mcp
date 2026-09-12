@@ -18,7 +18,7 @@ public class FsharpAnalysisSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFsharpSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var widget = await ResolveHandleAsync(fx, "FsLib.Widget");
             var pingable = await ResolveHandleAsync(fx, "FsLib.Widget.IPingable");
@@ -79,28 +79,6 @@ public class FsharpAnalysisSeamTests
             new Dictionary<string, object?> { ["name"] = name });
         Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
         return InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(result).Handle;
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-        WorkspaceStatusDto? last = null;
-        for (var i = 0; i < 400; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (last.Phase is "ready" or "failed")
-            {
-                break;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.True(last?.Phase == "ready", $"phase={last?.Phase} error={last?.Error}");
     }
 
     private static string CreateTempDir(string label)

@@ -22,7 +22,7 @@ public class P3ExitGateSeamTests
             Assert.True((await fx.Client.CallToolAsync(
                 "workspace_open",
                 new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-            await OpenUntilReadyAsync(fx);
+            await WorkspaceReady.WaitUntilReadyAsync(fx);
 
             var list = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(
                 await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>()));
@@ -71,7 +71,7 @@ public class P3ExitGateSeamTests
                 Assert.True((await fx.Client.CallToolAsync(
                     "workspace_open",
                     new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-                await OpenUntilReadyAsync(fx);
+                await WorkspaceReady.WaitUntilReadyAsync(fx);
                 var resolved = await fx.Client.CallToolAsync(
                     "symbol_resolve",
                     new Dictionary<string, object?> { ["name"] = "ComLib.IComThing" });
@@ -87,7 +87,7 @@ public class P3ExitGateSeamTests
                 Assert.True((await fx.Client.CallToolAsync(
                     "workspace_open",
                     new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-                await OpenUntilReadyAsync(fx);
+                await WorkspaceReady.WaitUntilReadyAsync(fx);
                 var list = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(
                     await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>()));
                 var dyn = await fx.Client.CallToolAsync(
@@ -101,25 +101,6 @@ public class P3ExitGateSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx)
-    {
-        WorkspaceStatusDto? last = null;
-        for (var i = 0; i < 400; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (last.Phase is "ready" or "failed" or "cancelled")
-            {
-                break;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.NotNull(last);
-        Assert.True(last!.Phase == "ready", $"workspace phase={last.Phase} error={last.Error}");
     }
 
     private static string CreateTempDir(string label)

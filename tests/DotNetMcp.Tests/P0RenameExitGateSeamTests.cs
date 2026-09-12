@@ -24,7 +24,7 @@ public class P0RenameExitGateSeamTests
             Assert.True((await fx.Client.CallToolAsync(
                 "workspace_open",
                 new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-            await OpenUntilReadyAsync(fx);
+            await WorkspaceReady.WaitUntilReadyAsync(fx);
 
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -68,23 +68,6 @@ public class P0RenameExitGateSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx)
-    {
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string prefix)

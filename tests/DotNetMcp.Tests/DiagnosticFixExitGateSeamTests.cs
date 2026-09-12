@@ -18,7 +18,7 @@ public class P0DiagnosticFixExitGateSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithMissingUsingOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var occurrence = await DiagnosticFixSeamTests.FirstCs0246Async(fx);
             var preview = await DiagnosticFixSeamTests.PreviewWorkingFixAsync(fx, occurrence);
             var apply = await fx.Client.CallToolAsync(
@@ -33,25 +33,6 @@ public class P0DiagnosticFixExitGateSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        Assert.True((await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string prefix)
@@ -83,7 +64,7 @@ public class P1DiagnosticFixExitGateSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbMissingImportOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var occurrence = await DiagnosticFixSeamTests.FirstCs0246Async(fx);
             var preview = await DiagnosticFixSeamTests.PreviewWorkingFixAsync(fx, occurrence);
             var apply = await fx.Client.CallToolAsync(
@@ -98,25 +79,6 @@ public class P1DiagnosticFixExitGateSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        Assert.True((await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string prefix)
@@ -148,7 +110,7 @@ public class P3FixAllExitGateSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFixAllOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var projectId = await DiagnosticFixSeamTests.FirstProjectIdAsync(fx);
             var page = await DiagnosticFixSeamTests.ProjectDiagnosticsAsync(fx, projectId);
             var one = page.Items.First(d =>
@@ -179,25 +141,6 @@ public class P3FixAllExitGateSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        Assert.True((await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string prefix)

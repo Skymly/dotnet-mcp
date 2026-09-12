@@ -17,7 +17,7 @@ public class FsharpRenameSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFsharpSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var oldHandle = await ResolveFsharpPingAsync(fx);
             Assert.StartsWith("fsharp:", oldHandle, StringComparison.Ordinal);
 
@@ -88,29 +88,6 @@ public class FsharpRenameSeamTests
         return ping.Handle;
     }
 
-    internal static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-
-        WorkspaceStatusDto? last = null;
-        for (var i = 0; i < 400; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (last.Phase is "ready" or "failed")
-            {
-                break;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.True(last?.Phase == "ready", $"phase={last?.Phase} error={last?.Error} message={last?.Message}");
-    }
-
     private static string CreateTempDir(string prefix)
     {
         var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-fsr-" + prefix + "-" + Guid.NewGuid().ToString("N"));
@@ -139,7 +116,7 @@ public class P2FsharpRenameExitGateSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFsharpSymbols(root));
 
-            await FsharpRenameSeamTests.OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var oldHandle = await FsharpRenameSeamTests.ResolveFsharpPingAsync(fx);
 
             var preview = await fx.Client.CallToolAsync(

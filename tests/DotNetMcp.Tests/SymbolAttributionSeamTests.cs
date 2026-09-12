@@ -17,7 +17,7 @@ public class SymbolAttributionSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -54,7 +54,7 @@ public class SymbolAttributionSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -94,7 +94,7 @@ public class SymbolAttributionSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -148,7 +148,7 @@ public class SymbolAttributionSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var resolvedA = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -195,7 +195,7 @@ public class SymbolAttributionSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
@@ -219,30 +219,6 @@ public class SymbolAttributionSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution });
-        Assert.True(open.IsError is not true);
-
-        WorkspaceStatusDto? last = null;
-        for (var i = 0; i < 400; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (last.Phase is "ready" or "failed" or "cancelled")
-            {
-                break;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.NotNull(last);
-        Assert.True(last!.Phase == "ready", $"workspace phase={last.Phase} error={last.Error}");
     }
 
     private static string CreateTempDir(string label)

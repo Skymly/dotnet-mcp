@@ -17,7 +17,7 @@ public class ComInteropSeamTests
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithComInterop());
-            await OpenReady(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var com = await Resolve(fx, "ComLib.IComThing");
             Assert.Equal("ComImport", com.Summary.InteropKind);
@@ -48,20 +48,6 @@ public class ComInteropSeamTests
             new Dictionary<string, object?> { ["name"] = name });
         Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
         return InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(result);
-    }
-
-    private static async Task OpenReady(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync("workspace_open", new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true);
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready") return;
-            await Task.Delay(25);
-        }
-        Assert.Fail("not ready");
     }
 
     private static string CreateTempDir(string label)

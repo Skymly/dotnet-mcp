@@ -18,7 +18,7 @@ public class ProjectFixAllSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithProjectFixAllOnDisk(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(
                 await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>()));
             var projectA = Assert.Single(projects.Projects, p => p.Name == "FixAllA");
@@ -53,7 +53,7 @@ public class ProjectFixAllSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithVbProjectFixAllOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var projectId = await DiagnosticFixSeamTests.FirstProjectIdAsync(fx);
             var page = await DiagnosticFixSeamTests.ProjectDiagnosticsAsync(fx, projectId);
             var one = page.Items.First(d =>
@@ -84,7 +84,7 @@ public class ProjectFixAllSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithMissingUsingOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var occurrence = await DiagnosticFixSeamTests.FirstCs0246Async(fx);
             var listed = await DiagnosticFixSeamTests.ListFixesAsync(fx, occurrence);
             var args = DiagnosticFixSeamTests.Locator(occurrence);
@@ -116,7 +116,7 @@ public class ProjectFixAllSeamTests
                 FakeSolutionLoader.ImmediateWithProjectFixAllOnDisk(root),
                 softBudgetOptions: new SoftBudgetOptions { FixAllProject = TimeSpan.Zero });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(
                 await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>()));
             var projectA = Assert.Single(projects.Projects, p => p.Name == "FixAllA");
@@ -142,25 +142,6 @@ public class ProjectFixAllSeamTests
         {
             TryDelete(root);
         }
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        Assert.True((await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-        for (var i = 0; i < 80; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            if (InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll).Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
     }
 
     private static string CreateTempDir(string prefix)

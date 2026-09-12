@@ -18,7 +18,7 @@ public class SymbolFindReferencesSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFindRefsGraph());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var handle = await ResolveMarkerHandleAsync(fx);
 
@@ -56,7 +56,7 @@ public class SymbolFindReferencesSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFindRefsGraph());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var handle = await ResolveMarkerHandleAsync(fx);
 
@@ -96,7 +96,7 @@ public class SymbolFindReferencesSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFindRefsGraph());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var handle = await ResolveMarkerHandleAsync(fx);
 
@@ -152,7 +152,7 @@ public class SymbolFindReferencesSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFindRefsGraph());
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var handle = await ResolveMarkerHandleAsync(fx);
             var stale = FindRefsPageCursor.Encode(
@@ -272,28 +272,6 @@ public class SymbolFindReferencesSeamTests
 
     private static string KeyOf(ReferenceLocationItemDto item) =>
         $"{item.FilePath}|{item.Start}|{item.Length}|{item.Kind}";
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution });
-        Assert.True(open.IsError is not true);
-
-        for (var i = 0; i < 40; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
-    }
 
     private static string CreateTempDir(string label)
     {

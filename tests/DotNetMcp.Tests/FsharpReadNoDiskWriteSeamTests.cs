@@ -22,7 +22,7 @@ public class FsharpReadNoDiskWriteSeamTests
                 FakeSolutionLoader.ImmediateWithFsharpSymbols(root),
                 new WorkspaceHostOptions { FileWatcher = watcher });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var widgetPath = Path.Combine(root, "FsLib", "Widget.fs");
             var usesPath = Path.Combine(root, "FsLib", "Uses.fs");
@@ -82,7 +82,7 @@ public class FsharpReadNoDiskWriteSeamTests
                 FakeSolutionLoader.ImmediateWithFsharpCollidingFileNames(root),
                 new WorkspaceHostOptions { FileWatcher = new ManualWorkspaceFileWatcher() });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
             var alpha = await ResolveHandleAsync(fx, "Collide.Alpha");
             var gotoDef = await fx.Client.CallToolAsync(
@@ -187,29 +187,6 @@ public class FsharpReadNoDiskWriteSeamTests
         Assert.True(members.IsError is not true, InProcessMcpFixture.TextOf(members));
         var page = InProcessMcpFixture.Deserialize<SymbolMembersResultDto>(members);
         return Assert.Single(page.Items, m => m.Summary.DisplayName == "ping").Handle;
-    }
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string path)
-    {
-        var open = await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = path });
-        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
-
-        WorkspaceStatusDto? last = null;
-        for (var i = 0; i < 400; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (last.Phase is "ready" or "failed")
-            {
-                break;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.True(last?.Phase == "ready", $"phase={last?.Phase} error={last?.Error} message={last?.Message}");
     }
 
     private static string CreateTempDir(string prefix)

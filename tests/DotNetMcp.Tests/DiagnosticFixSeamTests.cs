@@ -18,7 +18,7 @@ public class DiagnosticFixSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithMissingUsingOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var occurrence = await FirstCs0246Async(fx);
             var listed = await ListFixesAsync(fx, occurrence);
             Assert.NotEmpty(listed.Items);
@@ -46,7 +46,7 @@ public class DiagnosticFixSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithMissingUsingOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var projectId = await FirstProjectIdAsync(fx);
             var result = await fx.Client.CallToolAsync(
                 "diagnostics_list_fixes",
@@ -80,7 +80,7 @@ public class DiagnosticFixSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithMissingUsingOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var before = await File.ReadAllTextAsync(Path.Combine(projectDir, "Broken.cs"));
             var occurrence = await FirstCs0246Async(fx);
             var preview = await PreviewWorkingFixAsync(fx, occurrence);
@@ -110,7 +110,7 @@ public class DiagnosticFixSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithMissingUsingOnDisk(projectDir));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var occurrence = await FirstCs0246Async(fx);
             var preview = await PreviewWorkingFixAsync(fx, occurrence);
             var apply = await fx.Client.CallToolAsync(
@@ -149,7 +149,7 @@ public class DiagnosticFixSeamTests
                 FakeSolutionLoader.ImmediateWithMissingUsingOnDisk(projectDir),
                 new WorkspaceHostOptions { TimeProvider = clock, WorkspaceEditPreviewTtl = TimeSpan.FromMinutes(5) });
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var occurrence = await FirstCs0246Async(fx);
             var preview = await PreviewWorkingFixAsync(fx, occurrence);
             clock.Advance(TimeSpan.FromMinutes(6));
@@ -181,7 +181,7 @@ public class DiagnosticFixSeamTests
                 TrustedRoots.Create([root]),
                 FakeSolutionLoader.ImmediateWithFsharpSymbols(root));
 
-            await OpenUntilReadyAsync(fx, solution);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(
                 await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>()));
             var fs = Assert.Single(projects.Projects, p => p.Language == "fsharp");
@@ -282,26 +282,6 @@ public class DiagnosticFixSeamTests
         ["endLine"] = occurrence.EndLine,
         ["endCharacter"] = occurrence.EndCharacter
     };
-
-    private static async Task OpenUntilReadyAsync(InProcessMcpFixture fx, string solution)
-    {
-        Assert.True((await fx.Client.CallToolAsync(
-            "workspace_open",
-            new Dictionary<string, object?> { ["path"] = solution })).IsError is not true);
-        for (var i = 0; i < 400; i++)
-        {
-            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
-            var status = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
-            if (status.Phase == "ready")
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail("workspace did not become ready");
-    }
 
     private static string CreateTempDir(string prefix)
     {
