@@ -11,6 +11,8 @@ namespace DotNetMcp.Core;
 /// </summary>
 public static class GeneratorDriverRunner
 {
+    public const string GeneratorExceptionDiagnosticId = "MCPGEN0001";
+
     public static async Task<Compilation> StripGeneratedTreesFromProjectAsync(
         Project project,
         Compilation compilation,
@@ -31,39 +33,53 @@ public static class GeneratorDriverRunner
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var generators = project.AnalyzerReferences
-            .SelectMany(r => r.GetGenerators(project.Language))
-            .ToImmutableArray();
-
-        var additionalTexts = project.AdditionalDocuments
-            .Select(d => (AdditionalText)new WorkspaceAdditionalText(d))
-            .ToImmutableArray();
-
-        GeneratorDriver driver;
-        if (project.Language == LanguageNames.VisualBasic)
+        GeneratorDriverRunResult runResult;
+        try
         {
-            driver = VisualBasicGeneratorDriver.Create(
-                generators,
-                additionalTexts,
-                project.ParseOptions as VisualBasicParseOptions ?? VisualBasicParseOptions.Default,
-                project.AnalyzerOptions.AnalyzerConfigOptionsProvider);
+            var generators = project.AnalyzerReferences
+                .SelectMany(r => r.GetGenerators(project.Language))
+                .ToImmutableArray();
+
+            var additionalTexts = project.AdditionalDocuments
+                .Select(d => (AdditionalText)new WorkspaceAdditionalText(d))
+                .ToImmutableArray();
+
+            GeneratorDriver driver;
+            if (project.Language == LanguageNames.VisualBasic)
+            {
+                driver = VisualBasicGeneratorDriver.Create(
+                    generators,
+                    additionalTexts,
+                    project.ParseOptions as VisualBasicParseOptions ?? VisualBasicParseOptions.Default,
+                    project.AnalyzerOptions.AnalyzerConfigOptionsProvider);
+            }
+            else
+            {
+                driver = CSharpGeneratorDriver.Create(
+                    generators,
+                    additionalTexts: additionalTexts,
+                    parseOptions: project.ParseOptions as CSharpParseOptions ?? CSharpParseOptions.Default,
+                    optionsProvider: project.AnalyzerOptions.AnalyzerConfigOptionsProvider);
+            }
+
+            driver = driver.RunGeneratorsAndUpdateCompilation(
+                baseCompilation,
+                out _,
+                out _,
+                cancellationToken);
+
+            runResult = driver.GetRunResult();
         }
-        else
+        catch (OperationCanceledException)
         {
-            driver = CSharpGeneratorDriver.Create(
-                generators,
-                additionalTexts: additionalTexts,
-                parseOptions: project.ParseOptions as CSharpParseOptions ?? CSharpParseOptions.Default,
-                optionsProvider: project.AnalyzerOptions.AnalyzerConfigOptionsProvider);
+            throw;
         }
-
-        driver = driver.RunGeneratorsAndUpdateCompilation(
-            baseCompilation,
-            out _,
-            out _,
-            cancellationToken);
-
-        var runResult = driver.GetRunResult();
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "Source generator driver failed before producing a run result.",
+                ex);
+        }
         var byGenerator = new List<GeneratorRunSources>();
         var flat = new List<GeneratedSourceMatch>();
 
@@ -89,10 +105,26 @@ public static class GeneratorDriverRunner
                     d.Id,
                     d.Severity.ToString(),
                     d.GetMessage()))
-                .OrderBy(static d => d.Id, StringComparer.Ordinal)
-                .ThenBy(static d => d.Severity, StringComparer.Ordinal)
-                .ThenBy(static d => d.Message, StringComparer.Ordinal)
-                .ToArray();
+                .ToList();
+            if (result.Exception is not null)
+            {
+                diagnostics.Add(new GeneratorDiagnosticItem(
+                    GeneratorExceptionDiagnosticId,
+                    nameof(DiagnosticSeverity.Error),
+                    $"{result.Exception.GetType().FullName}: {result.Exception.Message}"));
+            }
+
+            diagnostics.Sort(static (a, b) =>
+            {
+                var id = string.CompareOrdinal(a.Id, b.Id);
+                if (id != 0)
+                {
+                    return id;
+                }
+
+                var severity = string.CompareOrdinal(a.Severity, b.Severity);
+                return severity != 0 ? severity : string.CompareOrdinal(a.Message, b.Message);
+            });
 
             byGenerator.Add(new GeneratorRunSources(identity, sources, diagnostics));
         }

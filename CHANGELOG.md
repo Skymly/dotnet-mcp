@@ -16,6 +16,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - Document Fix all reports leftover after the 32-application cap and skips EquivalenceKey mismatches instead of stopping the document (`#242`)
 - Empty / illegal paths in `TrustedRoots.Contains` return a structured policy error instead of throwing out of `workspace_open` (`#242`)
 - F# snapshots freeze `<Compile>` order, defines, and `.fs` / `.fsi` disk changes (Epoch advances even when Roslyn has no F# documents) (`#242`)
+- `project_list_generator_diagnostics` reports generator exceptions as `MCPGEN0001` Error rows; a driver-level failure maps to `CompilationUnavailable` instead of a clean empty page
 
 ### Changed
 
