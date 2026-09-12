@@ -53,6 +53,41 @@ public class CompilationLruTests
     }
 
     [Fact]
+    public async Task caller_cancel_does_not_fault_shared_factory_and_result_still_caches()
+    {
+        using var workspace = CreateWorkspace(out var project);
+        var lru = new CompilationLru(50);
+        using var started = new CountdownEvent(1);
+        var release = new TaskCompletionSource();
+        var factories = 0;
+
+        async Task<Compilation> Factory(Project p, CancellationToken ct)
+        {
+            Interlocked.Increment(ref factories);
+            started.Signal();
+            await release.Task.WaitAsync(CancellationToken.None);
+            ct.ThrowIfCancellationRequested();
+            return await p.GetCompilationAsync(CancellationToken.None)
+                ?? throw new InvalidOperationException("Compilation was null.");
+        }
+
+        using var callerCts = new CancellationTokenSource();
+        var cancelled = lru.GetOrAddAsync(project, Factory, callerCts.Token);
+        var waiter = lru.GetOrAddAsync(project, Factory, CancellationToken.None);
+
+        Assert.True(started.Wait(TimeSpan.FromSeconds(10)));
+        callerCts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+
+        release.SetResult();
+        var compilation = await waiter;
+
+        Assert.Equal(1, factories);
+        Assert.True(lru.TryGet(project.Id, out var cached));
+        Assert.Same(compilation, cached);
+    }
+
+    [Fact]
     public async Task second_get_or_add_same_project_counts_as_hit_not_factory()
     {
         using var workspace = CreateWorkspace(out var project);
