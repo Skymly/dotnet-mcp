@@ -4,6 +4,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ## Unreleased
 
+## 4.0.1 - 2026-09-12
+
+Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended NuGet publish of **`Skymly.DotNetMcp`**.
+
 ### Fixed
 
 - Find-refs / callers soft-budget cancel no longer treats the document table as exhausted; `ms<=0` budgets fall back to the ADR default instead of emitting a stuck cursor (`#242`)
@@ -18,11 +22,24 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - F# snapshots freeze `<Compile>` order, defines, and `.fs` / `.fsi` disk changes (Epoch advances even when Roslyn has no F# documents) (`#242`)
 - `project_list_generator_diagnostics` reports generator exceptions as `MCPGEN0001` Error rows; a driver-level failure maps to `CompilationUnavailable` instead of a clean empty page
 - `PathPolicy` attribute-read failures fail closed (`PathPolicyException`), except missing path components which still append lexically
+- Ambiguous generator attribution on identical content is refused instead of binding the wrong generator (`#224`)
+- XAML symbol resolve is scoped to the document's project (`#225`)
+- Preview store sweeps expired entries; Apply no longer holds the store lock across disk I/O (`#227`)
+- Production FileSystemWatcher subscribes to `Error` and falls back to `CheckDrift` on overflow (`#227`)
 
 ### Changed
 
 - Docs: real `.fsproj` `symbol_resolve` is a required fixtures gate (`docs/perf/optimization.md`, `docs/perf/benchmark.md`)
 - ADR-0001 Amendment 3 no longer says F# still reads from `WorkspaceSession.Solution` (Amendment 5 already moved the snapshot)
+- New policy error codes: `XamlDocumentAmbiguous`, `RenameApplyFailed`, `WorkspaceEditApplyFailed`
+
+### Security
+
+- Graph gate also checks `AdditionalDocuments` (`#226`)
+- F# snapshot skips reparse points and checks trusted roots before reading compile items (`#226`)
+- `WorkspaceHost` Dispose joins the in-flight load; FSW Stop clears the callback (`#226`)
+- Drift / FSW / watch roots only read paths under trusted roots; `\\?\` prefixes are stripped before the prefix check (`#227`)
+- ADR-0004 Amendment 5: `.sln` / `.slnx` / single-project graph gate remains post-load (out-of-root `ProjectReference` is evaluated, then rejected). `.slnf` stays pre-open (`#241`)
 
 ## 4.0.0 - 2026-09-02
 

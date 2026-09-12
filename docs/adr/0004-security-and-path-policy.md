@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-09-02 Amendment 4 fail-closed roots）**
+Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate）**
 
 ## 上下文
 
