@@ -198,6 +198,7 @@ public sealed class LoadedSolution : IAsyncDisposable
         return ext.Equals(".cs", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".vb", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".fs", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".fsi", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".fsx", StringComparison.OrdinalIgnoreCase);
     }
 

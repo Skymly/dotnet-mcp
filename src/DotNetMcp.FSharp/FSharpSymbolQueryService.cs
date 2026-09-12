@@ -306,7 +306,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             Path.GetDirectoryName(sources[0].Path) ?? Path.GetTempPath(),
             project.Name + ".fsproj");
         var dllName = Path.ChangeExtension(projectFile, ".dll");
-        var argv = BuildCompilerArgs(dllName, sources.Select(s => s.Path));
+        var argv = BuildCompilerArgs(dllName, sources.Select(s => s.Path), project.Defines);
         var options = _checker.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
         foreach (var (path, _) in sources)
         {
@@ -620,7 +620,10 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         }
     }
 
-    private static string[] BuildCompilerArgs(string dllName, IEnumerable<string> sourceFiles)
+    private static string[] BuildCompilerArgs(
+        string dllName,
+        IEnumerable<string> sourceFiles,
+        IEnumerable<string>? defines = null)
     {
         var args = new List<string>
         {
@@ -631,6 +634,17 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             "--nocopyfsharpcore",
             "--out:" + dllName,
         };
+
+        if (defines is not null)
+        {
+            foreach (var define in defines)
+            {
+                if (!string.IsNullOrWhiteSpace(define))
+                {
+                    args.Add("--define:" + define);
+                }
+            }
+        }
 
         foreach (var reference in CompilerReferences())
         {
