@@ -197,9 +197,16 @@ public static class PathPolicy
             var attrs = File.GetAttributes(path);
             return (attrs & FileAttributes.ReparsePoint) != 0;
         }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // Missing trailing segments still append lexically.
+            return false;
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            return false;
+            throw new PathPolicyException(
+                "Could not read filesystem attributes while enforcing trusted roots.",
+                ex);
         }
     }
 
