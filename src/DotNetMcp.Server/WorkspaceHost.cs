@@ -43,6 +43,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private readonly TrustedRoots _trustedRoots;
     private readonly GeneratorQueryService? _generators;
     private FSharpWorkspaceSnapshot? _fsharpSnapshot;
+    private volatile bool _disposed;
 
     public WorkspaceHost(
         ISolutionLoader loader,
@@ -96,13 +97,21 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     public WorkspaceStatusDto BeginOpen(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
-        CancelInFlightUnlocked();
-        lock (_gate) { CancelWarmUnlocked(); }
         StopWatcher();
+
+        CancellationTokenSource? oldCts;
+        CancellationTokenSource cts;
+        string openedPath;
+        long generation;
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            CancelWarmUnlocked();
+            oldCts = _loadCts;
             _generation++;
+            generation = _generation;
             _openedPath = Path.GetFullPath(path);
             _phase = "loading";
             _completedUnits = 0;
@@ -111,12 +120,22 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             _warnings = [];
             _estimatedRemainingMs = 0;
             _elapsed.Restart();
-            _loadCts = new CancellationTokenSource();
+            cts = new CancellationTokenSource();
+            _loadCts = cts;
+            openedPath = _openedPath;
+            // Do not await a previous load here: StartWatcher can raise FileSystemWatcher
+            // events on this thread (Windows). Awaiting that in-flight task deadlocks.
+            // Loads are already serialized by _loadMutex; DisposeAsync re-joins _loadTask.
+            _loadTask = Task.Run(() => RunLoadAsync(openedPath, cts, generation));
         }
 
-        var cts = _loadCts!;
-        var openedPath = _openedPath!;
-        _loadTask = Task.Run(() => RunLoadAsync(openedPath, cts));
+        try
+        {
+            oldCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
 
         return GetStatus();
     }
@@ -419,13 +438,12 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         {
             if (drift.Kind == "ContentMismatch"
                 && LoadedSolution.IsSourceFile(drift.Path)
-                && _trustedRoots.Contains(drift.Path)
-                && File.Exists(drift.Path))
+                && LoadedSolution.TryReadTrustedDiskText(drift.Path, _trustedRoots, out var diskText))
             {
                 var key = TryNormalize(drift.Path);
                 if (key is not null)
                 {
-                    repairTexts[key] = File.ReadAllText(drift.Path);
+                    repairTexts[key] = diskText;
                 }
             }
         }
@@ -480,6 +498,11 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     /// </summary>
     public void ApplyChangedPaths(IEnumerable<string> paths)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         var filtered = paths
             .Where(static p => !string.IsNullOrWhiteSpace(p))
             .Where(_trustedRoots.Contains)
@@ -505,9 +528,15 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 reopen = _openedPath;
             }
 
-            if (reopen is not null)
+            if (reopen is not null && !_disposed)
             {
-                BeginOpen(reopen);
+                try
+                {
+                    BeginOpen(reopen);
+                }
+                catch (ObjectDisposedException)
+                {
+                }
             }
 
             return;
@@ -516,9 +545,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         var diskTexts = new Dictionary<string, string>(PathPolicy.Comparer);
         foreach (var path in filtered)
         {
-            if (File.Exists(path))
+            if (LoadedSolution.TryReadTrustedDiskText(path, _trustedRoots, out var diskText))
             {
-                diskTexts[path] = File.ReadAllText(path);
+                diskTexts[path] = diskText;
             }
         }
 
@@ -562,6 +591,11 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
     private void OnWatcherPathsChanged(IReadOnlyList<string> paths)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         string[]? syncBatch = null;
 
         lock (_debounceGate)
@@ -643,18 +677,25 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
     }
 
-    private async Task RunLoadAsync(string path, CancellationTokenSource cts)
+    private async Task RunLoadAsync(string path, CancellationTokenSource cts, long generation)
     {
         var ct = cts.Token;
-        await _loadMutex.WaitAsync(ct).ConfigureAwait(false);
+        var acquired = false;
         try
         {
+            await _loadMutex.WaitAsync(ct).ConfigureAwait(false);
+            acquired = true;
             ct.ThrowIfCancellationRequested();
 
             // Dispose previous loaded workspace after acquiring the mutex.
             LoadedSolution? previous;
             lock (_gate)
             {
+                if (generation != _generation)
+                {
+                    return;
+                }
+
                 previous = _loaded;
                 _loaded = null;
             }
@@ -668,7 +709,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             {
                 lock (_gate)
                 {
-                    if (_phase is not "loading")
+                    if (_phase is not "loading" || generation != _generation)
                     {
                         return;
                     }
@@ -691,29 +732,49 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 throw;
             }
 
+            var committed = false;
             lock (_gate)
             {
-                if (ct.IsCancellationRequested)
+                if (ct.IsCancellationRequested || generation != _generation)
                 {
-                    _ = loaded.DisposeAsync();
-                    _phase = "cancelled";
+                    if (generation == _generation)
+                    {
+                        _phase = "cancelled";
+                        _elapsed.Stop();
+                        _estimatedRemainingMs = 0;
+                    }
+                }
+                else
+                {
+                    _loaded = loaded;
+                    _warnings = loaded.Warnings;
+                    _completedUnits = Math.Max(_completedUnits, loaded.Solution.ProjectIds.Count);
+                    _totalUnits = Math.Max(1, loaded.Solution.ProjectIds.Count);
+                    AdvanceEpochUnlocked();
+                    _phase = "ready";
                     _elapsed.Stop();
                     _estimatedRemainingMs = 0;
-                    return;
-                }
+                    _error = null;
+                    if (_openedPath is not null)
+                    {
+                        loaded.RecordProjectFileSnapshots([_openedPath]);
+                    }
 
-                _loaded = loaded;
-                _warnings = loaded.Warnings;
-                _completedUnits = Math.Max(_completedUnits, loaded.Solution.ProjectIds.Count);
-                _totalUnits = Math.Max(1, loaded.Solution.ProjectIds.Count);
-                AdvanceEpochUnlocked();
-                _phase = "ready";
-                _elapsed.Stop();
-                _estimatedRemainingMs = 0;
-                _error = null;
-                if (_openedPath is not null)
+                    committed = true;
+                }
+            }
+
+            if (!committed)
+            {
+                await loaded.DisposeAsync().ConfigureAwait(false);
+                return;
+            }
+
+            lock (_gate)
+            {
+                if (generation != _generation || !ReferenceEquals(_loaded, loaded))
                 {
-                    loaded.RecordProjectFileSnapshots([_openedPath]);
+                    return;
                 }
             }
 
@@ -725,29 +786,38 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         {
             lock (_gate)
             {
-                _phase = "cancelled";
-                _elapsed.Stop();
-                _estimatedRemainingMs = 0;
+                if (generation == _generation)
+                {
+                    _phase = "cancelled";
+                    _elapsed.Stop();
+                    _estimatedRemainingMs = 0;
+                }
             }
         }
         catch (Exception ex)
         {
             lock (_gate)
             {
-                _phase = "failed";
-                _error = ex.Message;
-                _elapsed.Stop();
-                _estimatedRemainingMs = 0;
+                if (generation == _generation)
+                {
+                    _phase = "failed";
+                    _error = ex.Message;
+                    _elapsed.Stop();
+                    _estimatedRemainingMs = 0;
+                }
             }
         }
         finally
         {
-            try
+            if (acquired)
             {
-                _loadMutex.Release();
-            }
-            catch (ObjectDisposedException)
-            {
+                try
+                {
+                    _loadMutex.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
             }
 
             lock (_gate)
@@ -832,8 +902,6 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         lock (_gate)
         {
             oldCts = _loadCts;
-            _loadCts = null;
-            _loadTask = null;
             CancelWarmUnlocked();
         }
 
@@ -1049,18 +1117,41 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Task? loadTask;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _generation++;
+            loadTask = _loadTask;
+        }
+
         CancelInFlightUnlocked();
         StopWatcher();
 
-        if (_loadTask is { } task)
+        while (loadTask is not null)
         {
             try
             {
-                await task.ConfigureAwait(false);
+                await loadTask.ConfigureAwait(false);
             }
             catch
             {
                 // ignored during shutdown
+            }
+
+            lock (_gate)
+            {
+                if (ReferenceEquals(_loadTask, loadTask))
+                {
+                    break;
+                }
+
+                loadTask = _loadTask;
             }
         }
 
@@ -1069,6 +1160,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         {
             loaded = _loaded;
             _loaded = null;
+            _loadTask = null;
+            _loadCts = null;
             _phase = "idle";
         }
 

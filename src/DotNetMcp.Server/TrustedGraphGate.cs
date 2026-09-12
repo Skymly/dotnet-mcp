@@ -1,3 +1,5 @@
+using Microsoft.CodeAnalysis;
+
 namespace DotNetMcp.Server;
 
 /// <summary>
@@ -48,18 +50,32 @@ public static class TrustedGraphGate
 
         foreach (var project in loaded.Solution.Projects)
         {
-            foreach (var document in project.Documents)
+            foreach (var document in EnumerateOnDiskTextDocuments(project))
             {
-                if (string.IsNullOrWhiteSpace(document.FilePath) || !PathExists(document.FilePath))
-                {
-                    continue;
-                }
-
-                if (!trustedRoots.Contains(document.FilePath))
+                if (!trustedRoots.Contains(document.FilePath!))
                 {
                     throw new InvalidOperationException(
                         "workspace_open: a document path resolves outside the configured trusted roots and was rejected.");
                 }
+            }
+        }
+    }
+
+    private static IEnumerable<TextDocument> EnumerateOnDiskTextDocuments(Project project)
+    {
+        foreach (var document in project.Documents)
+        {
+            if (!string.IsNullOrWhiteSpace(document.FilePath) && PathExists(document.FilePath))
+            {
+                yield return document;
+            }
+        }
+
+        foreach (var document in project.AdditionalDocuments)
+        {
+            if (!string.IsNullOrWhiteSpace(document.FilePath) && PathExists(document.FilePath))
+            {
+                yield return document;
             }
         }
     }
