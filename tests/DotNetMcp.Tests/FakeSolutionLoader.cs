@@ -1441,7 +1441,7 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
 
     /// <summary>
     /// LibA defines Marker (multiple local refs). LibB and Outsider reference LibA and use Marker.
-    /// Dependency closure of LibA is LibA only (no outgoing project refs); consumers need entireSolution.
+    /// Default scoped search is LibA plus its dependents (LibB, Outsider).
     /// </summary>
     public static LoadedSolution CreateFindRefsGraphLoaded(string root = @"C:\fake")
     {

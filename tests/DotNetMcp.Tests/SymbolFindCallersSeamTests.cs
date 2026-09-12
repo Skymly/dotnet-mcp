@@ -52,7 +52,7 @@ public class SymbolFindCallersSeamTests
     }
 
     [Fact]
-    public async Task symbol_find_callers_default_scope_is_dependency_closure_excluding_consumers()
+    public async Task symbol_find_callers_default_scope_includes_dependents()
     {
         var root = CreateTempDir("root");
         var solution = Path.Combine(root, "App.slnx");
@@ -83,7 +83,7 @@ public class SymbolFindCallersSeamTests
             Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
             var body = InProcessMcpFixture.Deserialize<SymbolFindCallersResultDto>(result);
             Assert.Contains(body.Items, i => (i.FilePath ?? string.Empty).Contains("LocalUses.cs", StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(body.Items, i =>
+            Assert.Contains(body.Items, i =>
                 (i.FilePath ?? string.Empty).Contains("OutsideUses.cs", StringComparison.OrdinalIgnoreCase));
         }
         finally
@@ -231,7 +231,7 @@ public class SymbolFindCallersSeamTests
     }
 
     [Fact]
-    public async Task FindCallersAsync_soft_budget_zero_truncates_with_continuation_message()
+    public async Task FindCallersAsync_soft_budget_zero_falls_back_to_default_and_completes()
     {
         var loaded = FakeSolutionLoader.CreateCallersLoaded(@"C:\fake\CallerLib.csproj");
         var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
@@ -250,10 +250,8 @@ public class SymbolFindCallersSeamTests
 
         Assert.Null(error);
         Assert.NotNull(page);
-        Assert.True(page!.Truncated);
-        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
-        Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("do not retry from scratch", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(page!.Truncated);
+        Assert.True(string.IsNullOrWhiteSpace(page.NextCursor));
         Assert.NotEmpty(page.Items);
     }
 

@@ -29,31 +29,24 @@ public static class FindRefsScopes
         };
     }
 
+    /// <summary>
+    /// Defining project plus projects that transitively depend on it (consumers).
+    /// Callers and references live in dependents, not in outgoing ProjectReferences.
+    /// </summary>
     public static IReadOnlyList<Project> ProjectsInClosure(Solution solution, Project project)
     {
-        var visited = new HashSet<ProjectId>();
-        var stack = new Stack<ProjectId>();
-        stack.Push(project.Id);
-        var projects = new List<Project>();
+        ArgumentNullException.ThrowIfNull(solution);
+        ArgumentNullException.ThrowIfNull(project);
 
-        while (stack.Count > 0)
+        var graph = solution.GetProjectDependencyGraph();
+        var dependentIds = graph.GetProjectsThatTransitivelyDependOnThisProject(project.Id);
+        var projects = new List<Project> { project };
+        foreach (var id in dependentIds)
         {
-            var id = stack.Pop();
-            if (!visited.Add(id))
+            var dependent = solution.GetProject(id);
+            if (dependent is not null)
             {
-                continue;
-            }
-
-            var p = solution.GetProject(id);
-            if (p is null)
-            {
-                continue;
-            }
-
-            projects.Add(p);
-            foreach (var reference in p.ProjectReferences)
-            {
-                stack.Push(reference.ProjectId);
+                projects.Add(dependent);
             }
         }
 

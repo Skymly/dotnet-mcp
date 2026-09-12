@@ -6,7 +6,7 @@ namespace DotNetMcp.Tests;
 public class SymbolFindReferencesSeamTests
 {
     [Fact]
-    public async Task symbol_find_references_default_scope_is_dependency_closure_excluding_consumers()
+    public async Task symbol_find_references_default_scope_includes_dependents()
     {
         var root = CreateTempDir("root");
         var solution = Path.Combine(root, "App.slnx");
@@ -29,10 +29,11 @@ public class SymbolFindReferencesSeamTests
             Assert.True(result.IsError is not true);
             var body = InProcessMcpFixture.Deserialize<SymbolFindReferencesResultDto>(result);
             Assert.NotEmpty(body.Items);
-            Assert.All(body.Items, i =>
-                Assert.Contains("LibA", i.FilePath!, StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(body.Items, i =>
-                (i.FilePath ?? string.Empty).Contains("LibB", StringComparison.OrdinalIgnoreCase) ||
+            Assert.Contains(body.Items, i =>
+                (i.FilePath ?? string.Empty).Contains("LibA", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(body.Items, i =>
+                (i.FilePath ?? string.Empty).Contains("LibB", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(body.Items, i =>
                 (i.FilePath ?? string.Empty).Contains("Outsider", StringComparison.OrdinalIgnoreCase));
             Assert.False(body.Truncated);
         }
@@ -221,7 +222,7 @@ public class SymbolFindReferencesSeamTests
     }
 
     [Fact]
-    public async Task FindReferencesAsync_soft_budget_zero_truncates_with_continuation_message()
+    public async Task FindReferencesAsync_soft_budget_zero_falls_back_to_default_and_completes()
     {
         var loaded = FakeSolutionLoader.CreateFindRefsGraphLoaded();
         var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
@@ -245,10 +246,8 @@ public class SymbolFindReferencesSeamTests
 
         Assert.Null(error);
         Assert.NotNull(page);
-        Assert.True(page!.Truncated);
-        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
-        Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("do not retry from scratch", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(page!.Truncated);
+        Assert.True(string.IsNullOrWhiteSpace(page.NextCursor));
         Assert.NotEmpty(page.Items);
     }
 

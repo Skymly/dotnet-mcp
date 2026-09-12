@@ -199,6 +199,7 @@ public class DiagnosticQueryServiceTests
         public Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(
             IWorkspaceSession session,
             string handle,
+            bool entireSolution = false,
             int? limit = null,
             string? cursor = null,
             TimeSpan? softBudget = null,
