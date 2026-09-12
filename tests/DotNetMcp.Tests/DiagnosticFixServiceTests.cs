@@ -174,6 +174,60 @@ public class DiagnosticFixServiceTests
     }
 
     [Fact]
+    public async Task build_preview_document_scope_covers_multiple_occurrences_or_signals_leftover()
+    {
+        using var workspace = CreateWorkspace(
+            @"C:\fake\FixMany.csproj",
+            ("Many.cs", @"C:\fake\Many.cs", """
+                namespace Lib;
+                public class One
+                {
+                    public int Count()
+                    {
+                        var items = new List<int>();
+                        return items.Count;
+                    }
+                }
+                public class Two
+                {
+                    public int Count()
+                    {
+                        var items = new List<int>();
+                        return items.Count;
+                    }
+                }
+                """));
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var service = new DiagnosticFixService();
+        var projectId = ProjectIdOf(workspace);
+        var project = workspace.CurrentSolution.Projects.Single();
+        var compilation = await project.GetCompilationAsync();
+        Assert.NotNull(compilation);
+        var hit = compilation.GetDiagnostics().First(d => d.Id == "CS0246");
+        var span = hit.Location.GetLineSpan();
+        var startLine = span.StartLinePosition.Line + 1;
+        var startCharacter = span.StartLinePosition.Character;
+        var (listed, listError) = await service.ListFixesAsync(
+            session, projectId, "CS0246", @"C:\fake\Many.cs", startLine, startCharacter, null, null);
+        Assert.Null(listError);
+        var withKey = listed!.Items.First(i => !string.IsNullOrWhiteSpace(i.EquivalenceKey));
+        var (draft, error) = await service.BuildPreviewAsync(
+            session, projectId, "CS0246", @"C:\fake\Many.cs", startLine, startCharacter, null, null,
+            withKey.FixIndex, DiagnosticFixScopes.Document);
+        if (error is FixAllBudgetExceededError)
+        {
+            Assert.Contains("remaining", error.Message, StringComparison.OrdinalIgnoreCase);
+            return;
+        }
+
+        Assert.Null(error);
+        Assert.NotNull(draft);
+        var changed = Assert.Single(draft!.Documents);
+        Assert.Equal(2, changed.NewText.Split("List<int>", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("new List<int>()", changed.NewText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task build_preview_unsupported_language_is_fix_language_not_supported()
     {
         using var workspace = CreateMissingUsingWorkspace();
