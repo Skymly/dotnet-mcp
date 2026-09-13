@@ -13,6 +13,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - F# rename apply reads snapshot text from the F# workspace snapshot so real `.fsproj` loads can write `.fs` files (`#252`)
 - F# `_snapshotTexts` drops paths that are not in the current snapshot so deleted files cannot be queried after reload (`#250`)
 - F# member handles include a parameter signature so overloads no longer collapse `symbol_attribution` (`#251`)
+- F# rename `newName` is validated with FCS `PrettyNaming.IsIdentifierName` (`#253`)
 
 ## 4.0.1 - 2026-09-12
 
