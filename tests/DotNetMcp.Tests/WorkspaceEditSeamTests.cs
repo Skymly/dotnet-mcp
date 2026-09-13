@@ -280,6 +280,50 @@ public class WorkspaceEditSeamTests
     }
 
     [Fact]
+    public async Task concurrent_write_declared_paths_do_not_rollback_the_winner()
+    {
+        var root = CreateTempDir();
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var path = Path.Combine(projectDir, "Widget.cs");
+            var old = await File.ReadAllTextAsync(path);
+            var first = Task.Run(() => fx.WorkspaceHost.WriteDeclaredPaths(
+                [new WorkspaceEditDocument(path, old, old + "//A")]));
+            var second = Task.Run(() => fx.WorkspaceHost.WriteDeclaredPaths(
+                [new WorkspaceEditDocument(path, old, old + "//B")]));
+            var outcomes = await Task.WhenAll(first, second);
+            var successes = outcomes.Where(static o => !o.Failed).ToArray();
+            Assert.True(successes.Length <= 1);
+            var disk = await File.ReadAllTextAsync(path);
+            if (successes.Length == 1)
+            {
+                Assert.True(
+                    disk.Contains("//A", StringComparison.Ordinal) ||
+                    disk.Contains("//B", StringComparison.Ordinal),
+                    disk);
+                Assert.False(successes[0].Failed);
+            }
+            else
+            {
+                Assert.Equal(old.Replace("\r\n", "\n"), disk.Replace("\r\n", "\n"));
+            }
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task apply_missing_workspace_document_writes_nothing()
     {
         var root = CreateTempDir();
