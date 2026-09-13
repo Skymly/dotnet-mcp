@@ -11,6 +11,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - F# `symbol_find_callers` fills `CallerHandle` with the enclosing member, not the callee (`#247`)
 - F# snapshot commits with ready/epoch; sessions no longer capture disk with `trustedRoots: null` (`#249`)
 - F# rename apply reads snapshot text from the F# workspace snapshot so real `.fsproj` loads can write `.fs` files (`#252`)
+- F# `_snapshotTexts` drops paths that are not in the current snapshot so deleted files cannot be queried after reload (`#250`)
 
 ## 4.0.1 - 2026-09-12
 

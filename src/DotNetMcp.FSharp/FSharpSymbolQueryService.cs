@@ -553,13 +553,24 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
     private void PublishSnapshots(IReadOnlyList<(string Path, string Text)> sources)
     {
+        var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (path, text) in sources)
         {
             _snapshotTexts[path] = text;
+            live.Add(path);
             var full = TryFullPath(path);
             if (full is not null)
             {
                 _snapshotTexts[full] = text;
+                live.Add(full);
+            }
+        }
+
+        foreach (var key in _snapshotTexts.Keys)
+        {
+            if (!live.Contains(key))
+            {
+                _snapshotTexts.TryRemove(key, out _);
             }
         }
     }
