@@ -30,42 +30,45 @@ Tool names are locked by a snapshot test. Domain vocabulary: [`CONTEXT.md`](CONT
 ## Quick Start
 
 Trusted roots are **required**. The process working directory is never an implicit sandbox.
-
-### From NuGet (.NET 10+)
-
-```bash
-dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
-```
-
-MCP client (stdio):
-
-```json
-{
-  "mcpServers": {
-    "dotnet-mcp": {
-      "command": "dnx",
-      "args": ["Skymly.DotNetMcp", "--yes", "--", "--roots", "/path/to/repo"]
-    }
-  }
-}
-```
-
-Equivalent: `dotnet tool exec Skymly.DotNetMcp --yes -- --roots /path/to/repo`, or `dotnet tool install -g Skymly.DotNetMcp` then `dotnet-mcp --roots /path/to/repo`.
-
 On Windows, separate multiple roots with `;`. You can also set `DOTNET_MCP_TRUSTED_ROOTS`.
 
-### Local pack (before NuGet)
-
-```bash
-dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts
-dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo
-```
+The NuGet package **`Skymly.DotNetMcp` is not published yet**. Use a source build or a local pack until it is.
 
 ### Development run
 
 ```bash
 dotnet run --project src/DotNetMcp.Server -- --roots /path/to/repo
 ```
+
+MCP client (stdio), from a clone of this repo:
+
+```json
+{
+  "mcpServers": {
+    "dotnet-mcp": {
+      "command": "dotnet",
+      "args": ["run", "--project", "src/DotNetMcp.Server", "--", "--roots", "/path/to/repo"]
+    }
+  }
+}
+```
+
+### Local pack
+
+```bash
+dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts
+dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo
+```
+
+### From NuGet (after the package is published)
+
+Once `Skymly.DotNetMcp` is on nuget.org, `dnx` can become the preferred install path again:
+
+```bash
+dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
+```
+
+Equivalent after publish: `dotnet tool exec Skymly.DotNetMcp --yes -- --roots /path/to/repo`, or `dotnet tool install -g Skymly.DotNetMcp` then `dotnet-mcp --roots /path/to/repo`.
 
 stdio only. Framework-dependent .NET tool; NativeAOT is not required.
 
@@ -135,8 +138,10 @@ This repo uses [mattpocock/skills](https://github.com/mattpocock/skills); see `A
 
 NuGet 包 id 为 **`Skymly.DotNetMcp`**（命令名仍是 `dotnet-mcp`）。必须通过 `--roots` 或 `DOTNET_MCP_TRUSTED_ROOTS` 配置受信根，**不再默认使用进程工作目录**。`workspace_open` 会运行 MSBuild 与 analyzer/源生成器，不要对不受信任的仓库使用。
 
-安装：
+安装（包尚未上架，请先源码运行或本地 pack）：
 
 ```bash
-dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
+dotnet run --project src/DotNetMcp.Server -- --roots /path/to/repo
 ```
+
+NuGet 上架后可用：`dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo`。
