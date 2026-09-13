@@ -178,6 +178,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         CancelWarmUnlocked();
         // Replace the instance so in-flight sessions keep the previous epoch's compilations.
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
+        // Empty snapshot at the new epoch until CaptureFSharpOutsideGate commits I/O.
+        // Never leave a previous epoch's F# texts on a newer session.
+        _fsharpSnapshot = new FSharpWorkspaceSnapshot(_epoch, []);
         // F# snapshot capture does disk I/O / GetResult — run outside _gate.
     }
 
@@ -751,7 +754,6 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                     _completedUnits = Math.Max(_completedUnits, loaded.Solution.ProjectIds.Count);
                     _totalUnits = Math.Max(1, loaded.Solution.ProjectIds.Count);
                     AdvanceEpochUnlocked();
-                    _phase = "ready";
                     _elapsed.Stop();
                     _estimatedRemainingMs = 0;
                     _error = null;
@@ -780,6 +782,14 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             CaptureFSharpOutsideGate();
             StartWatcherForLoaded(loaded);
+            lock (_gate)
+            {
+                if (generation == _generation && ReferenceEquals(_loaded, loaded) && _phase != "failed" && _phase != "cancelled")
+                {
+                    _phase = "ready";
+                }
+            }
+
             StartBackgroundWarm(loaded, path);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

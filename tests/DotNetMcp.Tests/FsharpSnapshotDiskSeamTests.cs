@@ -30,10 +30,37 @@ public class FsharpSnapshotDiskSeamTests
         }
 
         var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
-        using var session = new WorkspaceSession(loaded, epoch: 1);
+        var roots = TrustedRoots.Create([Path.GetDirectoryName(fsproj)!]);
+        var snapshot = WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch: 1, roots);
+        using var session = new WorkspaceSession(loaded, epoch: 1, fsharpSnapshot: snapshot);
         var docs = session.FSharpSnapshot.Projects.SelectMany(p => p.Documents).Select(d => d.Path).ToArray();
         Assert.True(docs.Any(p => p.EndsWith("Widget.fs", StringComparison.OrdinalIgnoreCase)),
             "docs=" + string.Join(";", docs) + " fp=" + workspace.CurrentSolution.GetProject(projectId)?.FilePath);
+    }
 
+    [Fact]
+    public void session_without_snapshot_does_not_walk_disk_without_roots()
+    {
+        var fsproj = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "fixtures", "MixedCsharpVb", "FsLib", "FsLib.fsproj"));
+        Assert.True(File.Exists(fsproj), fsproj);
+
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "FsLib",
+            "FsLib",
+            LanguageNames.FSharp,
+            filePath: fsproj));
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("apply failed");
+        }
+
+        var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+        Assert.Empty(session.FSharpSnapshot.Projects);
+        Assert.Equal(1, session.FSharpSnapshot.Epoch);
     }
 }

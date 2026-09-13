@@ -65,7 +65,8 @@ public class FSharpCompileOrderTests
                 filePath: Path.Combine(dir, "Lib.fsproj")));
             Assert.True(workspace.TryApplyChanges(solution));
             var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
-            using var session = new WorkspaceSession(loaded, epoch: 1);
+            var snapshot = WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch: 1, TrustedRoots.Create([dir]));
+            using var session = new WorkspaceSession(loaded, epoch: 1, fsharpSnapshot: snapshot);
             var project = Assert.Single(session.FSharpSnapshot.Projects);
             Assert.Equal(new[] { "Types.fs", "Use.fs" }, project.Documents.Select(d => Path.GetFileName(d.Path)).ToArray());
             Assert.Contains("CUSTOM", project.Defines);
