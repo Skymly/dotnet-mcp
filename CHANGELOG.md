@@ -8,6 +8,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 - Version gate reads the csproj `<Version>` and requires `.mcp/server.json` plus the latest CHANGELOG heading to match; CI checks the same three places (`#245`)
 - README Quick Start leads with `dotnet run` / local pack; `dnx Skymly.DotNetMcp` is documented as available after NuGet publish (`#246`)
+- F# `symbol_find_callers` fills `CallerHandle` with the enclosing member, not the callee (`#247`)
 
 ## 4.0.1 - 2026-09-12
 
