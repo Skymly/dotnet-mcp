@@ -336,6 +336,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             cursor,
             pageLimit,
             "symbol_members",
+            handle,
             "Type has no listable members.",
             "Member page complete.",
             "the member list");

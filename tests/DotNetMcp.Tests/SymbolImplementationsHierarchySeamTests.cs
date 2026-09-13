@@ -151,7 +151,7 @@ public class SymbolImplementationsHierarchySeamTests
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveHandleAsync(fx, "SampleLib.IDrawable");
-            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0);
+            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0, tool: "symbol_find_implementations", queryId: handle);
 
             var result = await fx.Client.CallToolAsync(
                 "symbol_find_implementations",
@@ -317,7 +317,7 @@ public class SymbolImplementationsHierarchySeamTests
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var typeHandle = await ResolveHandleAsync(fx, "SampleLib.Circle");
-            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0);
+            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0, tool: "symbol_type_hierarchy", queryId: typeHandle);
 
             var staleResult = await fx.Client.CallToolAsync(
                 "symbol_type_hierarchy",

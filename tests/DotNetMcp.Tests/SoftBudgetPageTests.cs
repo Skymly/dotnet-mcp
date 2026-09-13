@@ -7,7 +7,7 @@ namespace DotNetMcp.Tests;
 public class SoftBudgetPageTests
 {
     [Fact]
-    public void budget_hit_with_items_that_fit_one_page_is_truncated_not_complete()
+    public void budget_hit_with_items_that_fit_one_page_does_not_emit_cursor()
     {
         var items = new[] { "a", "b", "c" };
 
@@ -17,29 +17,23 @@ public class SoftBudgetPageTests
             budgetHit: true,
             cursor: null,
             pageLimit: 50,
-            tool: "symbol_find_references",
-            emptyMessage: "No references were found.",
+            tool: "symbol_members",
+            queryId: "h1",
+            emptyMessage: "No members.",
             completeMessage: "Page complete.");
 
         Assert.Null(error);
         Assert.NotNull(page);
         Assert.Equal(items, page!.Items);
-        Assert.True(page.Truncated);
-        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
-        Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("nextCursor", page.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Page complete.", page.Message, StringComparison.Ordinal);
-
-        Assert.True(MemberPageCursor.TryDecode(page.NextCursor, out var epoch, out var offset, out var cursorError));
-        Assert.Null(cursorError);
-        Assert.Equal(7, epoch);
-        Assert.Equal(items.Length, offset);
+        Assert.False(page.Truncated);
+        Assert.Null(page.NextCursor);
+        Assert.Equal("Page complete.", page.Message);
     }
 
     [Fact]
-    public void budget_hit_find_refs_keeps_find_refs_cursor_payload()
+    public void budget_hit_find_refs_with_more_items_keeps_find_refs_cursor_payload()
     {
-        var items = new[] { "r1", "r2" };
+        var items = new[] { "r1", "r2", "r3" };
 
         var (page, error) = SoftBudgetPage.PageFindRefs(
             items,
@@ -47,8 +41,9 @@ public class SoftBudgetPageTests
             entireSolution: true,
             budgetHit: true,
             cursor: null,
-            pageLimit: 10,
+            pageLimit: 2,
             tool: "symbol_find_references",
+            queryId: "href",
             emptyMessage: "No references were found.",
             completeMessage: "Page complete.");
 
@@ -61,13 +56,87 @@ public class SoftBudgetPageTests
             out var entire,
             out var docIndex,
             out var locOffset,
+            out var tool,
+            out var queryId,
             out var cursorError));
         Assert.Null(cursorError);
         Assert.Equal(3, epoch);
         Assert.True(entire);
-        Assert.Equal(items.Length, docIndex);
+        Assert.Equal(2, docIndex);
         Assert.Equal(0, locOffset);
+        Assert.Equal("symbol_find_references", tool);
+        Assert.Equal("href", queryId);
         Assert.DoesNotContain("Page complete.", page.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void member_cursor_wrong_tool_or_handle_is_stale()
+    {
+        var (page, _) = SoftBudgetPage.Page(
+            new[] { "a", "b", "c" },
+            epoch: 1,
+            budgetHit: false,
+            cursor: null,
+            pageLimit: 1,
+            tool: "symbol_members",
+            queryId: "ha",
+            emptyMessage: "none",
+            completeMessage: "done");
+        Assert.False(string.IsNullOrWhiteSpace(page!.NextCursor));
+
+        var (_, wrongTool) = SoftBudgetPage.Page(
+            new[] { "a", "b", "c" },
+            epoch: 1,
+            budgetHit: false,
+            cursor: page.NextCursor,
+            pageLimit: 1,
+            tool: "symbol_find_implementations",
+            queryId: "ha",
+            emptyMessage: "none",
+            completeMessage: "done");
+        Assert.IsType<StaleCursorError>(wrongTool);
+        Assert.Contains("different tool or symbol", wrongTool!.Message, StringComparison.OrdinalIgnoreCase);
+
+        var (_, wrongHandle) = SoftBudgetPage.Page(
+            new[] { "a", "b", "c" },
+            epoch: 1,
+            budgetHit: false,
+            cursor: page.NextCursor,
+            pageLimit: 1,
+            tool: "symbol_members",
+            queryId: "hb",
+            emptyMessage: "none",
+            completeMessage: "done");
+        Assert.IsType<StaleCursorError>(wrongHandle);
+    }
+
+    [Fact]
+    public void find_refs_cursor_wrong_handle_is_stale()
+    {
+        var (page, _) = SoftBudgetPage.PageFindRefs(
+            new[] { "r1", "r2", "r3" },
+            epoch: 1,
+            entireSolution: false,
+            budgetHit: false,
+            cursor: null,
+            pageLimit: 1,
+            tool: "symbol_find_references",
+            queryId: "ha",
+            emptyMessage: "none",
+            completeMessage: "done");
+
+        var (_, error) = SoftBudgetPage.PageFindRefs(
+            new[] { "r1", "r2", "r3" },
+            epoch: 1,
+            entireSolution: false,
+            budgetHit: false,
+            cursor: page!.NextCursor,
+            pageLimit: 1,
+            tool: "symbol_find_references",
+            queryId: "hb",
+            emptyMessage: "none",
+            completeMessage: "done");
+        Assert.IsType<StaleCursorError>(error);
     }
 
     [Fact]
@@ -85,7 +154,7 @@ public class SoftBudgetPageTests
         var cursor = Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
 
         Assert.False(FindRefsPageCursor.TryDecode(
-            cursor, out _, out _, out _, out _, out var error));
+            cursor, out _, out _, out _, out _, out _, out _, out var error));
         Assert.False(string.IsNullOrWhiteSpace(error));
     }
 

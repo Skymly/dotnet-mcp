@@ -25,7 +25,7 @@ public sealed partial class FSharpSymbolQueryService
         var pageLimit = limit is null or < 1
             ? LanguageAdapters.DefaultMemberPageLimit
             : Math.Min(limit.Value, LanguageAdapters.MaxMemberPageLimit);
-        if (!SoftBudgetPage.TryReadOffset(cursor, epoch, "project_diagnostics", out _, out var cursorError))
+        if (!SoftBudgetPage.TryReadOffset(cursor, epoch, "project_diagnostics", projectId, out _, out var cursorError))
         {
             return (null, cursorError);
         }
@@ -66,6 +66,7 @@ public sealed partial class FSharpSymbolQueryService
             cursor,
             pageLimit,
             "project_diagnostics",
+            projectId,
             "Project has no error or warning diagnostics.",
             "Diagnostics page complete.",
             "the diagnostics list");

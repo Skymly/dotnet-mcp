@@ -50,7 +50,7 @@ public sealed class DiagnosticQueryService
     {
         var epoch = session.Epoch;
         var pageLimit = ClampLimit(limit);
-        if (!SoftBudgetPage.TryReadOffset(cursor, epoch, "project_diagnostics", out _, out var cursorError))
+        if (!SoftBudgetPage.TryReadOffset(cursor, epoch, "project_diagnostics", "*", out _, out var cursorError))
         {
             return (null, cursorError);
         }
@@ -139,6 +139,7 @@ public sealed class DiagnosticQueryService
             cursor,
             pageLimit,
             "project_diagnostics",
+            "*",
             "Workspace has no error or warning diagnostics.",
             "Batch diagnostics page complete.",
             "the diagnostics list");

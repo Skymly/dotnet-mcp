@@ -159,7 +159,9 @@ public class SymbolFindReferencesSeamTests
                 epoch: 999,
                 entireSolution: false,
                 docIndex: 0,
-                locOffset: 0);
+                locOffset: 0,
+                tool: "symbol_find_references",
+                queryId: handle);
 
             var result = await fx.Client.CallToolAsync(
                 "symbol_find_references",

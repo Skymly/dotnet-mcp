@@ -215,7 +215,7 @@ public class DiagnosticQueryServiceTests
             {
                 var offset = 0;
                 if (!string.IsNullOrWhiteSpace(cursor) &&
-                    MemberPageCursor.TryDecode(cursor, out _, out var decoded, out _))
+                    MemberPageCursor.TryDecode(cursor, out _, out var decoded, out _, out _, out _))
                 {
                     offset = decoded;
                 }
@@ -227,7 +227,7 @@ public class DiagnosticQueryServiceTests
                 var page = new PagedResult<DiagnosticItem>(
                     slice,
                     truncated,
-                    truncated ? MemberPageCursor.Encode(1, next) : null,
+                    truncated ? MemberPageCursor.Encode(1, next, "project_diagnostics", projectId) : null,
                     truncated ? "Results truncated; pass nextCursor" : "done");
                 return Task.FromResult<(PagedResult<DiagnosticItem>?, SymbolQueryError?)>((page, null));
             }

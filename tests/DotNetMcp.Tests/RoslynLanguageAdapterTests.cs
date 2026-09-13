@@ -169,8 +169,8 @@ namespace B { public class Widget {} }
         using var session = new FakeSession(workspace.CurrentSolution, epoch: 1);
         var adapter = Adapter();
         var (resolved, _) = await adapter.ResolveByNameAsync(session, "Widget");
-        var cursor = MemberPageCursor.Encode(99, 0);
-        var (_, error) = await adapter.GetMembersAsync(session, resolved!.Handle, cursor: cursor);
+        var cursor = MemberPageCursor.Encode(99, 0, "symbol_members", resolved!.Handle);
+        var (_, error) = await adapter.GetMembersAsync(session, resolved.Handle, cursor: cursor);
         Assert.IsType<StaleCursorError>(error);
     }
 
@@ -181,8 +181,8 @@ namespace B { public class Widget {} }
         using var session = new FakeSession(workspace.CurrentSolution, epoch: 1);
         var adapter = Adapter();
         var (resolved, _) = await adapter.ResolveByNameAsync(session, "Widget");
-        var cursor = MemberPageCursor.Encode(1, 999);
-        var (_, error) = await adapter.GetMembersAsync(session, resolved!.Handle, cursor: cursor);
+        var cursor = MemberPageCursor.Encode(1, 999, "symbol_members", resolved!.Handle);
+        var (_, error) = await adapter.GetMembersAsync(session, resolved.Handle, cursor: cursor);
         Assert.IsType<StaleCursorError>(error);
     }
 
