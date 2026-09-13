@@ -433,9 +433,9 @@ public sealed class XamlDocumentService
                 text,
                 projectId), null);
         }
-        catch (XmlException)
+        catch (XmlException ex)
         {
-            return (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text, ProjectId: projectId), null);
+            return (null, ParseError(ex));
         }
     }
 
@@ -732,6 +732,7 @@ public sealed class XamlDocumentService
         }
         catch (XmlException)
         {
+            return null;
         }
 
         return null;
@@ -819,6 +820,7 @@ public sealed class XamlDocumentService
             using var reader = CreateReader(root.Text);
 
             string? currentDataType = null;
+            var dataTypeStack = new Stack<string?>();
             var lineInfo = reader as IXmlLineInfo;
             while (reader.Read())
             {
@@ -828,15 +830,29 @@ public sealed class XamlDocumentService
                     break;
                 }
 
+                if (reader.NodeType == XmlNodeType.EndElement)
+                {
+                    if (dataTypeStack.Count > 0)
+                    {
+                        currentDataType = dataTypeStack.Pop();
+                    }
+
+                    continue;
+                }
+
                 if (reader.NodeType != XmlNodeType.Element)
                 {
                     continue;
                 }
 
                 var dataType = reader.GetAttribute("DataType", XamlXmlns.Xaml);
-                if (!string.IsNullOrWhiteSpace(dataType))
+                var effectiveDataType = !string.IsNullOrWhiteSpace(dataType)
+                    ? dataType.Trim()
+                    : currentDataType;
+                if (!reader.IsEmptyElement)
                 {
-                    currentDataType = dataType.Trim();
+                    dataTypeStack.Push(currentDataType);
+                    currentDataType = effectiveDataType;
                 }
 
                 var prefix = reader.Prefix;
@@ -866,13 +882,13 @@ public sealed class XamlDocumentService
                                 continue;
                             }
 
-                            if (LooksLikeBinding(reader.Value) && !string.IsNullOrWhiteSpace(currentDataType))
+                            if (LooksLikeBinding(reader.Value) && !string.IsNullOrWhiteSpace(effectiveDataType))
                             {
                                 var bindingPath = ExtractBindingPath(reader.Value);
                                 if (!string.IsNullOrWhiteSpace(bindingPath))
                                 {
                                     var (_, bindError, _) = await ResolveBindingAsync(
-                                            session, path, bindingPath, currentDataType, cancellationToken)
+                                            session, path, bindingPath, effectiveDataType, cancellationToken)
                                         .ConfigureAwait(false);
                                     if (bindError is BindingPropertyNotFoundError or BindingTypeMismatchError)
                                     {
@@ -899,13 +915,13 @@ public sealed class XamlDocumentService
                 {
                     do
                     {
-                        if (LooksLikeBinding(reader.Value) && !string.IsNullOrWhiteSpace(currentDataType))
+                        if (LooksLikeBinding(reader.Value) && !string.IsNullOrWhiteSpace(effectiveDataType))
                         {
                             var bindingPath = ExtractBindingPath(reader.Value);
                             if (!string.IsNullOrWhiteSpace(bindingPath))
                             {
                                 var (_, bindError, _) = await ResolveBindingAsync(
-                                        session, path, bindingPath, currentDataType, cancellationToken)
+                                        session, path, bindingPath, effectiveDataType, cancellationToken)
                                     .ConfigureAwait(false);
                                 if (bindError is BindingPropertyNotFoundError or BindingTypeMismatchError)
                                 {
@@ -936,7 +952,7 @@ public sealed class XamlDocumentService
         }
         catch (XmlException)
         {
-            // Semantic contract: well-formedness is not the diagnostic surface.
+            // ReadDocumentAsync already rejected malformed XML.
         }
 
         return items;
@@ -1229,6 +1245,11 @@ public sealed class XamlDocumentService
             yield return document;
         }
     }
+
+    private static XamlParseError ParseError(XmlException ex) =>
+        new(
+            $"The XAML document is not well-formed: {ex.Message}",
+            "Fix the XML syntax, then retry the XAML tool.");
 
     private static MissingXamlClassError MissingClassError() =>
         new(

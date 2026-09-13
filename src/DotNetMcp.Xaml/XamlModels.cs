@@ -34,6 +34,9 @@ public sealed record BindingTypeMismatchError(string Message, string SuggestedAc
 public sealed record MissingDataTypeError(string Message, string SuggestedAction)
     : XamlQueryError(XamlQueryErrorCodes.MissingDataType, Message, SuggestedAction);
 
+public sealed record XamlParseError(string Message, string SuggestedAction)
+    : XamlQueryError(XamlQueryErrorCodes.XamlParseError, Message, SuggestedAction);
+
 public static class XamlQueryErrorCodes
 {
     public const string MissingXamlClass = "MissingXamlClass";
@@ -46,6 +49,7 @@ public static class XamlQueryErrorCodes
     public const string BindingPropertyNotFound = "BindingPropertyNotFound";
     public const string BindingTypeMismatch = "BindingTypeMismatch";
     public const string MissingDataType = "MissingDataType";
+    public const string XamlParseError = "XamlParseError";
 }
 
 public sealed record XamlBindingSegment(string Name, string Handle, SymbolSummary Summary);

@@ -98,6 +98,35 @@ public class XamlDiagnosticsSeamTests
     }
 
     [Fact]
+    public async Task xaml_diagnostics_malformed_xml_is_parse_error()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        var axaml = Path.Combine(root, "MainWindow.axaml");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        await File.WriteAllTextAsync(axaml, "<Window xmlns=broken");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithAvalonia());
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var result = await fx.Client.CallToolAsync(
+                "xaml_diagnostics",
+                new Dictionary<string, object?> { ["path"] = axaml });
+            Assert.True(result.IsError is true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(result);
+            Assert.Equal(PolicyErrorCodes.XamlParseError, body.Error);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task xaml_diagnostics_soft_budget_returns_partial_results()
     {
         var root = CreateTempDir("root");
