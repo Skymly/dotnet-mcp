@@ -213,6 +213,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
         LoadedSolution loaded;
         long epochAtStart;
+        FSharpWorkspaceSnapshot? fsharp;
         lock (_gate)
         {
             if (_phase != "ready" || _loaded is null)
@@ -225,6 +226,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             loaded = _loaded;
             epochAtStart = _epoch;
+            fsharp = _fsharpSnapshot;
         }
 
         var prepared = new List<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)>(documents.Count);
@@ -238,7 +240,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                     "Re-open the workspace under a trusted root that contains every preview path.");
             }
 
-            if (!TryReadSnapshotText(loaded, document.Path, out var snapshotText)
+            if (!TryReadSnapshotText(loaded, fsharp, document.Path, out var snapshotText)
                 || !File.Exists(document.Path))
             {
                 return FailWrite(
@@ -330,7 +332,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 {
                     if (!loaded.TryUpdateDocumentFromText(
                             document.Path,
-                            SourceText.From(document.NewText)))
+                            SourceText.From(document.NewText))
+                        && !TryReadFSharpSnapshotText(fsharp, document.Path, out _))
                     {
                         RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: false);
                         return FailWrite(
@@ -361,22 +364,66 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 SuggestedAction = suggested
             });
 
-    private static bool TryReadSnapshotText(LoadedSolution loaded, string path, out string text)
+    private static bool TryReadSnapshotText(
+        LoadedSolution loaded,
+        FSharpWorkspaceSnapshot? fsharp,
+        string path,
+        out string text)
+    {
+        if (loaded.TryGetDocumentId(path, out var documentId))
+        {
+            var document = loaded.Solution.GetDocument(documentId);
+            if (document is not null)
+            {
+                text = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult().ToString();
+                return true;
+            }
+        }
+
+        return TryReadFSharpSnapshotText(fsharp, path, out text);
+    }
+
+    private static bool TryReadFSharpSnapshotText(FSharpWorkspaceSnapshot? fsharp, string path, out string text)
     {
         text = string.Empty;
-        if (!loaded.TryGetDocumentId(path, out var documentId))
+        if (fsharp is null || string.IsNullOrWhiteSpace(path))
         {
             return false;
         }
 
-        var document = loaded.Solution.GetDocument(documentId);
-        if (document is null)
+        foreach (var project in fsharp.Projects)
+        {
+            foreach (var document in project.Documents)
+            {
+                if (SameSnapshotPath(document.Path, path))
+                {
+                    text = document.Text;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool SameSnapshotPath(string left, string right)
+    {
+        if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        try
+        {
+            return string.Equals(
+                PathPolicy.Normalize(left),
+                PathPolicy.Normalize(right),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is PathPolicyException or ArgumentException)
         {
             return false;
         }
-
-        text = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult().ToString();
-        return true;
     }
 
     private static void RollbackDeclaredPaths(
