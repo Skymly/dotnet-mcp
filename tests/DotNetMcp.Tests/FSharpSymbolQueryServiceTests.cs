@@ -365,6 +365,41 @@ public class FSharpSymbolQueryServiceTests
         Assert.Equal(pings.Count, pings.Select(p => p.Handle).Distinct(StringComparer.Ordinal).Count());
     }
 
+    [Fact]
+    public async Task check_does_not_notify_unchanged_snapshot_files()
+    {
+        using var session = Session(WidgetSnapshot());
+        var adapter = Adapter();
+        var (first, firstError) = await adapter.ResolveByNameAsync(session, "Gadget");
+        Assert.Null(firstError);
+        Assert.NotNull(first);
+        var notified = adapter.FileChangeNotifications;
+        Assert.True(notified > 0);
+        var (second, secondError) = await adapter.ResolveByNameAsync(session, "Gadget");
+        Assert.Null(secondError);
+        Assert.NotNull(second);
+        Assert.Equal(notified, adapter.FileChangeNotifications);
+    }
+
+    [Fact]
+    public async Task check_notifies_when_snapshot_text_changes()
+    {
+        var adapter = Adapter();
+        using (var session = Session(WidgetSnapshot()))
+        {
+            var (_, error) = await adapter.ResolveByNameAsync(session, "Gadget");
+            Assert.Null(error);
+        }
+
+        var before = adapter.FileChangeNotifications;
+        var changed = WidgetSource + "\nlet zoom () = 3\n";
+        using var next = Session(new FSharpWorkspaceSnapshot(1, [SnapshotProject(FsProjectId, "FsLib", WidgetPath, changed)]));
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(next, "zoom");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+        Assert.True(adapter.FileChangeNotifications > before);
+    }
+
     private static FakeSession Session(FSharpWorkspaceSnapshot snapshot, long epoch = 1) =>
         new(snapshot, epoch);
 
