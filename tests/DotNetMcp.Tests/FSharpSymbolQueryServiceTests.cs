@@ -334,6 +334,34 @@ public class FSharpSymbolQueryServiceTests
         Assert.IsType<SymbolNotFoundError>(error);
     }
 
+    [Fact]
+    public async Task attribution_and_members_distinguish_overloaded_ping()
+    {
+        const string source = """
+            module FsLib.Widget
+
+            type Gadget() =
+                member _.Ping(x: int) = 1
+                member _.Ping(x: string) = 0
+            """;
+        using var session = Session(new FSharpWorkspaceSnapshot(1, [SnapshotProject(FsProjectId, "FsLib", WidgetPath, source)]));
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Gadget");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (attribution, attrError) = await adapter.GetAttributionAsync(session, resolved!.Handle);
+        Assert.Null(attrError);
+        Assert.NotNull(attribution);
+
+        var (members, membersError) = await adapter.GetMembersAsync(session, resolved.Handle, limit: 50);
+        Assert.Null(membersError);
+        Assert.NotNull(members);
+        var pings = members!.Items.Where(m => m.Summary.DisplayName == "Ping").ToList();
+        Assert.True(pings.Count >= 2);
+        Assert.Equal(pings.Count, pings.Select(p => p.Handle).Distinct(StringComparer.Ordinal).Count());
+    }
+
     private static FakeSession Session(FSharpWorkspaceSnapshot snapshot, long epoch = 1) =>
         new(snapshot, epoch);
 

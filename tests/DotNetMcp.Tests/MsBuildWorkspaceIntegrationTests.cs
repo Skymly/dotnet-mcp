@@ -448,6 +448,61 @@ public class MsBuildWorkspaceIntegrationTests
 
 
     [Fact]
+    public async Task workspace_open_fsproj_overload_members_have_distinct_handles()
+    {
+        var source = Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib");
+        Assert.True(Directory.Exists(source), $"Missing fixture: {source}");
+        var root = CreateTempDir("fs-overloads");
+        File.Copy(Path.Combine(source, "FsLib.fsproj"), Path.Combine(root, "FsLib.fsproj"));
+        await File.WriteAllTextAsync(
+            Path.Combine(root, "Widget.fs"),
+            """
+            module FsLib.Widget
+
+            type Gadget() =
+                member _.Ping(x: int) = 1
+                member _.Ping(x: string) = 0
+            """);
+        var project = Path.Combine(root, "FsLib.fsproj");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                solutionLoader: null);
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = project });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+            await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+
+            var resolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "Gadget" });
+            Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+            var gadget = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved);
+
+            var attribution = await fx.Client.CallToolAsync(
+                "symbol_attribution",
+                new Dictionary<string, object?> { ["handle"] = gadget.Handle });
+            Assert.True(attribution.IsError is not true, InProcessMcpFixture.TextOf(attribution));
+
+            var members = await fx.Client.CallToolAsync(
+                "symbol_members",
+                new Dictionary<string, object?> { ["handle"] = gadget.Handle, ["limit"] = 50 });
+            Assert.True(members.IsError is not true, InProcessMcpFixture.TextOf(members));
+            var page = InProcessMcpFixture.Deserialize<SymbolMembersResultDto>(members);
+            var pings = page.Items.Where(m => m.Summary.DisplayName == "Ping").ToList();
+            Assert.True(pings.Count >= 2, "items=" + string.Join(",", page.Items.Select(i => i.Summary.DisplayName + ":" + i.Handle)));
+            Assert.Equal(pings.Count, pings.Select(p => p.Handle).Distinct(StringComparer.Ordinal).Count());
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task workspace_open_fsproj_deleted_file_is_not_queryable_after_reopen()
     {
         var source = Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib");
