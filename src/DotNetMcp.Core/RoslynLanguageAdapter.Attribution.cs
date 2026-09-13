@@ -71,35 +71,60 @@ public sealed partial class RoslynLanguageAdapter
             return (new SymbolAttribution(DeclarationAvailability.InMetadata, SymbolOrigin.Handwritten, null), null);
         }
 
-        var declaring = symbol.DeclaringSyntaxReferences.FirstOrDefault();
-        SyntaxTree? tree;
-        if (declaring is null)
+        var trees = symbol.DeclaringSyntaxReferences
+            .Select(d => d.SyntaxTree)
+            .Concat(symbol.Locations.Where(static l => l.IsInSource).Select(l => l.SourceTree))
+            .Where(static t => t is not null)
+            .Distinct()
+            .Cast<SyntaxTree>()
+            .ToList();
+        if (trees.Count == 0)
         {
-            var anySource = symbol.Locations.FirstOrDefault(l => l.IsInSource);
-            if (anySource is null)
+            return (new SymbolAttribution(DeclarationAvailability.None, SymbolOrigin.Handwritten, null), null);
+        }
+
+        SymbolAttribution? handwritten = null;
+        SymbolAttribution? generated = null;
+        foreach (var tree in trees)
+        {
+            var (originLabel, originError) = await ResolveOriginAsync(
+                    session,
+                    project,
+                    tree,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (originError is not null)
             {
-                return (new SymbolAttribution(DeclarationAvailability.None, SymbolOrigin.Handwritten, null), null);
+                if (session.Solution.GetDocument(tree) is SourceGeneratedDocument)
+                {
+                    return (null, originError);
+                }
+
+                continue;
             }
 
-            tree = anySource.SourceTree;
-        }
-        else
-        {
-            tree = declaring.SyntaxTree;
-        }
-
-        var (originLabel, originError) = await ResolveOriginAsync(
-                session,
-                project,
-                tree,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (originError is not null)
-        {
-            return (null, originError);
+            var attr = ToAttribution(DeclarationAvailability.InSource, originLabel);
+            if (attr.OriginKind == SymbolOrigin.SourceGenerator)
+            {
+                generated ??= attr;
+            }
+            else
+            {
+                handwritten ??= attr;
+            }
         }
 
-        return (ToAttribution(DeclarationAvailability.InSource, originLabel), null);
+        if (handwritten is not null)
+        {
+            return (handwritten, null);
+        }
+
+        if (generated is not null)
+        {
+            return (generated, null);
+        }
+
+        return (new SymbolAttribution(DeclarationAvailability.InSource, SymbolOrigin.Handwritten, null), null);
     }
 
     private static SymbolAttribution ToAttribution(string availability, string? originLabel)
