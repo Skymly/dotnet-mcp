@@ -17,6 +17,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - F# checker is notified of file changes only when snapshot text actually changes (`#244`)
 - Graph gate failures surface `LoadedGraphOutsideTrustedRoots` on status and query tools (`#255`)
 - Query tools suggest `workspace_open` when idle and do not tell the agent to poll forever when failed (`#264`)
+- `symbol_resolve` without `projectId` no longer early-exits on a warm unique hit, and a soft-budget miss is `SoftBudgetExceeded` not `SymbolNotFound` (`#259`)
 
 ## 4.0.1 - 2026-09-12
 
