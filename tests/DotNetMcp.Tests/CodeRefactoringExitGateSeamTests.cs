@@ -71,15 +71,43 @@ public class P1CodeRefactoringExitGateSeamTests
 public class P3FourOhExitGateSeamTests
 {
     [Fact]
-    public async Task package_version_is_four_oh()
+    public async Task package_version_matches_csproj_server_json_and_changelog()
+    {
+        var root = FindRepoRoot();
+        var csproj = await File.ReadAllTextAsync(Path.Combine(root, "src", "DotNetMcp.Server", "DotNetMcp.Server.csproj"));
+        var serverJson = await File.ReadAllTextAsync(Path.Combine(root, "src", "DotNetMcp.Server", ".mcp", "server.json"));
+        var changelog = await File.ReadAllTextAsync(Path.Combine(root, "CHANGELOG.md"));
+
+        var csprojMatch = System.Text.RegularExpressions.Regex.Match(csproj, @"<Version>([^<]+)</Version>");
+        Assert.True(csprojMatch.Success, "DotNetMcp.Server.csproj is missing <Version>.");
+        var version = csprojMatch.Groups[1].Value;
+
+        using var doc = System.Text.Json.JsonDocument.Parse(serverJson);
+        Assert.Equal(version, doc.RootElement.GetProperty("version").GetString());
+
+        var changelogMatch = System.Text.RegularExpressions.Regex.Match(
+            changelog,
+            @"^## (\d+\.\d+\.\d+)\b",
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        Assert.True(changelogMatch.Success, "CHANGELOG.md is missing a ## MAJOR.MINOR.PATCH heading.");
+        Assert.Equal(version, changelogMatch.Groups[1].Value);
+    }
+
+    private static string FindRepoRoot()
     {
         var candidates = new[]
         {
-            Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "src", "DotNetMcp.Server", "DotNetMcp.Server.csproj")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "DotNetMcp.Server", "DotNetMcp.Server.csproj"))
+            Environment.CurrentDirectory,
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..")),
         };
-        var path = candidates.First(File.Exists);
-        var csproj = await File.ReadAllTextAsync(path);
-        Assert.Contains("<Version>4.0.0</Version>", csproj, StringComparison.Ordinal);
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(Path.Combine(candidate, "src", "DotNetMcp.Server", "DotNetMcp.Server.csproj")))
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("Could not locate the repository root from the test host.");
     }
 }

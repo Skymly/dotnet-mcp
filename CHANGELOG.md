@@ -4,6 +4,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ## Unreleased
 
+### Fixed
+
+- Version gate reads the csproj `<Version>` and requires `.mcp/server.json` plus the latest CHANGELOG heading to match; CI checks the same three places (`#245`)
+
 ## 4.0.1 - 2026-09-12
 
 Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended NuGet publish of **`Skymly.DotNetMcp`**.
