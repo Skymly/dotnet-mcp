@@ -110,6 +110,7 @@ public sealed record WorkspaceStatusDto
     public long EstimatedRemainingMs { get; init; }
     public IReadOnlyList<string>? Warnings { get; init; }
     public string? Error { get; init; }
+    public string? ErrorCode { get; init; }
     public string? Message { get; init; }
     public required string SuggestedAction { get; init; }
 }

@@ -29,6 +29,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private int _completedUnits;
     private int _totalUnits;
     private string? _error;
+    private string? _errorCode;
     private IReadOnlyList<string> _warnings = [];
     private readonly Stopwatch _elapsed = new();
     private long _estimatedRemainingMs;
@@ -117,6 +118,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             _completedUnits = 0;
             _totalUnits = 1;
             _error = null;
+            _errorCode = null;
             _warnings = [];
             _estimatedRemainingMs = 0;
             _elapsed.Restart();
@@ -804,6 +806,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                     _elapsed.Stop();
                     _estimatedRemainingMs = 0;
                     _error = null;
+                    _errorCode = null;
                     if (_openedPath is not null)
                     {
                         loaded.RecordProjectFileSnapshots([_openedPath]);
@@ -859,6 +862,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 {
                     _phase = "failed";
                     _error = ex.Message;
+                    _errorCode = ex is LoadedGraphOutsideTrustedRootsException
+                        ? PolicyErrorCodes.LoadedGraphOutsideTrustedRoots
+                        : null;
                     _elapsed.Stop();
                     _estimatedRemainingMs = 0;
                 }
@@ -998,6 +1004,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             "loading" =>
                 "Call workspace_status to poll load progress; do not retry workspace_open.",
             "ready" => "Proceed with query tools such as workspace_list_projects.",
+            "failed" when _errorCode == PolicyErrorCodes.LoadedGraphOutsideTrustedRoots =>
+                "Add a trusted root that covers the escaped project/document, or open a .slnf that excludes it; do not keep polling workspace_status.",
             "failed" => "Inspect error; call workspace_open again with a corrected path if needed.",
             "cancelled" => "Previous load was cancelled; call workspace_open to start a new load.",
             _ => "Call workspace_status."
@@ -1012,6 +1020,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             EstimatedRemainingMs = _estimatedRemainingMs,
             Warnings = _warnings.Count == 0 ? null : _warnings,
             Error = _error,
+            ErrorCode = _errorCode,
             SuggestedAction = suggested
         };
     }

@@ -15,6 +15,8 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - F# member handles include a parameter signature so overloads no longer collapse `symbol_attribution` (`#251`)
 - F# rename `newName` is validated with FCS `PrettyNaming.IsIdentifierName` (`#253`)
 - F# checker is notified of file changes only when snapshot text actually changes (`#244`)
+- Graph gate failures surface `LoadedGraphOutsideTrustedRoots` on status and query tools (`#255`)
+- Query tools suggest `workspace_open` when idle and do not tell the agent to poll forever when failed (`#264`)
 
 ## 4.0.1 - 2026-09-12
 

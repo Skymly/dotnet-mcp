@@ -135,6 +135,153 @@ public class WorkspaceLoadSeamTests
         }
     }
 
+    [Fact]
+    public async Task workspace_list_projects_idle_suggests_workspace_open()
+    {
+        var root = CreateTempDir("root");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateMultiTfm());
+
+            var list = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(list.IsError is true);
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(list);
+            Assert.Equal(PolicyErrorCodes.WorkspaceNotReady, body.Error);
+            Assert.Contains("workspace_open", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("poll until", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task workspace_open_graph_outside_roots_is_loaded_graph_error()
+    {
+        var root = CreateTempDir("root");
+        var outside = CreateTempDir("outside");
+        var outsideProj = Path.Combine(outside, "Evil.csproj");
+        await File.WriteAllTextAsync(outsideProj, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        var insideProj = Path.Combine(root, "App.csproj");
+        await File.WriteAllTextAsync(insideProj, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        LoadedSolution Factory()
+        {
+            var workspace = new Microsoft.CodeAnalysis.AdhocWorkspace();
+            var insideId = Microsoft.CodeAnalysis.ProjectId.CreateNewId();
+            var outsideId = Microsoft.CodeAnalysis.ProjectId.CreateNewId();
+            workspace.AddProject(Microsoft.CodeAnalysis.ProjectInfo.Create(
+                insideId,
+                Microsoft.CodeAnalysis.VersionStamp.Create(),
+                "App",
+                "App",
+                Microsoft.CodeAnalysis.LanguageNames.CSharp,
+                filePath: insideProj,
+                projectReferences: [new Microsoft.CodeAnalysis.ProjectReference(outsideId)]));
+            workspace.AddProject(Microsoft.CodeAnalysis.ProjectInfo.Create(
+                outsideId,
+                Microsoft.CodeAnalysis.VersionStamp.Create(),
+                "Evil",
+                "Evil",
+                Microsoft.CodeAnalysis.LanguageNames.CSharp,
+                filePath: outsideProj));
+            return new LoadedSolution(workspace, workspace.CurrentSolution, []);
+        }
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                new FakeSolutionLoader(TimeSpan.Zero, Factory));
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = solution });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+            var status = await WaitUntilFailedAsync(fx);
+            Assert.Equal(PolicyErrorCodes.LoadedGraphOutsideTrustedRoots, status.ErrorCode);
+            Assert.Contains("trusted root", status.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("poll load progress", status.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+
+            var list = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(list.IsError is true);
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(list);
+            Assert.Equal(PolicyErrorCodes.LoadedGraphOutsideTrustedRoots, body.Error);
+            Assert.Contains("trusted root", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("poll until", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            TryDelete(root);
+            TryDelete(outside);
+        }
+    }
+
+    [Fact]
+    public async Task workspace_open_generic_load_failure_is_not_loaded_graph_error()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                new FakeSolutionLoader(TimeSpan.Zero, () => throw new InvalidOperationException("MSBuild exploded")));
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = solution });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+            var status = await WaitUntilFailedAsync(fx);
+            Assert.Null(status.ErrorCode);
+            Assert.Contains("MSBuild exploded", status.Error, StringComparison.Ordinal);
+
+            var list = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(list.IsError is true);
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(list);
+            Assert.Equal(PolicyErrorCodes.WorkspaceNotReady, body.Error);
+            Assert.DoesNotContain("poll until", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    private static async Task<WorkspaceStatusDto> WaitUntilFailedAsync(InProcessMcpFixture fx)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        WorkspaceStatusDto? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
+            Assert.True(poll.IsError is not true, InProcessMcpFixture.TextOf(poll));
+            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
+            if (last.Phase == "failed")
+            {
+                return last;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"workspace did not fail: phase={last?.Phase} error={last?.Error}");
+    }
+
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-{label}-{Guid.NewGuid():N}");
