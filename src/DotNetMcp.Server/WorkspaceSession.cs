@@ -142,10 +142,98 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                 project.Name,
                 project.FilePath,
                 documents,
-                defines));
+                defines,
+                ReadCompilerReferences(project)));
         }
 
         return new FSharpWorkspaceSnapshot(epoch, projects);
+    }
+
+    private static IReadOnlyList<string> ReadCompilerReferences(Project project)
+    {
+        var paths = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+
+            try
+            {
+                path = Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            if (!File.Exists(path) || !seen.Add(path))
+            {
+                return;
+            }
+
+            paths.Add(path);
+        }
+
+        foreach (var metadata in project.MetadataReferences)
+        {
+            if (metadata is PortableExecutableReference pe)
+            {
+                Add(pe.FilePath);
+            }
+        }
+
+        foreach (var reference in project.ProjectReferences)
+        {
+            var other = project.Solution.GetProject(reference.ProjectId);
+            Add(other?.OutputFilePath);
+            Add(FindBuiltOutput(other));
+        }
+
+        foreach (var other in project.Solution.Projects)
+        {
+            if (other.Id == project.Id)
+            {
+                continue;
+            }
+
+            Add(other.OutputFilePath);
+            Add(FindBuiltOutput(other));
+        }
+
+        return paths;
+    }
+
+    private static string? FindBuiltOutput(Project? project)
+    {
+        if (project?.FilePath is null)
+        {
+            return null;
+        }
+
+        var bin = Path.Combine(Path.GetDirectoryName(project.FilePath)!, "bin");
+        if (!Directory.Exists(bin))
+        {
+            return null;
+        }
+
+        var name = Path.GetFileNameWithoutExtension(project.FilePath) + ".dll";
+        try
+        {
+            return Directory.EnumerateFiles(bin, name, SearchOption.AllDirectories)
+                .Where(static p =>
+                    p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) is false &&
+                    p.Contains($"{Path.DirectorySeparatorChar}ref{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) is false)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     internal static bool IsFSharpProject(Project project) =>
