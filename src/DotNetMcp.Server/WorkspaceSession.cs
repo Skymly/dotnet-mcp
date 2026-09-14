@@ -24,11 +24,11 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         FindHitCache? findHitCache = null,
         FSharpWorkspaceSnapshot? fsharpSnapshot = null)
     {
-        // Prefer the host-frozen F# snapshot (captured when Epoch advances). Fall back only for tests
-        // that construct sessions without a host, still without re-walking disk when a snapshot is provided.
+        // Prefer the host-frozen F# snapshot (captured when Epoch advances). Tests that need F#
+        // sources must pass a snapshot captured with trusted roots — never walk disk without roots.
         Solution = loaded.Solution;
         Epoch = epoch;
-        FSharpSnapshot = fsharpSnapshot ?? CaptureFSharpSnapshot(loaded.Solution, epoch, trustedRoots: null);
+        FSharpSnapshot = fsharpSnapshot ?? new FSharpWorkspaceSnapshot(epoch, []);
         _compilationLru = compilationLru ?? new CompilationLru(compilationLruCapacity);
         _generatorRunCache = generatorRunCache ?? new GeneratorRunCache();
         _findHits = findHitCache ?? new FindHitCache();
