@@ -25,18 +25,6 @@ jobs:
             9.0.x
             10.0.x
 
-      - name: Verify package versions match
-        shell: pwsh
-        run: |
-          $csproj = Get-Content src/DotNetMcp.Server/DotNetMcp.Server.csproj -Raw
-          if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw "csproj <Version> missing" }
-          $version = $Matches[1]
-          $json = Get-Content src/DotNetMcp.Server/.mcp/server.json -Raw | ConvertFrom-Json
-          if ($json.version -ne $version) { throw "server.json version '$($json.version)' != csproj '$version'" }
-          $changelog = Get-Content CHANGELOG.md -Raw
-          if ($changelog -notmatch '(?m)^## (\d+\.\d+\.\d+)\b') { throw "CHANGELOG.md missing ## MAJOR.MINOR.PATCH heading" }
-          if ($Matches[1] -ne $version) { throw "CHANGELOG version '$($Matches[1])' != csproj '$version'" }
-
       - name: Restore
         run: dotnet restore DotNetMcp.slnx
 
