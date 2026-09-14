@@ -25,7 +25,7 @@ public sealed class SymbolRefactoringTools
         _audit = audit;
     }
 
-    [McpServerTool(Name = "symbol_list_refactorings"), Description(
+    [McpServerTool(Name = "symbol_list_refactorings", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List first-party / project-loaded Code Refactorings at a handwritten SymbolHandle identifier. " +
         "Zero refactorings is success with an empty list. F# handles return RefactoringLanguageNotSupported. " +
         "SourceGenerator Origin is refused. Does not write disk.")]
@@ -61,7 +61,7 @@ public sealed class SymbolRefactoringTools
         });
     }
 
-    [McpServerTool(Name = "symbol_preview_refactoring"), Description(
+    [McpServerTool(Name = "symbol_preview_refactoring", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Preview applying one Code Refactoring as a Workspace Edit. " +
         "Returns previewId bound to the current Epoch + TTL. Does not write disk. " +
         "Generated documents are refused. Not a generic apply_edit / write / shell.")]
@@ -110,7 +110,7 @@ public sealed class SymbolRefactoringTools
         });
     }
 
-    [McpServerTool(Name = "symbol_apply_refactoring"), Description(
+    [McpServerTool(Name = "symbol_apply_refactoring", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false), Description(
         "Apply a still-valid Code Refactoring preview. Writes only the documents listed in that preview, " +
         "all of which must already exist inside a trusted root. Uses WriteSuppression and advances Epoch. " +
         "There is no apply path that skips preview. Not a generic write / patch / shell tool.")]

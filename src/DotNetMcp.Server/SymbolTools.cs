@@ -25,7 +25,7 @@ public sealed class SymbolTools
         _audit = audit;
     }
 
-    [McpServerTool(Name = "symbol_resolve"), Description(
+    [McpServerTool(Name = "symbol_resolve", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Resolve a C# symbol by name or FQN in the ready workspace and return a verifiable SymbolHandle " +
         "plus a lightweight summary (no member tree). Optional projectId disambiguates multi-TFM / multi-project hits.")]
     public async Task<CallToolResult> SymbolResolve(
@@ -55,7 +55,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_summary"), Description(
+    [McpServerTool(Name = "symbol_summary", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Return a lightweight summary for a SymbolHandle. Distinguishes InvalidSymbolHandle " +
         "(format/checksum) from SymbolNotFound (handle valid but symbol gone).")]
     public async Task<CallToolResult> SymbolSummary(
@@ -83,7 +83,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_goto_definition"), Description(
+    [McpServerTool(Name = "symbol_goto_definition", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Navigate a SymbolHandle to its definition locations (file/span). Includes handwritten and " +
         "source-generated trees; Origin is Handwritten or SourceGenerator(Assembly::Type@Version) when in source.")]
     public async Task<CallToolResult> SymbolGotoDefinition(
@@ -111,7 +111,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToDefinitionDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_attribution"), Description(
+    [McpServerTool(Name = "symbol_attribution", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Two-axis symbol attribution for a SymbolHandle: declaration availability plus Handwritten vs " +
         "SourceGenerator(identity) via public GeneratorDriver reconciliation (not FilePath heuristics). " +
         "Named types also return a members map keyed by signature-qualified name (partial/overload safe).")]
@@ -140,7 +140,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToAttributionDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_members"), Description(
+    [McpServerTool(Name = "symbol_members", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List members of a type SymbolHandle with forced pagination. Cursors bind to the workspace " +
         "epoch and become stale when the workspace generation advances.")]
     public async Task<CallToolResult> SymbolMembers(
@@ -177,7 +177,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToMembersDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_find_references"), Description(
+    [McpServerTool(Name = "symbol_find_references", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Find references to a SymbolHandle. Default scope is the defining project plus projects that depend on it; " +
         "pass entireSolution=true to search the whole solution. Soft time budget may truncate with nextCursor " +
         "(do not restart from scratch). Cursors bind to the workspace epoch.")]
@@ -219,7 +219,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToFindReferencesDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_find_implementations"), Description(
+    [McpServerTool(Name = "symbol_find_implementations", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Find types and members that implement or derive from a SymbolHandle (interfaces, abstract/virtual " +
         "members, and class inheritance). Results are paginated; cursors bind to the workspace epoch.")]
     public async Task<CallToolResult> SymbolFindImplementations(
@@ -251,7 +251,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToImplementationsDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_type_hierarchy"), Description(
+    [McpServerTool(Name = "symbol_type_hierarchy", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Return a type SymbolHandle's base-type chain (immediate to root) then implemented interfaces, " +
         "paginated. Cursors bind to the workspace epoch and become stale when the workspace generation advances.")]
     public async Task<CallToolResult> SymbolTypeHierarchy(
@@ -283,7 +283,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToHierarchyDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_find_callers"), Description(
+    [McpServerTool(Name = "symbol_find_callers", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Find direct call sites of a method SymbolHandle (shallow callers, not a full call graph). " +
         "Default scope is the defining project plus projects that depend on it; pass entireSolution=true to search the whole solution. " +
         "Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch.")]
@@ -318,7 +318,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToCallersDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_preview_rename"), Description(
+    [McpServerTool(Name = "symbol_preview_rename", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Preview renaming a handwritten C# / VB / F# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
         "handles that will become invalid) and an opaque previewId bound to the current workspace Epoch + TTL. " +
         "Does not write disk. SourceGenerator Origin is refused. There is no generic apply_edit / write / shell.")]
@@ -366,7 +366,7 @@ public sealed class SymbolTools
         });
     }
 
-    [McpServerTool(Name = "symbol_apply_rename"), Description(
+    [McpServerTool(Name = "symbol_apply_rename", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false), Description(
         "Apply a still-valid C# / VB / F# rename preview. Writes only the documents listed in that preview, all of which " +
         "must already exist inside a trusted root. Uses WriteSuppression and advances the workspace Epoch. " +
         "There is no apply path that skips preview. Not a generic write / patch / shell tool.")]

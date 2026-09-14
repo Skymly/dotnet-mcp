@@ -26,7 +26,7 @@ public sealed class XamlTools
         _audit = audit;
     }
 
-    [McpServerTool(Name = "xaml_resolve_class"), Description(
+    [McpServerTool(Name = "xaml_resolve_class", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Map a registered XAML document (Avalonia .axaml or MAUI .xaml) under a trusted root to the x:Class code-behind type SymbolHandle. " +
         "Requires a ready workspace. Other UI frameworks are not registered. " +
         "Missing x:Class, type-not-found, and path-policy failures are distinguishable.")]
@@ -77,7 +77,7 @@ public sealed class XamlTools
         });
     }
 
-    [McpServerTool(Name = "xaml_list_xmlns"), Description(
+    [McpServerTool(Name = "xaml_list_xmlns", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List xmlns prefix mappings for a registered XAML document (Avalonia .axaml or MAUI .xaml) under a trusted root: " +
         "using:, clr-namespace:, and XmlnsDefinitionAttribute on referenced assemblies. " +
         "Optional prefix filters; unknown prefix and missing document are distinguishable.")]
@@ -130,7 +130,7 @@ public sealed class XamlTools
         });
     }
 
-    [McpServerTool(Name = "xaml_resolve_name"), Description(
+    [McpServerTool(Name = "xaml_resolve_name", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Map an x:Name in a registered XAML document (Avalonia .axaml or MAUI .xaml) to the name-generator field SymbolHandle on the x:Class type. " +
         "Missing x:Name vs name-generator-not-run are distinguishable. Use symbol_attribution on the handle.")]
     public async Task<CallToolResult> XamlResolveName(
@@ -181,7 +181,7 @@ public sealed class XamlTools
         });
     }
 
-    [McpServerTool(Name = "xaml_resolve_binding"), Description(
+    [McpServerTool(Name = "xaml_resolve_binding", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Resolve a Binding Path under x:DataType / CompiledBindings to each segment's property SymbolHandle. " +
         "Walks types in-process (no MCP DTO N+1). Missing property and type mismatch are distinguishable. " +
         "Code-behind-only DataContext is out of scope.")]
@@ -239,7 +239,7 @@ public sealed class XamlTools
         });
     }
 
-    [McpServerTool(Name = "xaml_diagnostics"), Description(
+    [McpServerTool(Name = "xaml_diagnostics", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Semantic XAML diagnostics for Avalonia .axaml and MAUI .xaml (unknown elements/properties given xmlns, bad Binding paths, unmatched x:Name). " +
         "Not XML well-formedness. Paged with a soft budget; stale cursors fail distinctly.")]
     public async Task<CallToolResult> XamlDiagnostics(

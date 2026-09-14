@@ -24,4 +24,59 @@ public class ListToolsSeamTests
         Assert.Contains("untrusted", open.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("trusted root", open.Description, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void mcp_server_tools_declare_annotations()
+    {
+        var serverDir = FindServerDir();
+        var apply = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "diagnostics_apply_fix",
+            "symbol_apply_rename",
+            "symbol_apply_refactoring",
+        };
+        var names = new List<string>();
+        foreach (var file in Directory.GetFiles(serverDir, "*Tools.cs"))
+        {
+            var text = File.ReadAllText(file);
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                         text,
+                         @"McpServerTool\(Name = ""([^""]+)""(?<rest>[^)]*)\)"))
+            {
+                var name = match.Groups[1].Value;
+                var rest = match.Groups["rest"].Value;
+                names.Add(name);
+                Assert.Contains("OpenWorld = false", rest, StringComparison.Ordinal);
+                if (apply.Contains(name) || name == "workspace_open")
+                {
+                    Assert.Contains("ReadOnly = false", rest, StringComparison.Ordinal);
+                }
+                else
+                {
+                    Assert.Contains("ReadOnly = true", rest, StringComparison.Ordinal);
+                }
+            }
+        }
+
+        Assert.Equal(31, names.Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains("symbol_preview_rename", names);
+        Assert.Contains("diagnostics_apply_fix", names);
+    }
+
+    private static string FindServerDir()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "src", "DotNetMcp.Server");
+            if (File.Exists(Path.Combine(candidate, "WorkspaceTools.cs")))
+            {
+                return candidate;
+            }
+
+            dir = dir.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate src/DotNetMcp.Server.");
+    }
 }

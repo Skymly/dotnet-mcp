@@ -25,7 +25,7 @@ public sealed class DiagnosticTools
         _audit = audit;
     }
 
-    [McpServerTool(Name = "diagnostics_list_fixes"), Description(
+    [McpServerTool(Name = "diagnostics_list_fixes", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List first-party / project-loaded CodeFixes for one project_diagnostics occurrence. " +
         "Locator is projectId + diagnosticId + optional filePath/span (1-based lines, 0-based characters). " +
         "Zero fixes is success with an empty list. F# projects return FixLanguageNotSupported. " +
@@ -83,7 +83,7 @@ public sealed class DiagnosticTools
         });
     }
 
-    [McpServerTool(Name = "diagnostics_preview_fix"), Description(
+    [McpServerTool(Name = "diagnostics_preview_fix", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Preview applying one Diagnostic fix as a Workspace Edit. " +
         "Returns previewId bound to the current Epoch + TTL. Does not write disk. " +
         "scope=occurrence (default), scope=document, or scope=project for Fix all with the same EquivalenceKey. " +
@@ -158,7 +158,7 @@ public sealed class DiagnosticTools
         });
     }
 
-    [McpServerTool(Name = "diagnostics_apply_fix"), Description(
+    [McpServerTool(Name = "diagnostics_apply_fix", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false), Description(
         "Apply a still-valid Diagnostic fix preview. Writes only the documents listed in that preview, " +
         "all of which must already exist inside a trusted root. Uses WriteSuppression and advances Epoch. " +
         "There is no apply path that skips preview. Not a generic write / patch / shell tool.")]
