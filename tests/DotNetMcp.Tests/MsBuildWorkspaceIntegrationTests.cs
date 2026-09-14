@@ -259,6 +259,47 @@ public class MsBuildWorkspaceIntegrationTests
         Assert.Equal("fsharp", body.Summary.Language);
     }
 
+    [Fact]
+    public async Task workspace_open_fsproj_find_callers_returns_enclosing_member_not_callee()
+    {
+        Assert.True(File.Exists(MixedWithFsSlnx), $"Missing fixture: {MixedWithFsSlnx}");
+        var root = Path.GetDirectoryName(MixedWithFsSlnx)!;
+
+        await using var fx = new InProcessMcpFixture(
+            TrustedRoots.Create([root]),
+            solutionLoader: null);
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = MixedWithFsSlnx });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+        var status = await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+        Assert.Equal("ready", status.Phase);
+
+        var pingResolved = await fx.Client.CallToolAsync(
+            "symbol_resolve",
+            new Dictionary<string, object?> { ["name"] = "FsLib.Widget.ping" });
+        Assert.True(pingResolved.IsError is not true, InProcessMcpFixture.TextOf(pingResolved));
+        var ping = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(pingResolved);
+
+        var callerResolved = await fx.Client.CallToolAsync(
+            "symbol_resolve",
+            new Dictionary<string, object?> { ["name"] = "FsLib.Widget.pingCaller" });
+        Assert.True(callerResolved.IsError is not true, InProcessMcpFixture.TextOf(callerResolved));
+        var caller = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(callerResolved);
+
+        var callers = await fx.Client.CallToolAsync(
+            "symbol_find_callers",
+            new Dictionary<string, object?> { ["handle"] = ping.Handle });
+        Assert.True(callers.IsError is not true, InProcessMcpFixture.TextOf(callers));
+        var body = InProcessMcpFixture.Deserialize<SymbolFindCallersResultDto>(callers);
+
+        Assert.Contains(body.Items, item => item.CallerHandle == caller.Handle);
+        Assert.DoesNotContain(body.Items, item => item.CallerHandle == ping.Handle);
+        Assert.Contains(body.Items, item =>
+            string.Equals(item.CallerSummary.DisplayName, "pingCaller", StringComparison.Ordinal));
+    }
 
     [Fact]
     public async Task workspace_open_mixed_solution_resolves_vb_widget()

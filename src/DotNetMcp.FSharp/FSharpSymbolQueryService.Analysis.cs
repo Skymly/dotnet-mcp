@@ -161,7 +161,7 @@ public sealed partial class FSharpSymbolQueryService
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
-        var (item, _, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
+        var (item, project, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -183,7 +183,13 @@ public sealed partial class FSharpSymbolQueryService
         var truncatedByBudget = false;
         if (check is not null)
         {
-            foreach (var use in check.GetAllUsesOfAllSymbols(null))
+            var catalog = project is null
+                ? []
+                : FlattenCatalog(await CatalogAsync(project, cancellationToken).ConfigureAwait(false)).ToList();
+            var uses = check.GetAllUsesOfAllSymbols(null).ToList();
+            var definitions = uses.Where(static u => u.IsFromDefinition).ToList();
+
+            foreach (var use in uses)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (clock.Elapsed >= budget)
@@ -197,6 +203,14 @@ public sealed partial class FSharpSymbolQueryService
                     continue;
                 }
 
+                var enclosing = FindEnclosingDefinition(definitions, use, item);
+                var callerItem = enclosing is null ? null : MatchCatalog(catalog, enclosing.Symbol);
+                if (callerItem is null || SameSymbol(enclosing!.Symbol, item))
+                {
+                    continue;
+                }
+
+                var success = ToSuccess(callerItem);
                 var loc = ToLocation(use.FileName, use.Range);
                 hits.Add(new CallerLocationItem(
                     loc.DeclarationAvailability,
@@ -204,9 +218,9 @@ public sealed partial class FSharpSymbolQueryService
                     loc.FilePath,
                     loc.Start,
                     loc.Length,
-                    item.ProjectId,
-                    ToSuccess(item).Handle,
-                    ToSuccess(item).Summary));
+                    callerItem.ProjectId,
+                    success.Handle,
+                    success.Summary));
             }
         }
 
@@ -297,6 +311,61 @@ public sealed partial class FSharpSymbolQueryService
 
         return false;
     }
+
+
+    private static FSharpSymbolUse? FindEnclosingDefinition(
+        IReadOnlyList<FSharpSymbolUse> definitions,
+        FSharpSymbolUse call,
+        FSharpCatalogItem callee)
+    {
+        FSharpSymbolUse? best = null;
+        foreach (var definition in definitions)
+        {
+            if (SameSymbol(definition.Symbol, callee) ||
+                !string.Equals(definition.FileName, call.FileName, StringComparison.OrdinalIgnoreCase) ||
+                !RangeStartsOnOrBefore(definition.Range, call.Range))
+            {
+                continue;
+            }
+
+            if (best is null || RangeStartsOnOrBefore(best.Range, definition.Range))
+            {
+                best = definition;
+            }
+        }
+
+        return best;
+    }
+
+    private static bool RangeStartsOnOrBefore(FcsRange left, FcsRange right) =>
+        left.StartLine < right.StartLine ||
+        (left.StartLine == right.StartLine && left.StartColumn <= right.StartColumn);
+
+    private static FSharpCatalogItem? MatchCatalog(IReadOnlyList<FSharpCatalogItem> catalog, FSharpSymbol symbol)
+    {
+        var hits = catalog.Where(item => SameSymbol(symbol, item)).ToList();
+        return hits.FirstOrDefault(static item => !item.IsContainer) ?? hits.FirstOrDefault();
+    }
+
+    private static bool RangeContains(FcsRange outer, FcsRange inner)
+    {
+        var startsBeforeOrAt =
+            outer.StartLine < inner.StartLine ||
+            (outer.StartLine == inner.StartLine && outer.StartColumn <= inner.StartColumn);
+        var endsAfterOrAt =
+            outer.EndLine > inner.EndLine ||
+            (outer.EndLine == inner.EndLine && outer.EndColumn >= inner.EndColumn);
+        return startsBeforeOrAt && endsAfterOrAt;
+    }
+
+    private static bool RangeEquals(FcsRange left, FcsRange right) =>
+        left.StartLine == right.StartLine &&
+        left.StartColumn == right.StartColumn &&
+        left.EndLine == right.EndLine &&
+        left.EndColumn == right.EndColumn;
+
+    private static int RangeSize(FcsRange range) =>
+        ((range.EndLine - range.StartLine) * 1_000_000) + (range.EndColumn - range.StartColumn);
 
     private ReferenceLocationItem ToReference(string projectId, string file, FcsRange range, string kind)
     {
