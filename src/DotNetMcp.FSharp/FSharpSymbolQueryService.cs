@@ -90,10 +90,28 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
         if (matches.Count > 1)
         {
-            var ids = string.Join(", ", matches.Select(m => m.ProjectId).Distinct());
-            return (null, new SymbolAmbiguousError(
-                $"Symbol '{name}' matched {matches.Count} candidates across projectId(s): {ids}.",
-                "Pass projectId (and a more specific FQN if needed) to symbol_resolve to disambiguate."));
+            var exact = matches
+                .Where(m => string.Equals(m.SignatureQualifiedName, query, StringComparison.Ordinal))
+                .ToList();
+            if (exact.Count == 1)
+            {
+                matches = exact;
+            }
+            else
+            {
+                var containers = matches.Where(static m => m.IsContainer).ToList();
+                if (containers.Count == 1)
+                {
+                    matches = containers;
+                }
+                else
+                {
+                    var ids = string.Join(", ", matches.Select(m => m.ProjectId).Distinct());
+                    return (null, new SymbolAmbiguousError(
+                        $"Symbol '{name}' matched {matches.Count} candidates across projectId(s): {ids}.",
+                        "Pass projectId (and a more specific FQN if needed) to symbol_resolve to disambiguate."));
+                }
+            }
         }
 
         return (ToSuccess(matches[0]), null);
@@ -149,10 +167,9 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 SymbolOrigin.Handwritten,
                 Generator: null);
 
-        var members = item!.Members.ToDictionary(
-            static m => m.SignatureQualifiedName,
-            ForItem,
-            StringComparer.Ordinal);
+        var members = item!.Members
+            .GroupBy(static m => m.SignatureQualifiedName, StringComparer.Ordinal)
+            .ToDictionary(static g => g.Key, g => ForItem(g.First()), StringComparer.Ordinal);
         return (new SymbolAttributionSuccess(ForItem(item), members), null);
     }
 
@@ -357,6 +374,11 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 }
 
                 var memberName = MemberFullName(entity, member);
+                if (members.Any(m => string.Equals(m.SignatureQualifiedName, memberName, StringComparison.Ordinal)))
+                {
+                    memberName += "@" + member.DeclarationLocation.StartLine + ":" + member.DeclarationLocation.StartColumn;
+                }
+
                 members.Add(new FSharpCatalogItem(
                     projectId,
                     memberName,
@@ -412,10 +434,25 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         return match;
     }
 
-    private static bool Matches(FSharpCatalogItem item, string query) =>
-        string.Equals(item.SignatureQualifiedName, query, StringComparison.Ordinal) ||
-        string.Equals(item.DisplayName, query, StringComparison.Ordinal) ||
-        item.SignatureQualifiedName.EndsWith("." + query, StringComparison.Ordinal);
+    private static bool Matches(FSharpCatalogItem item, string query)
+    {
+        if (string.Equals(item.SignatureQualifiedName, query, StringComparison.Ordinal) ||
+            string.Equals(item.DisplayName, query, StringComparison.Ordinal) ||
+            item.SignatureQualifiedName.EndsWith("." + query, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var unspecialized = StripParameterSignature(item.SignatureQualifiedName);
+        return string.Equals(unspecialized, query, StringComparison.Ordinal) ||
+               unspecialized.EndsWith("." + query, StringComparison.Ordinal);
+    }
+
+    private static string StripParameterSignature(string signatureQualifiedName)
+    {
+        var index = signatureQualifiedName.IndexOf('(');
+        return index < 0 ? signatureQualifiedName : signatureQualifiedName[..index];
+    }
 
     private static SymbolResolveSuccess ToSuccess(FSharpCatalogItem item)
     {
@@ -448,14 +485,74 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
     private static string MemberFullName(FSharpEntity owner, FSharpMemberOrFunctionOrValue member)
     {
+        string baseName;
         if (!string.IsNullOrWhiteSpace(member.FullName) && member.FullName.Contains('.', StringComparison.Ordinal))
         {
-            return member.FullName;
+            baseName = member.FullName;
+        }
+        else
+        {
+            var ownerName = EntityFullName(owner);
+            var leaf = string.IsNullOrWhiteSpace(member.FullName) ? member.DisplayName : member.FullName;
+            baseName = string.IsNullOrWhiteSpace(ownerName) ? leaf : ownerName + "." + leaf;
         }
 
-        var ownerName = EntityFullName(owner);
-        var leaf = string.IsNullOrWhiteSpace(member.FullName) ? member.DisplayName : member.FullName;
-        return string.IsNullOrWhiteSpace(ownerName) ? leaf : ownerName + "." + leaf;
+        var signature = FormatParameterSignature(member);
+        return string.IsNullOrEmpty(signature) ? baseName : baseName + signature;
+    }
+
+    private static string FormatParameterSignature(FSharpMemberOrFunctionOrValue member)
+    {
+        try
+        {
+            var groups = member.CurriedParameterGroups;
+            if (groups.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var builder = new System.Text.StringBuilder();
+            foreach (var group in groups)
+            {
+                builder.Append('(');
+                var first = true;
+                foreach (var parameter in group)
+                {
+                    if (!first)
+                    {
+                        builder.Append(',');
+                    }
+
+                    first = false;
+                    builder.Append(FormatFSharpType(parameter.Type));
+                }
+
+                builder.Append(')');
+            }
+
+            return builder.ToString();
+        }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string FormatFSharpType(FSharpType type)
+    {
+        if (type.HasTypeDefinition)
+        {
+            var name = type.TypeDefinition.DisplayName;
+            return string.IsNullOrWhiteSpace(name) ? "?" : name;
+        }
+
+        var generic = type.GenericArguments;
+        if (type.IsFunctionType && generic.Count == 2)
+        {
+            return FormatFSharpType(generic[0]) + "->" + FormatFSharpType(generic[1]);
+        }
+
+        return type.ToString() ?? "?";
     }
 
     private static string MemberKind(FSharpMemberOrFunctionOrValue member)
