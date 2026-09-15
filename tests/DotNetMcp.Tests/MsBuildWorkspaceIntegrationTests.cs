@@ -447,6 +447,68 @@ public class MsBuildWorkspaceIntegrationTests
     }
 
 
+    [Fact]
+    public async Task workspace_open_fsproj_preview_apply_rename_writes_disk_and_advances_epoch()
+    {
+        var source = Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib");
+        Assert.True(Directory.Exists(source), $"Missing fixture: {source}");
+        var root = CreateTempDir("fs-rename");
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(file, Path.Combine(root, Path.GetFileName(file)));
+        }
+
+        var project = Path.Combine(root, "FsLib.fsproj");
+        var widget = Path.Combine(root, "Widget.fs");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                solutionLoader: null);
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = project });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+            await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+
+            var epoch = fx.WorkspaceHost.CurrentEpoch;
+            var pingResolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "FsLib.Widget.ping" });
+            Assert.True(pingResolved.IsError is not true, InProcessMcpFixture.TextOf(pingResolved));
+            var ping = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(pingResolved);
+
+            var before = await File.ReadAllTextAsync(widget);
+            var preview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = ping.Handle,
+                    ["newName"] = "pong"
+                });
+            Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
+            var previewBody = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.Contains(previewBody.Documents, d =>
+                d.Path.EndsWith("Widget.fs", StringComparison.OrdinalIgnoreCase) &&
+                d.NewText.Contains("pong", StringComparison.Ordinal));
+            Assert.Equal(before, await File.ReadAllTextAsync(widget));
+
+            var apply = await fx.Client.CallToolAsync(
+                "symbol_apply_rename",
+                new Dictionary<string, object?> { ["previewId"] = previewBody.PreviewId });
+            Assert.True(apply.IsError is not true, InProcessMcpFixture.TextOf(apply));
+            var applyBody = InProcessMcpFixture.Deserialize<SymbolApplyRenameResultDto>(apply);
+            Assert.True(applyBody.Epoch > epoch, $"epoch {epoch} -> {applyBody.Epoch}");
+            Assert.Contains("pong", await File.ReadAllTextAsync(widget), StringComparison.Ordinal);
+            Assert.DoesNotContain("let ping ", await File.ReadAllTextAsync(widget), StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-{label}-{Guid.NewGuid():N}");
