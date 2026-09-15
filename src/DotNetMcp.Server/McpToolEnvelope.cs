@@ -20,13 +20,24 @@ public static class McpToolEnvelope
         }
 
         var status = host.GetStatus();
+        if (status.ErrorCode == PolicyErrorCodes.LoadedGraphOutsideTrustedRoots)
+        {
+            errorResult = ErrorResult(new PolicyErrorDto
+            {
+                Error = PolicyErrorCodes.LoadedGraphOutsideTrustedRoots,
+                Message = status.Error ??
+                          "The loaded graph has a project or document outside trusted roots.",
+                SuggestedAction = status.SuggestedAction
+            });
+            return false;
+        }
+
         errorResult = ErrorResult(new PolicyErrorDto
         {
             Error = PolicyErrorCodes.WorkspaceNotReady,
             Message =
                 $"Workspace is not ready (phase={status.Phase}). Query tools cannot run until load completes.",
-            SuggestedAction =
-                "Call workspace_status to poll until phase is ready; do not retry workspace_open while loading."
+            SuggestedAction = status.SuggestedAction
         });
         return false;
     }
