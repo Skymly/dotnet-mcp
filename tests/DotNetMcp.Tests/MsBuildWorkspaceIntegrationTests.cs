@@ -614,6 +614,57 @@ public class MsBuildWorkspaceIntegrationTests
     }
 
     [Fact]
+    public async Task workspace_open_fsproj_source_edit_is_visible_after_reopen()
+    {
+        var source = Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib");
+        Assert.True(Directory.Exists(source), $"Missing fixture: {source}");
+        var root = CreateTempDir("fs-notify");
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(file, Path.Combine(root, Path.GetFileName(file)));
+        }
+
+        var project = Path.Combine(root, "FsLib.fsproj");
+        var widget = Path.Combine(root, "Widget.fs");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                solutionLoader: null);
+
+            async Task OpenReadyAsync()
+            {
+                var open = await fx.Client.CallToolAsync(
+                    "workspace_open",
+                    new Dictionary<string, object?> { ["path"] = project });
+                Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+                await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+            }
+
+            await OpenReadyAsync();
+            var ping = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "FsLib.Widget.ping" });
+            Assert.True(ping.IsError is not true, InProcessMcpFixture.TextOf(ping));
+            var again = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "FsLib.Widget.ping" });
+            Assert.True(again.IsError is not true, InProcessMcpFixture.TextOf(again));
+
+            await File.AppendAllTextAsync(widget, "\nlet zoom () = 3\n");
+            await OpenReadyAsync();
+            var zoom = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "FsLib.Widget.zoom" });
+            Assert.True(zoom.IsError is not true, InProcessMcpFixture.TextOf(zoom));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task workspace_open_fsproj_preview_apply_rename_writes_disk_and_advances_epoch()
     {
         var source = Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib");

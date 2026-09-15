@@ -16,7 +16,11 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     private readonly SoftBudgetOptions _softBudgets;
     private readonly ConcurrentDictionary<string, string> _snapshotTexts =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _notifiedTexts =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly FSharpChecker _checker;
+
+    internal int FileChangeNotifications { get; private set; }
 
     public bool OwnsLanguage(string languageToken) =>
         string.Equals(languageToken, LanguageAdapters.FSharpLanguage, StringComparison.Ordinal);
@@ -325,13 +329,30 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         var dllName = Path.ChangeExtension(projectFile, ".dll");
         var argv = BuildCompilerArgs(dllName, sources.Select(s => s.Path), project.Defines);
         var options = _checker.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
-        foreach (var (path, _) in sources)
+        foreach (var (path, sourceText) in sources)
         {
+            if (_notifiedTexts.TryGetValue(path, out var previous) &&
+                string.Equals(previous, sourceText, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             await FSharpAsync.StartAsTask(
                     _checker.NotifyFileChanged(path, options, userOpName: null),
                     taskCreationOptions: null,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
+            _notifiedTexts[path] = sourceText;
+            FileChangeNotifications++;
+        }
+
+        var live = new HashSet<string>(sources.Select(s => s.Path), StringComparer.OrdinalIgnoreCase);
+        foreach (var key in _notifiedTexts.Keys)
+        {
+            if (!live.Contains(key))
+            {
+                _notifiedTexts.TryRemove(key, out _);
+            }
         }
 
         var check = await FSharpAsync.StartAsTask(
