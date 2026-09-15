@@ -210,7 +210,7 @@ public sealed partial class RoslynLanguageAdapter
         var scope = entireSolution
             ? FindRefsScopeKind.EntireSolution
             : FindRefsScopeKind.DependencyClosure;
-        var documents = FindRefsScopes.DocumentsForScope(solution, project!, scope)
+        var documents = (await FindRefsScopes.DocumentsForScopeAsync(solution, project!, scope, cancellationToken).ConfigureAwait(false))
             .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Id.Id)
@@ -290,7 +290,7 @@ public sealed partial class RoslynLanguageAdapter
         var scope = entireSolution
             ? FindRefsScopeKind.EntireSolution
             : FindRefsScopeKind.DependencyClosure;
-        var documents = FindRefsScopes.DocumentsForScope(solution, project!, scope)
+        var documents = (await FindRefsScopes.DocumentsForScopeAsync(solution, project!, scope, cancellationToken).ConfigureAwait(false))
             .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Id.Id)

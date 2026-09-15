@@ -224,6 +224,44 @@ public class SymbolFindReferencesSeamTests
     }
 
     [Fact]
+    public async Task symbol_find_references_includes_hits_in_source_generated_documents()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithGenerators());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var resolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "SampleApp.Generated.CustomMarker" });
+            Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+
+            var result = await fx.Client.CallToolAsync(
+                "symbol_find_references",
+                new Dictionary<string, object?> { ["handle"] = handle });
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<SymbolFindReferencesResultDto>(result);
+            Assert.NotEmpty(body.Items);
+            Assert.Contains(
+                body.Items,
+                i => (i.FilePath ?? string.Empty).Contains(".g.cs", StringComparison.OrdinalIgnoreCase)
+                     || (i.FilePath ?? string.Empty).Contains("CustomMarker", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task FindReferencesAsync_soft_budget_zero_falls_back_to_default_and_completes()
     {
         var loaded = FakeSolutionLoader.CreateFindRefsGraphLoaded();

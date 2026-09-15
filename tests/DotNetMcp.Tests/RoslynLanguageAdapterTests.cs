@@ -245,6 +245,41 @@ namespace B { public class Widget {} }
     }
 
     [Fact]
+    public async Task attribution_and_goto_handwritten_survive_generator_run_failure()
+    {
+        using var workspace = CreateWorkspace(WidgetSource);
+        using var session = new FakeSession(workspace.CurrentSolution, generatorRunUnavailable: true);
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Widget");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (definition, definitionError) = await adapter.GetDefinitionAsync(session, resolved!.Handle);
+        Assert.Null(definitionError);
+        Assert.NotNull(definition);
+
+        var (attribution, attributionError) = await adapter.GetAttributionAsync(session, resolved.Handle);
+        Assert.Null(attributionError);
+        Assert.NotNull(attribution);
+        Assert.Equal(SymbolOrigin.Handwritten, attribution!.Attribution.OriginKind);
+        Assert.Null(attribution.Attribution.Generator);
+    }
+
+    [Fact]
+    public async Task attribution_generated_marker_is_not_handwritten_when_generator_run_fails()
+    {
+        using var workspace = CreateGeneratorWorkspace();
+        using var session = new FakeSession(workspace.CurrentSolution, generatorRunUnavailable: true);
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "CustomMarker");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (_, error) = await adapter.GetAttributionAsync(session, resolved!.Handle);
+        Assert.IsType<CompilationUnavailableError>(error);
+    }
+
+    [Fact]
     public async Task build_rename_preview_generated_origin_is_refused()
     {
         using var workspace = CreateGeneratorWorkspace();
@@ -371,13 +406,19 @@ namespace B { public class Widget {} }
     {
         private readonly GeneratorRunCache _cache = new();
         private readonly bool _compilationUnavailable;
+        private readonly bool _generatorRunUnavailable;
 
-        public FakeSession(Solution solution, long epoch = 1, bool compilationUnavailable = false)
+        public FakeSession(
+            Solution solution,
+            long epoch = 1,
+            bool compilationUnavailable = false,
+            bool generatorRunUnavailable = false)
         {
             Solution = solution;
             Epoch = epoch;
             FSharpSnapshot = new FSharpWorkspaceSnapshot(epoch, []);
             _compilationUnavailable = compilationUnavailable;
+            _generatorRunUnavailable = generatorRunUnavailable;
         }
 
         public long Epoch { get; }
@@ -417,6 +458,11 @@ namespace B { public class Widget {} }
             ProjectId projectId,
             CancellationToken cancellationToken = default)
         {
+            if (_generatorRunUnavailable)
+            {
+                throw new InvalidOperationException("Generator driver run failed.");
+            }
+
             var key = projectId.Id.ToString("D");
             if (_cache.TryGet(key, Epoch, out var cached))
             {

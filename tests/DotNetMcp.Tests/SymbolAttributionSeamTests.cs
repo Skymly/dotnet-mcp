@@ -109,6 +109,8 @@ public class SymbolAttributionSeamTests
             var body = InProcessMcpFixture.Deserialize<SymbolAttributionResultDto>(attr);
 
             Assert.NotEmpty(body.Members);
+            Assert.Equal("Handwritten", body.OriginKind);
+            Assert.Null(body.Generator);
 
             var formatKeys = body.Members.Keys
                 .Where(k => k.Contains("Format", StringComparison.Ordinal))

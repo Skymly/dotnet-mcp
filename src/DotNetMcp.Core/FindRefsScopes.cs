@@ -12,21 +12,28 @@ public enum FindRefsScopeKind
 
 public static class FindRefsScopes
 {
-    public static ImmutableHashSet<Document> DocumentsForScope(
+    public static async Task<ImmutableHashSet<Document>> DocumentsForScopeAsync(
         Solution solution,
         Project project,
-        FindRefsScopeKind scope)
+        FindRefsScopeKind scope,
+        CancellationToken cancellationToken = default)
     {
-        return scope switch
+        var projects = scope switch
         {
-            FindRefsScopeKind.DependencyClosure => ProjectsInClosure(solution, project)
-                .SelectMany(p => p.Documents)
-                .ToImmutableHashSet(),
-            FindRefsScopeKind.EntireSolution => solution.Projects
-                .SelectMany(p => p.Documents)
-                .ToImmutableHashSet(),
+            FindRefsScopeKind.DependencyClosure => ProjectsInClosure(solution, project),
+            FindRefsScopeKind.EntireSolution => solution.Projects.ToList(),
             _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, null),
         };
+
+        var documents = new List<Document>();
+        foreach (var candidate in projects)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            documents.AddRange(candidate.Documents);
+            documents.AddRange(await candidate.GetSourceGeneratedDocumentsAsync(cancellationToken).ConfigureAwait(false));
+        }
+
+        return documents.ToImmutableHashSet();
     }
 
     /// <summary>

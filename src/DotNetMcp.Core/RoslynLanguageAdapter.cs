@@ -397,13 +397,27 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             return (SymbolOrigin.Handwritten, null);
         }
 
+        var generatedDocument = session.Solution.GetDocument(tree) is SourceGeneratedDocument;
         var projectId = project.Id.Id.ToString("D");
         var (identity, matchError) = await _generators
             .MatchSyntaxTreeAsync(session, projectId, tree, cancellationToken)
             .ConfigureAwait(false);
-        if (matchError is not null)
+
+        if (generatedDocument)
         {
-            return (null, matchError);
+            if (identity is not null)
+            {
+                return (SymbolOrigin.FormatSourceGenerator(identity), null);
+            }
+
+            if (matchError is not null)
+            {
+                return (null, matchError);
+            }
+
+            return (null, new CompilationUnavailableError(
+                "A source-generated document could not be reconciled to a generator identity via GeneratorDriver.",
+                "Retry after workspace_status is ready; if this persists, check analyzer/generator references."));
         }
 
         if (identity is not null)
@@ -411,15 +425,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             return (SymbolOrigin.FormatSourceGenerator(identity), null);
         }
 
-        // Known generated document that failed content reconciliation must not be labeled Handwritten.
-        if (session.Solution.GetDocument(tree) is SourceGeneratedDocument)
-        {
-            return (null, new CompilationUnavailableError(
-                "A source-generated document could not be reconciled to a generator identity via GeneratorDriver.",
-                "Retry after workspace_status is ready; if this persists, check analyzer/generator references."));
-        }
-
-        // FilePath is never enough on its own (ADR-0001 §6 / Spike S1).
+        // Handwritten trees stay Handwritten even when the generator driver fails.
         return (SymbolOrigin.Handwritten, null);
     }
 
