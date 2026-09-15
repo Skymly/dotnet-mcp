@@ -448,6 +448,57 @@ public class MsBuildWorkspaceIntegrationTests
 
 
     [Fact]
+    public async Task workspace_open_fsproj_deleted_file_is_not_queryable_after_reopen()
+    {
+        var source = Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib");
+        Assert.True(Directory.Exists(source), $"Missing fixture: {source}");
+        var root = CreateTempDir("fs-stale-text");
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(file, Path.Combine(root, Path.GetFileName(file)));
+        }
+
+        var extra = Path.Combine(root, "Ghost.fs");
+        await File.WriteAllTextAsync(extra, "module FsLib.Ghost\n\nlet hidden () = 1\n");
+        var project = Path.Combine(root, "FsLib.fsproj");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                solutionLoader: null);
+
+            async Task OpenReadyAsync()
+            {
+                var open = await fx.Client.CallToolAsync(
+                    "workspace_open",
+                    new Dictionary<string, object?> { ["path"] = project });
+                Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+                await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+            }
+
+            await OpenReadyAsync();
+            var found = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "FsLib.Ghost.hidden" });
+            Assert.True(found.IsError is not true, InProcessMcpFixture.TextOf(found));
+
+            File.Delete(extra);
+            await OpenReadyAsync();
+            var gone = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "FsLib.Ghost.hidden" });
+            Assert.True(gone.IsError is true, InProcessMcpFixture.TextOf(gone));
+            Assert.Equal(
+                PolicyErrorCodes.SymbolNotFound,
+                InProcessMcpFixture.Deserialize<PolicyErrorDto>(gone).Error);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task workspace_open_fsproj_preview_apply_rename_writes_disk_and_advances_epoch()
     {
         var source = Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib");
