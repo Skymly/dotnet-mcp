@@ -1,6 +1,7 @@
 using Microsoft.FSharp.Core;
 using DotNetMcp.Core;
 using FSharp.Compiler.Symbols;
+using FSharp.Compiler.Syntax;
 
 namespace DotNetMcp.FSharp;
 
@@ -12,11 +13,11 @@ public sealed partial class FSharpSymbolQueryService
         string newName,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(newName) || newName.IndexOfAny(['.', ' ', '\t']) >= 0)
+        if (string.IsNullOrWhiteSpace(newName) || !PrettyNaming.IsIdentifierName(newName))
         {
             return (null, new InvalidRenameNameError(
-                "New name must be a single identifier.",
-                "Pass an F# identifier (no qualification) as newName."));
+                "New name must be a single F# identifier.",
+                "Pass an F# identifier (no qualification, no keywords) as newName."));
         }
 
         var (item, _, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)

@@ -285,8 +285,11 @@ public class FSharpSymbolQueryServiceTests
         using var session = Session(RenameSnapshot());
         var adapter = Adapter();
         var (resolved, _) = await adapter.ResolveByNameAsync(session, "ping");
-        var (_, error) = await adapter.BuildRenamePreviewAsync(session, resolved!.Handle, "A.B");
-        Assert.IsType<InvalidRenameNameError>(error);
+        foreach (var bad in new[] { "A.B", "1bad", "a-b", "let", " " })
+        {
+            var (_, error) = await adapter.BuildRenamePreviewAsync(session, resolved!.Handle, bad);
+            Assert.IsType<InvalidRenameNameError>(error);
+        }
     }
 
     [Fact]

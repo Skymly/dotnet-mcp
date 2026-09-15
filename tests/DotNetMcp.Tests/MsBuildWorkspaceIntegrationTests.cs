@@ -448,6 +448,66 @@ public class MsBuildWorkspaceIntegrationTests
 
 
     [Fact]
+    public async Task workspace_open_fsproj_rename_rejects_illegal_identifiers()
+    {
+        var source = Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib");
+        Assert.True(Directory.Exists(source), $"Missing fixture: {source}");
+        var root = CreateTempDir("fs-ident");
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(file, Path.Combine(root, Path.GetFileName(file)));
+        }
+
+        var project = Path.Combine(root, "FsLib.fsproj");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                solutionLoader: null);
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = project });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+            await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+
+            var pingResolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "FsLib.Widget.ping" });
+            Assert.True(pingResolved.IsError is not true, InProcessMcpFixture.TextOf(pingResolved));
+            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(pingResolved).Handle;
+
+            foreach (var bad in new[] { "1bad", "a-b", "Foo.Bar", "let", " " })
+            {
+                var preview = await fx.Client.CallToolAsync(
+                    "symbol_preview_rename",
+                    new Dictionary<string, object?>
+                    {
+                        ["handle"] = handle,
+                        ["newName"] = bad
+                    });
+                Assert.True(preview.IsError is true, "accepted " + bad + " " + InProcessMcpFixture.TextOf(preview));
+                Assert.Equal(
+                    PolicyErrorCodes.InvalidRenameName,
+                    InProcessMcpFixture.Deserialize<PolicyErrorDto>(preview).Error);
+            }
+
+            var ok = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = handle,
+                    ["newName"] = "pong"
+                });
+            Assert.True(ok.IsError is not true, InProcessMcpFixture.TextOf(ok));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task workspace_open_fsproj_overload_members_have_distinct_handles()
     {
         var source = Path.Combine(FixturesRoot, "MixedCsharpVb", "FsLib");
