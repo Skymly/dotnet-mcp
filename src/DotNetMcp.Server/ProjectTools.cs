@@ -28,7 +28,7 @@ public sealed class ProjectTools
         _audit = audit;
     }
 
-    [McpServerTool(Name = "project_diagnostics"), Description(
+    [McpServerTool(Name = "project_diagnostics", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List compile errors and warnings for a projectId with forced pagination. " +
         "Soft time budget may truncate with nextCursor (do not restart from scratch). " +
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
@@ -68,7 +68,7 @@ public sealed class ProjectTools
         return McpToolEnvelope.OkResult(ToDto(success!));
     }
 
-    [McpServerTool(Name = "project_list_generators"), Description(
+    [McpServerTool(Name = "project_list_generators", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List source generators registered on a project (assembly name, type full name, version) " +
         "via AnalyzerReferences.GetGenerators — not FilePath heuristics. " +
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
@@ -110,7 +110,7 @@ public sealed class ProjectTools
         });
     }
 
-    [McpServerTool(Name = "project_list_generated_sources"), Description(
+    [McpServerTool(Name = "project_list_generated_sources", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List GeneratedSources for one source generator identity (HintName + content) with forced pagination. " +
         "HintName is not assumed unique across generators — filter by assemblyName + typeFullName. " +
         "Uses public GeneratorDriver reconciliation (ADR-0001 §6). Cursors bind to workspace epoch.")]
@@ -165,7 +165,7 @@ public sealed class ProjectTools
         });
     }
 
-    [McpServerTool(Name = "project_list_generator_diagnostics"), Description(
+    [McpServerTool(Name = "project_list_generator_diagnostics", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List diagnostics reported by one source generator identity (severity + message) with forced pagination. " +
         "Uses the attribution GeneratorDriver run result — distinct from project_diagnostics compile errors. " +
         "Filter by assemblyName + typeFullName from project_list_generators. Cursors bind to workspace epoch.")]
@@ -228,7 +228,7 @@ public sealed class ProjectTools
         });
     }
 
-    [McpServerTool(Name = "project_list_dynamic_invocations"), Description(
+    [McpServerTool(Name = "project_list_dynamic_invocations", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List dynamic invocation / member / indexer sites in a C# or VB project, with static receiver and argument types when Roslyn knows them. " +
         "This is an IOperation call-site listing — not SymbolAttribution. Soft budget and epoch cursors apply.")]
     public async Task<CallToolResult> ProjectListDynamicInvocations(

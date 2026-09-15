@@ -22,7 +22,7 @@
 
   <ItemGroup>
     <None Include="..\..\tests\fixtures\**\*"
-          Exclude="..\..\tests\fixtures\**\bin\**;\..\..\tests\fixtures\**\obj\**;\..\..\tests\fixtures\.gitignore"
+          Exclude="..\..\tests\fixtures\**\bin\**;..\..\tests\fixtures\**\obj\**;..\..\tests\fixtures\.gitignore"
           Link="fixtures\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

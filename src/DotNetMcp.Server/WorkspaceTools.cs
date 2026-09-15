@@ -18,7 +18,7 @@ public sealed class WorkspaceTools
         _audit = audit;
     }
 
-    [McpServerTool(Name = "workspace_open"), Description(
+    [McpServerTool(Name = "workspace_open", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false), Description(
         "Start loading a .NET solution/project into the single active workspace and return immediately. " +
         "For large repos prefer a .slnf or a single project file over a 150+ project solution; load does not compile all projects. Poll workspace_status until phase is ready (do not retry this tool while loading). " +
         "SECURITY: loading runs MSBuild evaluation and project-referenced analyzers/source generators — " +
@@ -95,7 +95,7 @@ public sealed class WorkspaceTools
         return McpToolEnvelope.OkResult(open);
     }
 
-    [McpServerTool(Name = "workspace_status"), Description(
+    [McpServerTool(Name = "workspace_status", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Poll the active workspace load. Returns phase, progress counters, warnings, and SuggestedAction. " +
         "While loading, keep polling this tool — do not retry workspace_open.")]
     public CallToolResult WorkspaceStatus(CancellationToken cancellationToken = default)
@@ -105,7 +105,7 @@ public sealed class WorkspaceTools
         return McpToolEnvelope.OkResult(_workspaceHost.GetStatus());
     }
 
-    [McpServerTool(Name = "workspace_list_projects"), Description(
+    [McpServerTool(Name = "workspace_list_projects", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List projects in the ready workspace as one row per ProjectId (multi-TFM appears as separate rows). " +
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead.")]
     public CallToolResult WorkspaceListProjects(CancellationToken cancellationToken = default)
@@ -125,7 +125,7 @@ public sealed class WorkspaceTools
         return McpToolEnvelope.OkResult(result);
     }
 
-    [McpServerTool(Name = "workspace_check_drift"), Description(
+    [McpServerTool(Name = "workspace_check_drift", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Compare tracked workspace documents to on-disk content (fallback when FileSystemWatcher misses a change). " +
         "Also detects project/solution file mtime changes. Repairs source-file content mismatches and advances the " +
         "workspace epoch; project/solution drifts require workspace_open. Fails with WorkspaceNotReady while loading.")]
