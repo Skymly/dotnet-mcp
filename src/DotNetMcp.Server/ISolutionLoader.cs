@@ -49,8 +49,12 @@ public sealed class LoadedSolution : IAsyncDisposable
             return false;
         }
 
-        var updated = Solution.WithDocumentText(documentId, text);
-        if (!_workspace.TryApplyChanges(updated))
+        var updated = Solution.GetDocument(documentId) is not null
+            ? Solution.WithDocumentText(documentId, text)
+            : Solution.GetAdditionalDocument(documentId) is not null
+                ? Solution.WithAdditionalDocumentText(documentId, text)
+                : null;
+        if (updated is null || !_workspace.TryApplyChanges(updated))
         {
             return false;
         }
@@ -69,7 +73,8 @@ public sealed class LoadedSolution : IAsyncDisposable
 
         foreach (var (path, documentId) in _docsByPath.ToArray())
         {
-            var document = Solution.GetDocument(documentId);
+            var document = (TextDocument?)Solution.GetDocument(documentId)
+                ?? Solution.GetAdditionalDocument(documentId);
             if (document is null)
             {
                 continue;
@@ -209,7 +214,9 @@ public sealed class LoadedSolution : IAsyncDisposable
                || ext.Equals(".vb", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".fs", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".fsi", StringComparison.OrdinalIgnoreCase)
-               || ext.Equals(".fsx", StringComparison.OrdinalIgnoreCase);
+               || ext.Equals(".fsx", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".axaml", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".xaml", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsWatchedFile(string path) =>
@@ -267,7 +274,7 @@ public sealed class LoadedSolution : IAsyncDisposable
         var map = new Dictionary<string, DocumentId>(PathPolicy.Comparer);
         foreach (var project in solution.Projects)
         {
-            foreach (var document in project.Documents)
+            foreach (var document in project.Documents.Concat<TextDocument>(project.AdditionalDocuments))
             {
                 if (string.IsNullOrWhiteSpace(document.FilePath))
                 {

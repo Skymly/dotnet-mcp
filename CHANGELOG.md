@@ -19,6 +19,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - Query tools suggest `workspace_open` when idle and do not tell the agent to poll forever when failed (`#264`)
 - `symbol_resolve` without `projectId` no longer early-exits on a warm unique hit, and a soft-budget miss is `SoftBudgetExceeded` not `SymbolNotFound` (`#259`)
 - Page cursors bind tool + query identity; exhausted pages do not emit `nextCursor` even when the soft budget hit (`#260`)
+- Malformed XAML is `XamlParseError`; sibling `x:DataType` no longer leaks; `.axaml`/`.xaml` disk edits advance epoch (`#262`)
 
 ## 4.0.1 - 2026-09-12
 

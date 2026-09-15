@@ -67,6 +67,67 @@ public class XamlWorkspaceSnapshotSeamTests
         }
     }
 
+    [Fact]
+    public async Task axaml_disk_edit_advances_epoch_and_xaml_tools_see_new_text()
+    {
+        var root = CreateTempDir("watch");
+        var solution = Path.Combine(root, "App.slnx");
+        var axaml = Path.Combine(root, "MainWindow.axaml");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        await File.WriteAllTextAsync(axaml, """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:SampleApp"
+                    x:Class="SampleApp.MainWindow">
+                <TextBlock Text="old" />
+            </Window>
+            """);
+        var watcher = new ManualWorkspaceFileWatcher();
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithAvalonia(),
+                new WorkspaceHostOptions
+                {
+                    Debounce = TimeSpan.Zero,
+                    FileWatcher = watcher
+                });
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var epochBefore = fx.WorkspaceHost.CurrentEpoch;
+
+            var before = await fx.Client.CallToolAsync(
+                "xaml_diagnostics",
+                new Dictionary<string, object?> { ["path"] = axaml });
+            Assert.True(before.IsError is not true, InProcessMcpFixture.TextOf(before));
+            var beforeBody = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(before);
+            Assert.DoesNotContain(beforeBody.Items, i => i.Message.Contains("DiskOnlyControl", StringComparison.Ordinal));
+
+            await File.WriteAllTextAsync(axaml, """
+                <Window xmlns="https://github.com/avaloniaui"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                        xmlns:local="using:SampleApp"
+                        x:Class="SampleApp.MainWindow">
+                    <local:DiskOnlyControl />
+                </Window>
+                """);
+            watcher.Raise(axaml);
+            Assert.True(fx.WorkspaceHost.CurrentEpoch > epochBefore);
+
+            var after = await fx.Client.CallToolAsync(
+                "xaml_diagnostics",
+                new Dictionary<string, object?> { ["path"] = axaml });
+            Assert.True(after.IsError is not true, InProcessMcpFixture.TextOf(after));
+            var afterBody = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(after);
+            Assert.Contains(afterBody.Items, i => i.Id == "XAML0001" && i.Message.Contains("DiskOnlyControl", StringComparison.Ordinal));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-xaml-snap-{label}-{Guid.NewGuid():N}");

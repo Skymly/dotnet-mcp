@@ -183,6 +183,41 @@ public class XamlDocumentServiceTests
     }
 
     [Fact]
+    public async Task resolve_class_malformed_xml_is_parse_error()
+    {
+        using var workspace = AvaloniaWorkspace("<Window xmlns=broken");
+        using var session = new FakeSession(workspace);
+        var (_, xamlError, symbolError) = await Service().ResolveClassAsync(session, AxamlPath);
+        Assert.Null(symbolError);
+        Assert.IsType<XamlParseError>(xamlError);
+    }
+
+    [Fact]
+    public async Task get_diagnostics_sibling_data_type_does_not_leak()
+    {
+        const string axaml = """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:SampleApp"
+                    x:Class="SampleApp.MainWindow">
+                <StackPanel x:DataType="local:Customer">
+                    <TextBlock Text="{Binding Name}" />
+                </StackPanel>
+                <StackPanel x:DataType="local:Address">
+                    <TextBlock Text="{Binding City}" />
+                </StackPanel>
+            </Window>
+            """;
+        using var workspace = AvaloniaWorkspace(axaml);
+        using var session = new FakeSession(workspace);
+        var (page, xamlError, symbolError) = await Service().GetDiagnosticsAsync(session, AxamlPath);
+        Assert.Null(xamlError);
+        Assert.Null(symbolError);
+        Assert.NotNull(page);
+        Assert.DoesNotContain(page!.Items, i => i.Id == "XAML0003");
+    }
+
+    [Fact]
     public async Task get_diagnostics_returns_a_page()
     {
         using var workspace = AvaloniaWorkspace(AvaloniaWindowWithBinding());

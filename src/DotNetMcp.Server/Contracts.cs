@@ -38,6 +38,7 @@ public static class PolicyErrorCodes
     public const string BindingPropertyNotFound = "BindingPropertyNotFound";
     public const string BindingTypeMismatch = "BindingTypeMismatch";
     public const string MissingDataType = "MissingDataType";
+    public const string XamlParseError = "XamlParseError";
     public const string GeneratedSymbolRenameRefused = "GeneratedSymbolRenameRefused";
     public const string RenameLanguageNotSupported = "RenameLanguageNotSupported";
     public const string InvalidRenameName = "InvalidRenameName";
