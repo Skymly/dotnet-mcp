@@ -17,7 +17,7 @@ public class P0ExitGateSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithHierarchy());
 
             var open = await fx.Client.CallToolAsync(
@@ -91,7 +91,7 @@ public class P0ExitGateSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             var open = await fx.Client.CallToolAsync(
@@ -164,7 +164,7 @@ public class P0ExitGateSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithSymbolsOnDisk(projectDir));
 
             var open = await fx.Client.CallToolAsync(

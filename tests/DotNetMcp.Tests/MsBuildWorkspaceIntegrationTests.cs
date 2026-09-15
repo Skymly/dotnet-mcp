@@ -446,6 +446,57 @@ public class MsBuildWorkspaceIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task workspace_open_msbuild_analyzer_outside_roots_is_loaded_graph_error()
+    {
+        var root = CreateTempDir("genhost-in");
+        var outside = CreateTempDir("genhost-out");
+        var dllSrc = Path.Combine(AppContext.BaseDirectory, "CustomGenerator.dll");
+        Assert.True(File.Exists(dllSrc), $"Missing CustomGenerator.dll next to tests: {dllSrc}");
+        var outsideDll = Path.Combine(outside, "CustomGenerator.dll");
+        File.Copy(dllSrc, outsideDll);
+
+        var project = Path.Combine(root, "Host.csproj");
+        var include = outsideDll.Replace("&", "&amp;", StringComparison.Ordinal);
+        await File.WriteAllTextAsync(project, $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+              <ItemGroup>
+                <Analyzer Include="{include}" />
+              </ItemGroup>
+            </Project>
+            """);
+        await File.WriteAllTextAsync(Path.Combine(root, "Placeholder.cs"), """
+            namespace Host;
+            public static class Placeholder
+            {
+            }
+            """);
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = project });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+            var status = await WaitUntilFailedAsync(fx, WorkspaceReady.MsBuildTimeout);
+            Assert.Equal(PolicyErrorCodes.LoadedGraphOutsideTrustedRoots, status.ErrorCode);
+            Assert.DoesNotContain(outsideDll, status.Error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            TryDelete(root);
+            TryDelete(outside);
+        }
+    }
+
 
     [Fact]
     public async Task workspace_open_fsproj_rename_rejects_illegal_identifiers()
@@ -807,6 +858,28 @@ public class MsBuildWorkspaceIntegrationTests
         var stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
         Assert.True(process.ExitCode == 0, stdout + stderr);
+    }
+
+    private static async Task<WorkspaceStatusDto> WaitUntilFailedAsync(
+        InProcessMcpFixture fx,
+        TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        WorkspaceStatusDto? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            var poll = await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
+            Assert.True(poll.IsError is not true, InProcessMcpFixture.TextOf(poll));
+            last = InProcessMcpFixture.Deserialize<WorkspaceStatusDto>(poll);
+            if (last.Phase == "failed")
+            {
+                return last;
+            }
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException($"workspace did not fail: phase={last?.Phase} error={last?.Error} code={last?.ErrorCode}");
     }
 
     private static string CreateTempDir(string label)

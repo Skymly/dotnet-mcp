@@ -15,7 +15,7 @@ public class VbRenameSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithVbRenameOnDisk(projectDir));
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -72,7 +72,7 @@ public class VbRenameSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var preview = await fx.Client.CallToolAsync(
@@ -103,7 +103,7 @@ public class VbRenameSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);

@@ -24,7 +24,7 @@ public static class MsBuildBootstrap
 
             if (!MSBuildLocator.IsRegistered)
             {
-                var sdkDir = TryFindNewestDotNetSdk();
+                var sdkDir = TryFindNewestSdkDirectory();
                 if (sdkDir is not null)
                 {
                     MSBuildLocator.RegisterMSBuildPath(sdkDir);
@@ -46,7 +46,10 @@ public static class MsBuildBootstrap
         }
     }
 
-    private static string? TryFindNewestDotNetSdk()
+    /// <summary>
+    /// Newest SDK version directory (<c>.../dotnet/sdk/x.y.z</c>), or null.
+    /// </summary>
+    internal static string? TryFindNewestSdkDirectory()
     {
         var roots = new[]
         {
@@ -77,6 +80,20 @@ public static class MsBuildBootstrap
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Dotnet install root (parent of <c>sdk</c>), derived from <see cref="TryFindNewestSdkDirectory"/>.
+    /// </summary>
+    internal static string? TryGetDotNetInstallRoot()
+    {
+        var sdkVersionDir = TryFindNewestSdkDirectory();
+        if (sdkVersionDir is null)
+        {
+            return null;
+        }
+
+        return Directory.GetParent(sdkVersionDir)?.Parent?.FullName;
     }
 
     private static Version? ParseSdkVersion(string? name)

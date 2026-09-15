@@ -28,7 +28,7 @@ public class P1ExitGateSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithAvalonia());
 
             var open = await fx.Client.CallToolAsync(

@@ -15,7 +15,7 @@ public class CodeRefactoringSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithEncapsulateFieldOnDisk(projectDir));
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -40,7 +40,7 @@ public class CodeRefactoringSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithEncapsulateFieldOnDisk(projectDir));
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -69,7 +69,7 @@ public class CodeRefactoringSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithEncapsulateFieldOnDisk(projectDir));
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -111,7 +111,7 @@ public class CodeRefactoringSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithFsharpSymbols(root));
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -141,7 +141,7 @@ public class CodeRefactoringSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithVbEncapsulateFieldOnDisk(projectDir));
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -179,7 +179,7 @@ public class CodeRefactoringSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -208,7 +208,7 @@ public class CodeRefactoringSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);

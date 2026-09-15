@@ -23,7 +23,7 @@ public class XamlResolveNameSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithAvalonia());
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
@@ -85,7 +85,7 @@ public class XamlResolveNameSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithAvalonia());
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 

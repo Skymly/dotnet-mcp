@@ -28,7 +28,7 @@ public class XamlDiagnosticsSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithAvalonia());
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
@@ -69,7 +69,7 @@ public class XamlDiagnosticsSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithAvalonia());
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
@@ -109,7 +109,7 @@ public class XamlDiagnosticsSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithAvalonia());
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
@@ -146,7 +146,7 @@ public class XamlDiagnosticsSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithAvalonia(),
                 softBudgetOptions: new SoftBudgetOptions { SingleProjectCompile = TimeSpan.Zero });
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);

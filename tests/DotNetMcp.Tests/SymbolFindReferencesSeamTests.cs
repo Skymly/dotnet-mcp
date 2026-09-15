@@ -15,7 +15,7 @@ public class SymbolFindReferencesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithFindRefsGraph());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -53,7 +53,7 @@ public class SymbolFindReferencesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithFindRefsGraph());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -93,7 +93,7 @@ public class SymbolFindReferencesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithFindRefsGraph());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -149,7 +149,7 @@ public class SymbolFindReferencesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithFindRefsGraph());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -193,7 +193,7 @@ public class SymbolFindReferencesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 new FakeSolutionLoader(
                     TimeSpan.FromMilliseconds(1000),
                     () => FakeSolutionLoader.CreateFindRefsGraphLoaded()));
@@ -233,7 +233,7 @@ public class SymbolFindReferencesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);

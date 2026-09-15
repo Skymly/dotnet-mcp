@@ -25,6 +25,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - F# compiler args include `MetadataReferences` and project-reference output paths so real `.fsproj` graphs are not FS0039 (`#248`)
 - All 31 tools declare MCP annotations (`readOnly` / `destructive` / `idempotent` / `openWorld=false`) (`#263`)
 
+### Security
+
+- Graph gate checks AnalyzerReferences against trusted roots plus dotnet / NuGet toolchain roots; MetadataReferences stay unchecked (read-only metadata) (`#254`)
+
 ## 4.0.1 - 2026-09-12
 
 Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended NuGet publish of **`Skymly.DotNetMcp`**.

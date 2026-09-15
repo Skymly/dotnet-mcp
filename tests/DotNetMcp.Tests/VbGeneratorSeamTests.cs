@@ -15,7 +15,7 @@ public class VbGeneratorSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -48,7 +48,7 @@ public class VbGeneratorSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -97,7 +97,7 @@ public class VbGeneratorSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
