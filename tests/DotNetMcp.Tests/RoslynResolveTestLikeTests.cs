@@ -57,6 +57,38 @@ public class RoslynResolveTestLikeTests
         Assert.Equal("TestOnly", success!.Summary.DisplayName);
     }
 
+    [Fact]
+    public async Task resolve_soft_budget_without_hits_is_soft_budget_exceeded()
+    {
+        using var workspace = CreateContestWorkspace();
+        var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+        var adapter = new RoslynLanguageAdapter(
+            new GeneratorQueryService(),
+            new SoftBudgetOptions { SingleProjectCompile = TimeSpan.Zero });
+
+        var (_, error) = await adapter.ResolveByNameAsync(session, "DoesNotExist");
+        Assert.IsType<SoftBudgetExceededError>(error);
+    }
+
+    [Fact]
+    public async Task resolve_same_name_in_two_main_projects_is_ambiguous_cold_and_warm()
+    {
+        using var workspace = CreateTwoMainWorkspace();
+        var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+        var lru = new CompilationLru(50);
+        using var session = new WorkspaceSession(loaded, epoch: 1, compilationLru: lru);
+        var adapter = new RoslynLanguageAdapter(new GeneratorQueryService());
+
+        var (_, coldError) = await adapter.ResolveByNameAsync(session, "Marker");
+        Assert.IsType<SymbolAmbiguousError>(coldError);
+
+        var first = workspace.CurrentSolution.Projects.First();
+        await session.GetCompilationAsync(first.Id);
+        var (_, warmError) = await adapter.ResolveByNameAsync(session, "Marker");
+        Assert.IsType<SymbolAmbiguousError>(warmError);
+    }
+
     private static string ProjectName(Solution solution, string handle)
     {
         Assert.True(SymbolHandle.TryParse(handle, out var parsed, out _));
@@ -79,6 +111,25 @@ public class RoslynResolveTestLikeTests
         solution = solution.AddMetadataReference(testsId, mscorlib);
         solution = solution.WithProjectCompilationOptions(contestId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         solution = solution.WithProjectCompilationOptions(testsId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        Assert.True(workspace.TryApplyChanges(solution));
+        return workspace;
+    }
+
+    private static AdhocWorkspace CreateTwoMainWorkspace()
+    {
+        var workspace = new AdhocWorkspace();
+        var alphaId = ProjectId.CreateNewId();
+        var betaId = ProjectId.CreateNewId();
+        var mscorlib = MetadataReference.CreateFromFile(typeof(object).Assembly.Location);
+        var solution = workspace.CurrentSolution
+            .AddProject(ProjectInfo.Create(alphaId, VersionStamp.Create(), "LibA", "LibA", LanguageNames.CSharp))
+            .AddProject(ProjectInfo.Create(betaId, VersionStamp.Create(), "LibB", "LibB", LanguageNames.CSharp));
+        solution = solution.AddDocument(DocumentId.CreateNewId(alphaId), "Marker.cs", SourceText.From("public class Marker {}"));
+        solution = solution.AddDocument(DocumentId.CreateNewId(betaId), "Marker.cs", SourceText.From("public class Marker {}"));
+        solution = solution.AddMetadataReference(alphaId, mscorlib);
+        solution = solution.AddMetadataReference(betaId, mscorlib);
+        solution = solution.WithProjectCompilationOptions(alphaId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.WithProjectCompilationOptions(betaId, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         Assert.True(workspace.TryApplyChanges(solution));
         return workspace;
     }

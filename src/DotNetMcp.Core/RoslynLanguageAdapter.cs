@@ -65,9 +65,10 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
         var query = name.Trim();
         var matches = new List<(Project Project, ISymbol Symbol)>();
+        var timedOut = false;
         if (string.IsNullOrWhiteSpace(projectId))
         {
-            await CollectResolveMatchesAsync(session, projects, query, matches, cancellationToken)
+            timedOut = await CollectResolveMatchesAsync(session, projects, query, matches, cancellationToken)
                 .ConfigureAwait(false);
         }
         else
@@ -82,6 +83,13 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
         if (matches.Count == 0)
         {
+            if (timedOut)
+            {
+                return (null, new SoftBudgetExceededError(
+                    $"Timed out while resolving '{name}' before any match was found.",
+                    "Pass projectId from workspace_list_projects, or retry symbol_resolve."));
+            }
+
             return (null, new SymbolNotFoundError(
                 $"No symbol named '{name}' was found in the ready workspace.",
                 "Confirm the name/FQN, or pass projectId from workspace_list_projects, then call symbol_resolve again."));
@@ -563,7 +571,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         roslynLanguage is LanguageNames.CSharp or LanguageNames.VisualBasic;
 
 
-    private async Task CollectResolveMatchesAsync(
+    private async Task<bool> CollectResolveMatchesAsync(
         IWorkspaceSession session,
         IReadOnlyList<Project> projects,
         string query,
@@ -589,17 +597,21 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         }
 
         AddWarmResolveMatches(cache, warmMain, query, matches);
-        if (TryFinishResolve(matches))
-        {
-            return;
-        }
 
         var segment = query.Split('.', 2)[0];
         var named = remainingMain.Where(p => ProjectNameLooksLike(p, segment)).ToList();
         var rest = remainingMain.Except(named).ToList();
 
         using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        budgetCts.CancelAfter(_softBudgets.SingleProjectCompile);
+        if (_softBudgets.SingleProjectCompile <= TimeSpan.Zero)
+        {
+            budgetCts.Cancel();
+        }
+        else
+        {
+            budgetCts.CancelAfter(_softBudgets.SingleProjectCompile);
+        }
+
         try
         {
             foreach (var project in named.Concat(rest))
@@ -607,32 +619,23 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 budgetCts.Token.ThrowIfCancellationRequested();
                 await AddResolveMatchesAsync(session, project, query, matches, budgetCts.Token)
                     .ConfigureAwait(false);
-                if (TryFinishResolve(matches))
-                {
-                    return;
-                }
             }
 
             AddWarmResolveMatches(cache, warmTestLike, query, matches);
-            if (TryFinishResolve(matches))
-            {
-                return;
-            }
 
             foreach (var project in remainingTestLike)
             {
                 budgetCts.Token.ThrowIfCancellationRequested();
                 await AddResolveMatchesAsync(session, project, query, matches, budgetCts.Token)
                     .ConfigureAwait(false);
-                if (TryFinishResolve(matches))
-                {
-                    return;
-                }
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            return true;
         }
+
+        return false;
     }
 
     private static void AddWarmResolveMatches(
@@ -681,20 +684,6 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         {
             matches.Add((project, symbol));
         }
-    }
-
-    private static bool TryFinishResolve(List<(Project Project, ISymbol Symbol)> matches)
-    {
-        if (matches.Count == 0)
-        {
-            return false;
-        }
-
-        var sourceDefining = matches
-            .Where(m => m.Symbol.Locations.Any(static l => l.IsInSource))
-            .DistinctBy(m => (m.Project.Id.Id, SymbolKey(m.Symbol)))
-            .ToList();
-        return sourceDefining.Count == 1;
     }
 
     private static bool ProjectNameLooksLike(Project project, string segment) =>
