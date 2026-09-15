@@ -22,6 +22,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - Malformed XAML is `XamlParseError`; sibling `x:DataType` no longer leaks; `.axaml`/`.xaml` disk edits advance epoch (`#262`)
 - Partial types attribute every declaring tree; handwritten origin survives generator-driver failures; find-refs scans source-generated documents (`#256`, `#257`, `#258`)
 - Apply serializes `WriteDeclaredPaths` so a failing rollback cannot clobber a winning write (`#261`)
+- F# compiler args include `MetadataReferences` and project-reference output paths so real `.fsproj` graphs are not FS0039 (`#248`)
 
 ## 4.0.1 - 2026-09-12
 

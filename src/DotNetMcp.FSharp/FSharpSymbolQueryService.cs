@@ -328,7 +328,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             Path.GetDirectoryName(sources[0].Path) ?? Path.GetTempPath(),
             project.Name + ".fsproj");
         var dllName = Path.ChangeExtension(projectFile, ".dll");
-        var argv = BuildCompilerArgs(dllName, sources.Select(s => s.Path), project.Defines);
+        var argv = BuildCompilerArgs(dllName, sources.Select(s => s.Path), project.Defines, project.References);
         var options = _checker.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
         foreach (var (path, sourceText) in sources)
         {
@@ -753,7 +753,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     private static string[] BuildCompilerArgs(
         string dllName,
         IEnumerable<string> sourceFiles,
-        IEnumerable<string>? defines = null)
+        IEnumerable<string>? defines = null,
+        IEnumerable<string>? extraReferences = null)
     {
         var args = new List<string>
         {
@@ -776,8 +777,14 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             }
         }
 
-        foreach (var reference in CompilerReferences())
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in CompilerReferences().Concat(extraReferences ?? []))
         {
+            if (string.IsNullOrWhiteSpace(reference) || !seen.Add(reference))
+            {
+                continue;
+            }
+
             args.Add("-r:" + reference);
         }
 

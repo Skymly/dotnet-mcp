@@ -28,13 +28,15 @@ public sealed class FSharpProjectSnapshot
         string name,
         string? filePath,
         IReadOnlyList<FSharpDocumentSnapshot> documents,
-        IReadOnlyList<string>? defines = null)
+        IReadOnlyList<string>? defines = null,
+        IReadOnlyList<string>? references = null)
     {
         ProjectId = projectId;
         Name = name;
         FilePath = filePath;
         Documents = documents;
         Defines = defines ?? [];
+        References = references ?? [];
     }
 
     public string ProjectId { get; }
@@ -46,6 +48,8 @@ public sealed class FSharpProjectSnapshot
     public IReadOnlyList<FSharpDocumentSnapshot> Documents { get; }
 
     public IReadOnlyList<string> Defines { get; }
+
+    public IReadOnlyList<string> References { get; }
 }
 
 public sealed class FSharpDocumentSnapshot

@@ -726,6 +726,89 @@ public class MsBuildWorkspaceIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task workspace_open_fsproj_with_project_reference_resolves_without_fs0039()
+    {
+        var source = Path.Combine(FixturesRoot, "FsharpProjectRef");
+        Assert.True(Directory.Exists(source), $"Missing fixture: {source}");
+        var root = CreateTempDir("fs-refs");
+        CopyDirectory(source, root);
+        var csproj = Path.Combine(root, "CsDep", "CsDep.csproj");
+        var fsproj = Path.Combine(root, "FsApp", "FsApp.fsproj");
+        try
+        {
+            RunDotnetBuild(fsproj);
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                solutionLoader: null);
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = fsproj });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+            await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+
+            var list = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(list.IsError is not true, InProcessMcpFixture.TextOf(list));
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var fsId = Assert.Single(projects.Projects, p =>
+                p.Name.Contains("FsApp", StringComparison.OrdinalIgnoreCase)).ProjectId;
+
+            var diags = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?> { ["projectId"] = fsId });
+            Assert.True(diags.IsError is not true, InProcessMcpFixture.TextOf(diags));
+            var page = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(diags);
+            Assert.DoesNotContain(page.Items, d =>
+                d.Id.Contains("FS0039", StringComparison.OrdinalIgnoreCase) ||
+                d.Message.Contains("CsDep", StringComparison.Ordinal));
+
+            var resolved = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "FsApp.Use.take" });
+            Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    private static void CopyDirectory(string source, string dest)
+    {
+        foreach (var dir in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+        {
+            Directory.CreateDirectory(dir.Replace(source, dest, StringComparison.OrdinalIgnoreCase));
+        }
+
+        foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var target = file.Replace(source, dest, StringComparison.OrdinalIgnoreCase);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, overwrite: true);
+        }
+    }
+
+    private static void RunDotnetBuild(string project)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "dotnet",
+            Arguments = $"build \"{project}\" -c Release --nologo",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        using var process = System.Diagnostics.Process.Start(start);
+        Assert.NotNull(process);
+        var stdout = process!.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, stdout + stderr);
+    }
+
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-{label}-{Guid.NewGuid():N}");
