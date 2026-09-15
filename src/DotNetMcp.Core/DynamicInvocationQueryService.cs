@@ -130,6 +130,7 @@ public sealed class DynamicInvocationQueryService
             cursor,
             pageLimit,
             "project_list_dynamic_invocations",
+            projectId,
             "Project has no dynamic invocation sites.",
             "Dynamic invocation page complete.",
             "the dynamic invocation list");

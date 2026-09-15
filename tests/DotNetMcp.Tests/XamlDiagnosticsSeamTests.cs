@@ -82,7 +82,7 @@ public class XamlDiagnosticsSeamTests
             Assert.False(string.IsNullOrWhiteSpace(body.NextCursor));
             Assert.Equal(2, body.Items.Count);
 
-            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0);
+            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0, tool: "xaml_diagnostics", queryId: axaml);
             var staleResult = await fx.Client.CallToolAsync(
                 "xaml_diagnostics",
                 new Dictionary<string, object?> { ["path"] = axaml, ["cursor"] = stale });
@@ -128,8 +128,8 @@ public class XamlDiagnosticsSeamTests
 
             Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
             var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(result);
-            Assert.True(body.Truncated);
-            Assert.False(string.IsNullOrWhiteSpace(body.NextCursor));
+            Assert.False(body.Truncated);
+            Assert.True(string.IsNullOrWhiteSpace(body.NextCursor));
             Assert.DoesNotContain("hard", body.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally

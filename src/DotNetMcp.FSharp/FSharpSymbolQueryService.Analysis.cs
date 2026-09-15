@@ -61,7 +61,7 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        return Page(hits, session.Epoch, entireSolution, pageLimit, cursor, "symbol_find_references", truncatedByBudget);
+        return Page(hits, session.Epoch, entireSolution, pageLimit, cursor, "symbol_find_references", handle, truncatedByBudget);
     }
 
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
@@ -99,7 +99,7 @@ public sealed partial class FSharpSymbolQueryService
             })
             .ToList();
 
-        return Page(impls, session.Epoch, pageLimit: limit, cursor, "symbol_find_implementations",
+        return Page(impls, session.Epoch, pageLimit: limit, cursor, "symbol_find_implementations", handle,
             emptyMessage: "No implementations were found.");
     }
 
@@ -148,7 +148,7 @@ public sealed partial class FSharpSymbolQueryService
             chain.Add(new HierarchyItem(HierarchyRelationKind.Interface, success.Handle, success.Summary));
         }
 
-        return Page(chain, session.Epoch, pageLimit: limit, cursor, "symbol_type_hierarchy",
+        return Page(chain, session.Epoch, pageLimit: limit, cursor, "symbol_type_hierarchy", handle,
             emptyMessage: "Type has no base types or interfaces.");
     }
 
@@ -224,7 +224,7 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        return Page(hits, session.Epoch, limit, cursor, "symbol_find_callers", "No callers were found.", truncatedByBudget);
+        return Page(hits, session.Epoch, limit, cursor, "symbol_find_callers", handle, "No callers were found.", truncatedByBudget);
     }
 
     private async Task<(FSharpCatalogItem? Item, FSharpProjectSnapshot? Project, FSharpCheckProjectResults? Check, SymbolQueryError? Error)>
@@ -402,6 +402,7 @@ public sealed partial class FSharpSymbolQueryService
         int? pageLimit,
         string? cursor,
         string tool,
+        string queryId,
         string emptyMessage,
         bool truncatedByBudget = false)
     {
@@ -415,8 +416,10 @@ public sealed partial class FSharpSymbolQueryService
             cursor,
             limit,
             tool,
+            queryId,
             emptyMessage,
-            "Page complete.");
+            "Page complete.",
+            scanIncomplete: truncatedByBudget);
     }
 
     private static (PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error) Page(
@@ -426,6 +429,7 @@ public sealed partial class FSharpSymbolQueryService
         int pageLimit,
         string? cursor,
         string tool,
+        string queryId,
         bool truncatedByBudget = false)
     {
         return SoftBudgetPage.PageFindRefs(
@@ -436,7 +440,9 @@ public sealed partial class FSharpSymbolQueryService
             cursor,
             pageLimit,
             tool,
+            queryId,
             "No references were found.",
-            "Page complete.");
+            "Page complete.",
+            scanIncomplete: truncatedByBudget);
     }
 }

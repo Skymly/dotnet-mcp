@@ -13,11 +13,13 @@ public static class SoftBudgetPage
         string? cursor,
         int pageLimit,
         string tool,
+        string queryId,
         string emptyMessage,
         string completeMessage,
-        string pastEndNoun = "the result list")
+        string pastEndNoun = "the result list",
+        bool scanIncomplete = false)
     {
-        if (!TryReadOffset(cursor, epoch, tool, out var offset, out var error))
+        if (!TryReadOffset(cursor, epoch, tool, queryId, out var offset, out var error))
         {
             return (null, error);
         }
@@ -32,9 +34,9 @@ public static class SoftBudgetPage
         var next = offset + slice.Count;
         return (Finish(
             slice,
-            moreItems: next < items.Count,
+            moreItems: next < items.Count || scanIncomplete,
             budgetHit,
-            () => MemberPageCursor.Encode(epoch, next),
+            () => MemberPageCursor.Encode(epoch, next, tool, queryId),
             tool,
             items.Count == 0 ? emptyMessage : completeMessage), null);
     }
@@ -47,10 +49,12 @@ public static class SoftBudgetPage
         string? cursor,
         int pageLimit,
         string tool,
+        string queryId,
         string emptyMessage,
-        string completeMessage)
+        string completeMessage,
+        bool scanIncomplete = false)
     {
-        if (!TryReadFindRefs(cursor, epoch, entireSolution, tool, out var docIndex, out var locOffset, out var error))
+        if (!TryReadFindRefs(cursor, epoch, entireSolution, tool, queryId, out var docIndex, out var locOffset, out var error))
         {
             return (null, error);
         }
@@ -66,9 +70,9 @@ public static class SoftBudgetPage
         var next = offset + slice.Count;
         return (Finish(
             slice,
-            moreItems: next < items.Count,
+            moreItems: next < items.Count || scanIncomplete,
             budgetHit,
-            () => FindRefsPageCursor.Encode(epoch, entireSolution, next, 0),
+            () => FindRefsPageCursor.Encode(epoch, entireSolution, next, 0, tool, queryId),
             tool,
             items.Count == 0 ? emptyMessage : completeMessage), null);
     }
@@ -111,6 +115,7 @@ public static class SoftBudgetPage
         string? cursor,
         long epoch,
         string tool,
+        string queryId,
         out int offset,
         out SymbolQueryError? error)
     {
@@ -121,7 +126,8 @@ public static class SoftBudgetPage
             return true;
         }
 
-        if (!MemberPageCursor.TryDecode(cursor, out var cursorEpoch, out offset, out var cursorError))
+        if (!MemberPageCursor.TryDecode(
+                cursor, out var cursorEpoch, out offset, out var cursorTool, out var cursorQuery, out var cursorError))
         {
             error = new StaleCursorError(
                 cursorError ?? "Cursor is invalid.",
@@ -139,6 +145,13 @@ public static class SoftBudgetPage
             return false;
         }
 
+        if (!SameQuery(cursorTool, cursorQuery, tool, queryId))
+        {
+            error = MismatchedQuery(tool);
+            offset = 0;
+            return false;
+        }
+
         return true;
     }
 
@@ -147,6 +160,7 @@ public static class SoftBudgetPage
         long epoch,
         bool entireSolution,
         string tool,
+        string queryId,
         out int docIndex,
         out int locOffset,
         out SymbolQueryError? error,
@@ -166,6 +180,8 @@ public static class SoftBudgetPage
                 out var cursorEntire,
                 out docIndex,
                 out locOffset,
+                out var cursorTool,
+                out var cursorQuery,
                 out var cursorError))
         {
             error = new StaleCursorError(
@@ -183,6 +199,14 @@ public static class SoftBudgetPage
                     ? $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}."
                     : scopeMismatchMessage ?? "Cursor does not match the current workspace epoch or scope.",
                 $"Call {tool} again without a cursor; do not retry with the stale cursor.");
+            docIndex = 0;
+            locOffset = 0;
+            return false;
+        }
+
+        if (!SameQuery(cursorTool, cursorQuery, tool, queryId))
+        {
+            error = MismatchedQuery(tool);
             docIndex = 0;
             locOffset = 0;
             return false;
@@ -252,7 +276,7 @@ public static class SoftBudgetPage
         string tool,
         string doneMessage)
     {
-        var truncated = moreItems || budgetHit;
+        var truncated = moreItems;
         return new PagedResult<T>(
             slice,
             truncated,
@@ -268,4 +292,13 @@ public static class SoftBudgetPage
         new(
             $"Cursor offset is past the end of {noun}.",
             $"Call {tool} again without a cursor to start a fresh page.");
+
+    private static bool SameQuery(string cursorTool, string cursorQuery, string tool, string queryId) =>
+        string.Equals(cursorTool, tool, StringComparison.Ordinal) &&
+        string.Equals(cursorQuery, queryId ?? string.Empty, StringComparison.Ordinal);
+
+    private static StaleCursorError MismatchedQuery(string tool) =>
+        new(
+            "Cursor was issued for a different tool or symbol/query.",
+            $"Call {tool} again without a cursor; do not reuse a cursor from another handle or tool.");
 }

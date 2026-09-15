@@ -218,6 +218,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             cursor,
             pageLimit,
             "symbol_members",
+            handle,
             "Type has no members.",
             "Member page complete.",
             "the member list");

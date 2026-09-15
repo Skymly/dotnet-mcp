@@ -197,7 +197,7 @@ public class SymbolGotoMembersSeamTests
             var ok = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved);
 
             // Epoch 1 is used after first successful load; forge cursor with epoch 999.
-            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0);
+            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0, tool: "symbol_members", queryId: ok.Handle);
 
             var members = await fx.Client.CallToolAsync(
                 "symbol_members",

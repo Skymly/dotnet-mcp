@@ -200,8 +200,8 @@ public class FSharpSymbolQueryServiceTests
         using var session = Session(WidgetSnapshot(), epoch: 1);
         var adapter = Adapter();
         var (resolved, _) = await adapter.ResolveByNameAsync(session, "Gadget");
-        var cursor = MemberPageCursor.Encode(99, 0);
-        var (_, error) = await adapter.GetMembersAsync(session, resolved!.Handle, cursor: cursor);
+        var cursor = MemberPageCursor.Encode(99, 0, "symbol_members", resolved!.Handle);
+        var (_, error) = await adapter.GetMembersAsync(session, resolved.Handle, cursor: cursor);
         Assert.IsType<StaleCursorError>(error);
     }
 
@@ -211,8 +211,8 @@ public class FSharpSymbolQueryServiceTests
         using var session = Session(WidgetSnapshot(), epoch: 1);
         var adapter = Adapter();
         var (resolved, _) = await adapter.ResolveByNameAsync(session, "Gadget");
-        var cursor = MemberPageCursor.Encode(1, 999);
-        var (_, error) = await adapter.GetMembersAsync(session, resolved!.Handle, cursor: cursor);
+        var cursor = MemberPageCursor.Encode(1, 999, "symbol_members", resolved!.Handle);
+        var (_, error) = await adapter.GetMembersAsync(session, resolved.Handle, cursor: cursor);
         Assert.IsType<StaleCursorError>(error);
     }
 
@@ -258,7 +258,7 @@ public class FSharpSymbolQueryServiceTests
     public async Task get_project_diagnostics_wrong_epoch_cursor_is_stale()
     {
         using var session = Session(BrokenSnapshot(), epoch: 1);
-        var cursor = MemberPageCursor.Encode(99, 0);
+        var cursor = MemberPageCursor.Encode(99, 0, "project_diagnostics", FsProjectId);
         var (_, error) = await Adapter().GetProjectDiagnosticsAsync(session, FsProjectId, cursor: cursor);
         Assert.IsType<StaleCursorError>(error);
     }

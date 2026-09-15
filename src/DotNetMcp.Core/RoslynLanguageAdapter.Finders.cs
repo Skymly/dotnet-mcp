@@ -29,6 +29,7 @@ public sealed partial class RoslynLanguageAdapter
                 cursor,
                 epoch,
                 "symbol_find_implementations",
+                handle,
                 out var offset,
                 out var cursorError))
         {
@@ -100,7 +101,7 @@ public sealed partial class RoslynLanguageAdapter
             items,
             moreItems: nextOffset < ordered.Count,
             budgetHit: false,
-            () => MemberPageCursor.Encode(epoch, nextOffset),
+            () => MemberPageCursor.Encode(epoch, nextOffset, "symbol_find_implementations", handle),
             "symbol_find_implementations",
             ordered.Count == 0
                 ? "No implementations or derived types found."
@@ -153,6 +154,7 @@ public sealed partial class RoslynLanguageAdapter
             cursor,
             pageLimit,
             "symbol_type_hierarchy",
+            handle,
             "Type has no base types or interfaces.",
             "Type hierarchy page complete.",
             "the type hierarchy");
@@ -196,6 +198,7 @@ public sealed partial class RoslynLanguageAdapter
                 session.Epoch,
                 entireSolution,
                 "symbol_find_callers",
+                handle,
                 out var docIndex,
                 out var locOffset,
                 out var cursorError,
@@ -275,6 +278,7 @@ public sealed partial class RoslynLanguageAdapter
                 session.Epoch,
                 entireSolution,
                 "symbol_find_references",
+                handle,
                 out var docIndex,
                 out var locOffset,
                 out var cursorError,
@@ -384,7 +388,7 @@ public sealed partial class RoslynLanguageAdapter
             page,
             moreItems: !exhausted,
             budgetHit: truncatedByBudget,
-            () => FindRefsPageCursor.Encode(session.Epoch, entireSolution, nextDoc, nextLoc),
+            () => FindRefsPageCursor.Encode(session.Epoch, entireSolution, nextDoc, nextLoc, tool, handle),
             tool,
             page.Count == 0 ? emptyMessage : completeMessage), null);
     }

@@ -4,19 +4,32 @@ using System.Text.Json;
 namespace DotNetMcp.Core;
 
 /// <summary>
-/// Opaque member-list page cursor carrying workspace epoch + TTL (ADR-0001 §4).
+/// Opaque member-list page cursor: workspace epoch + tool + query identity + TTL (ADR-0001 §4).
 /// </summary>
 public static class MemberPageCursor
 {
-    private const string Version = "v1";
+    private const string Version = "v2";
     public static readonly TimeSpan DefaultTtl = TimeSpan.FromMinutes(30);
 
-    private sealed record Payload(string V, long Epoch, int Offset, long IssuedAtUnixMs);
+    private sealed record Payload(
+        string V,
+        long Epoch,
+        int Offset,
+        long IssuedAtUnixMs,
+        string Tool,
+        string QueryId);
 
-    public static string Encode(long epoch, int offset, DateTimeOffset? issuedAt = null)
+    public static string Encode(
+        long epoch,
+        int offset,
+        string tool,
+        string queryId,
+        DateTimeOffset? issuedAt = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tool);
         var issued = (issuedAt ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds();
-        var json = JsonSerializer.Serialize(new Payload(Version, epoch, offset, issued));
+        var json = JsonSerializer.Serialize(
+            new Payload(Version, epoch, offset, issued, tool, queryId ?? string.Empty));
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
     }
 
@@ -24,12 +37,16 @@ public static class MemberPageCursor
         string? cursor,
         out long epoch,
         out int offset,
+        out string tool,
+        out string queryId,
         out string? error,
         DateTimeOffset? now = null,
         TimeSpan? ttl = null)
     {
         epoch = 0;
         offset = 0;
+        tool = string.Empty;
+        queryId = string.Empty;
         error = null;
 
         if (string.IsNullOrWhiteSpace(cursor))
@@ -45,7 +62,8 @@ public static class MemberPageCursor
             if (payload is null ||
                 !string.Equals(payload.V, Version, StringComparison.Ordinal) ||
                 payload.Offset < 0 ||
-                payload.IssuedAtUnixMs <= 0)
+                payload.IssuedAtUnixMs <= 0 ||
+                string.IsNullOrWhiteSpace(payload.Tool))
             {
                 error = "Cursor payload is invalid.";
                 return false;
@@ -62,6 +80,8 @@ public static class MemberPageCursor
 
             epoch = payload.Epoch;
             offset = payload.Offset;
+            tool = payload.Tool;
+            queryId = payload.QueryId ?? string.Empty;
             return true;
         }
         catch (Exception)

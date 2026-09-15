@@ -206,7 +206,7 @@ public class ProjectDiagnosticsSeamTests
             var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
             var projectId = Assert.Single(projects.Projects).ProjectId;
 
-            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0);
+            var stale = MemberPageCursor.Encode(epoch: 999, offset: 0, tool: "project_diagnostics", queryId: projectId);
 
             var result = await fx.Client.CallToolAsync(
                 "project_diagnostics",

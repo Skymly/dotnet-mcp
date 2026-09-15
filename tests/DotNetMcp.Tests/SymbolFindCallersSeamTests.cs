@@ -162,7 +162,9 @@ public class SymbolFindCallersSeamTests
                 epoch: 999,
                 entireSolution: false,
                 docIndex: 0,
-                locOffset: 0);
+                locOffset: 0,
+                tool: "symbol_find_callers",
+                queryId: handle);
 
             var staleResult = await fx.Client.CallToolAsync(
                 "symbol_find_callers",

@@ -34,6 +34,7 @@ public sealed partial class RoslynLanguageAdapter
                 cursor,
                 epoch,
                 "project_diagnostics",
+                projectId,
                 out var offset,
                 out var cursorError))
         {
@@ -62,9 +63,9 @@ public sealed partial class RoslynLanguageAdapter
             {
                 return (SoftBudgetPage.Finish(
                     Array.Empty<DiagnosticItem>(),
-                    moreItems: false,
+                    moreItems: true,
                     budgetHit: true,
-                    () => MemberPageCursor.Encode(epoch, offset),
+                    () => MemberPageCursor.Encode(epoch, offset, "project_diagnostics", projectId),
                     "project_diagnostics",
                     "Project has no error or warning diagnostics."), null);
             }
@@ -101,6 +102,7 @@ public sealed partial class RoslynLanguageAdapter
             cursor,
             pageLimit,
             "project_diagnostics",
+            projectId,
             "Project has no error or warning diagnostics.",
             "Diagnostics page complete.",
             "the diagnostics list");

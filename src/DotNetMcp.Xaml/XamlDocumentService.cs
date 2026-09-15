@@ -250,7 +250,7 @@ public sealed class XamlDocumentService
 
         var epoch = session.Epoch;
         var pageLimit = limit is null or <= 0 ? 50 : Math.Min(limit.Value, 100);
-        if (!SoftBudgetPage.TryReadOffset(cursor, epoch, "xaml_diagnostics", out _, out var cursorError))
+        if (!SoftBudgetPage.TryReadOffset(cursor, epoch, "xaml_diagnostics", path, out _, out var cursorError))
         {
             return (null, null, cursorError);
         }
@@ -275,6 +275,7 @@ public sealed class XamlDocumentService
             cursor,
             pageLimit,
             "xaml_diagnostics",
+            path,
             "No semantic XAML diagnostics.",
             "XAML diagnostic page complete.",
             "the diagnostic list");
