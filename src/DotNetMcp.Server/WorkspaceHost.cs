@@ -17,6 +17,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private readonly IWorkspaceFileWatcher _watcher;
     private readonly bool _ownsWatcher;
     private readonly SemaphoreSlim _loadMutex = new(1, 1);
+    private readonly SemaphoreSlim _writeMutex = new(1, 1);
     private readonly object _gate = new();
     private readonly object _debounceGate = new();
 
@@ -212,7 +213,19 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     public WorkspaceEditOutcome<long> WriteDeclaredPaths(IReadOnlyList<WorkspaceEditDocument> documents)
     {
         ArgumentNullException.ThrowIfNull(documents);
+        _writeMutex.Wait();
+        try
+        {
+            return WriteDeclaredPathsUnlocked(documents);
+        }
+        finally
+        {
+            _writeMutex.Release();
+        }
+    }
 
+    private WorkspaceEditOutcome<long> WriteDeclaredPathsUnlocked(IReadOnlyList<WorkspaceEditDocument> documents)
+    {
         LoadedSolution loaded;
         long epochAtStart;
         FSharpWorkspaceSnapshot? fsharp;
@@ -312,21 +325,25 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: true);
+                var rolledBack = RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: true);
                 return FailWrite(
                     PolicyErrorCodes.WorkspaceEditApplyFailed,
                     "Apply failed while writing preview documents: " + ex.Message,
-                    "Retry apply with the same previewId; disk was rolled back to OldText.");
+                    rolledBack
+                        ? "Retry apply with the same previewId; disk was rolled back to OldText."
+                        : "Retry apply with the same previewId; disk rollback may be incomplete.");
             }
 
             lock (_gate)
             {
                 if (_phase != "ready" || !ReferenceEquals(_loaded, loaded) || _epoch != epochAtStart)
                 {
-                    RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: false);
+                    var rolledBack = RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: false);
                     return FailWrite(
                         PolicyErrorCodes.PreviewEpochMismatch,
-                        "Workspace epoch changed before apply could commit; disk was rolled back.",
+                        rolledBack
+                            ? "Workspace epoch changed before apply could commit; disk was rolled back."
+                            : "Workspace epoch changed before apply could commit; disk rollback may be incomplete.",
                         "Call the matching preview tool again on the current snapshot.");
                 }
 
@@ -340,7 +357,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                         RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: false);
                         return FailWrite(
                             PolicyErrorCodes.PreviewTargetMissing,
-                            "A preview document is not in the ready workspace; nothing was written.",
+                            "A preview document is not in the ready workspace; disk was rolled back.",
                             "Call the matching preview tool again on the current snapshot.");
                     }
                 }
@@ -428,13 +445,14 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
     }
 
-    private static void RollbackDeclaredPaths(
+    private static bool RollbackDeclaredPaths(
         LoadedSolution loaded,
         IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)> writes,
         int writtenCount,
         bool includeCurrent)
     {
         var end = Math.Min(writes.Count, includeCurrent ? writtenCount + 1 : writtenCount);
+        var rolledBack = true;
         for (var i = 0; i < end; i++)
         {
             try
@@ -443,7 +461,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // Keep the original apply failure; do not replace it with rollback I/O.
+                rolledBack = false;
             }
         }
 
@@ -451,6 +469,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         {
             loaded.TryUpdateDocumentFromText(document.Path, SourceText.From(document.OldText));
         }
+
+        return rolledBack;
     }
 
     /// <summary>
@@ -1242,6 +1262,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
 
         _loadMutex.Dispose();
+        _writeMutex.Dispose();
     }
 }
 

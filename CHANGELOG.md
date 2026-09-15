@@ -21,6 +21,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - Page cursors bind tool + query identity; exhausted pages do not emit `nextCursor` even when the soft budget hit (`#260`)
 - Malformed XAML is `XamlParseError`; sibling `x:DataType` no longer leaks; `.axaml`/`.xaml` disk edits advance epoch (`#262`)
 - Partial types attribute every declaring tree; handwritten origin survives generator-driver failures; find-refs scans source-generated documents (`#256`, `#257`, `#258`)
+- Apply serializes `WriteDeclaredPaths` so a failing rollback cannot clobber a winning write (`#261`)
 
 ## 4.0.1 - 2026-09-12
 
