@@ -14,7 +14,7 @@ public class ProjectListGeneratorsSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.DelayedWithGenerators(TimeSpan.FromMilliseconds(1000)));
 
             var open = await fx.Client.CallToolAsync(
@@ -47,7 +47,7 @@ public class ProjectListGeneratorsSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -77,7 +77,7 @@ public class ProjectListGeneratorsSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);

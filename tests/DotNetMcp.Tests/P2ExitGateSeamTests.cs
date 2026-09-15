@@ -18,7 +18,7 @@ public class P2ExitGateSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithVbSymbols(root));
 
             var open = await fx.Client.CallToolAsync(
@@ -99,7 +99,7 @@ public class P2ExitGateSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithVbGenerators());
 
             var open = await fx.Client.CallToolAsync(

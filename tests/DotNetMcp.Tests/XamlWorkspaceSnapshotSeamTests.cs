@@ -37,7 +37,7 @@ public class XamlWorkspaceSnapshotSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithAvaloniaXamlSnapshot(axaml, snapshotText));
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
 
@@ -87,7 +87,7 @@ public class XamlWorkspaceSnapshotSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithAvalonia(),
                 new WorkspaceHostOptions
                 {

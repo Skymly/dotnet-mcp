@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate）**
+Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁）**
 
 ## 上下文
 
@@ -95,3 +95,14 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 - **`.slnf`**：`TrustedGraphGate.EnsureProjectPathsUnderRoots` 在 MSBuild 打开任何项目**之前**跑（pre-open）。
 - **`.sln` / `.slnx` / 单项目**：入口路径仍先过 `workspace_open` 的 trusted root。图上的 `ProjectReference` 是 **post-load**：`OpenSolutionAsync` / `OpenProjectAsync` 完成 MSBuild 求值之后才 `EnsureLoadedSolutionUnderRoots`。根外项目引用会在被拒绝之前被求值。这是明确残余，不是漏检。
 - 入口路径本身必须先过 trusted root（现有 `workspace_open` 检查保留）。
+
+## Amendment 6（2026-09-15）：AnalyzerReferences 纳入图门禁
+
+证据：#254。图门禁覆盖的是**会被执行**的面：project、document、analyzer。仍是 Amendment 5 的 **post-load**（不改为 pre-open）。
+
+- **查什么**：加载后遍历每个 `project.AnalyzerReferences`，只读 `AnalyzerReference.FullPath`。空路径或磁盘上不存在的引用跳过（in-memory / 未物化）。非空且存在的路径必须落在受信根 **或** 工具链根内，否则抛 `LoadedGraphOutsideTrustedRootsException`；拒绝文案说明是 analyzer 引用越界，**不回显路径**（ADR-0004 §1）。
+- **不调用** `GetAnalyzers()` / `GetGenerators()` / `GetAnalyzersForAllLanguages()`：那些会把 DLL 加载进进程，等于在门禁之前执行了它。
+- **工具链根**（`ToolchainRoots`，与 `TrustedRoots` 分开）：受信根是用户声明的；工具链根是运行环境推出来的。并集为：
+  - **dotnet 根**：`MsBuildBootstrap.TryFindNewestSdkDirectory` 选中的 `sdk/<ver>` 上溯一级；再从 `RuntimeEnvironment.GetRuntimeDirectory()` 往上找到同时含 `sdk` 与 `shared` 的那一级（Linux CI 上前者可能为 null）。
+  - **NuGet 包目录**：`NUGET_PACKAGES`，否则 `<UserProfile>/.nuget/packages`；再加 `NUGET_FALLBACK_PACKAGES` 与 `<dotnet>/sdk/NuGetFallbackFolder`（存在才加）。
+- **MetadataReferences 有意不查**：Roslyn 读它们只解析 PE 元数据，不执行代码。纳入会把 `packs/` 和 NuGet 全部拦下，换不来安全收益。

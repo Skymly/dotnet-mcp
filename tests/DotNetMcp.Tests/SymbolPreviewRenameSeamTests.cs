@@ -16,7 +16,7 @@ public class SymbolPreviewRenameSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -77,7 +77,7 @@ public class SymbolPreviewRenameSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -119,7 +119,7 @@ public class SymbolPreviewRenameSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators(projectPath));
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);

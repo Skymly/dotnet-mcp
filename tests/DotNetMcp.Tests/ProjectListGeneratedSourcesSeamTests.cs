@@ -14,7 +14,7 @@ public class ProjectListGeneratedSourcesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -53,7 +53,7 @@ public class ProjectListGeneratedSourcesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -106,7 +106,7 @@ public class ProjectListGeneratedSourcesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
@@ -141,7 +141,7 @@ public class ProjectListGeneratedSourcesSeamTests
         try
         {
             await using var fx = new InProcessMcpFixture(
-                TrustedRoots.Create([root]),
+                TestTrustedRoots.Create(root),
                 FakeSolutionLoader.ImmediateWithGenerators());
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);

@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using DotNetMcp.Server;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace DotNetMcp.Tests;
 
@@ -228,6 +230,73 @@ public class WorkspaceLoadSeamTests
     }
 
     [Fact]
+    public async Task workspace_open_analyzer_outside_roots_is_loaded_graph_error()
+    {
+        var root = CreateTempDir("root");
+        var outside = CreateTempDir("outside");
+        var dllSrc = Path.Combine(AppContext.BaseDirectory, "CustomGenerator.dll");
+        Assert.True(File.Exists(dllSrc), $"Missing CustomGenerator.dll next to tests: {dllSrc}");
+        var outsideDll = Path.Combine(outside, "CustomGenerator.dll");
+        File.Copy(dllSrc, outsideDll);
+
+        var insideProj = Path.Combine(root, "App.csproj");
+        await File.WriteAllTextAsync(insideProj, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        LoadedSolution Factory()
+        {
+            var workspace = new AdhocWorkspace();
+            var projectId = ProjectId.CreateNewId();
+            workspace.AddProject(ProjectInfo.Create(
+                projectId,
+                VersionStamp.Create(),
+                "App",
+                "App",
+                LanguageNames.CSharp,
+                filePath: insideProj));
+            var solution = workspace.CurrentSolution.AddAnalyzerReference(
+                projectId,
+                new AnalyzerFileReference(outsideDll, SeamAnalyzerAssemblyLoader.Instance));
+            if (!workspace.TryApplyChanges(solution))
+            {
+                throw new InvalidOperationException("Failed to apply out-of-root analyzer fixture.");
+            }
+
+            return new LoadedSolution(workspace, workspace.CurrentSolution, []);
+        }
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                new FakeSolutionLoader(TimeSpan.Zero, Factory));
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = solution });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+            var status = await WaitUntilFailedAsync(fx);
+            Assert.Equal(PolicyErrorCodes.LoadedGraphOutsideTrustedRoots, status.ErrorCode);
+            Assert.DoesNotContain(outsideDll, status.Error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(outsideDll, status.SuggestedAction ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+            var list = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(list.IsError is true);
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(list);
+            Assert.Equal(PolicyErrorCodes.LoadedGraphOutsideTrustedRoots, body.Error);
+        }
+        finally
+        {
+            TryDelete(root);
+            TryDelete(outside);
+        }
+    }
+
+    [Fact]
     public async Task workspace_open_generic_load_failure_is_not_loaded_graph_error()
     {
         var root = CreateTempDir("root");
@@ -302,5 +371,17 @@ public class WorkspaceLoadSeamTests
         {
             // best-effort cleanup
         }
+    }
+
+    private sealed class SeamAnalyzerAssemblyLoader : IAnalyzerAssemblyLoader
+    {
+        public static SeamAnalyzerAssemblyLoader Instance { get; } = new();
+
+        public void AddDependencyLocation(string fullPath)
+        {
+        }
+
+        public System.Reflection.Assembly LoadFromPath(string fullPath) =>
+            System.Reflection.Assembly.LoadFrom(fullPath);
     }
 }

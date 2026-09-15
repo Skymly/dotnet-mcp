@@ -3,7 +3,8 @@ using Microsoft.CodeAnalysis;
 namespace DotNetMcp.Server;
 
 /// <summary>
-/// Post-load / pre-open checks that every project (and document) path stays under trusted roots.
+/// Post-load / pre-open checks that every project, document, and on-disk analyzer
+/// path stays under trusted roots (analyzers may also sit under toolchain roots).
 /// </summary>
 public static class TrustedGraphGate
 {
@@ -33,10 +34,13 @@ public static class TrustedGraphGate
     }
 
     /// <summary>
-    /// After MSBuild / workspace load, reject any on-disk project or document whose
-    /// final path escapes trusted roots (ProjectReference / multi-project graphs).
-    /// Synthetic in-memory fixture paths that do not exist on disk are skipped so
-    /// AdhocWorkspace tests keep working; real escaping files are still caught.
+    /// After MSBuild / workspace load, reject any on-disk project, document, or
+    /// analyzer whose final path escapes trusted roots (and, for analyzers, toolchain
+    /// roots). Synthetic in-memory fixture paths that do not exist on disk are skipped
+    /// so AdhocWorkspace tests keep working; real escaping files are still caught.
+    /// Analyzer checks use <see cref="AnalyzerReference.FullPath"/> only — never
+    /// <c>GetAnalyzers</c> / <c>GetGenerators</c>, which would load the DLL first.
+    /// MetadataReferences are intentionally not checked (read-only PE metadata).
     /// </summary>
     public static void EnsureLoadedSolutionUnderRoots(LoadedSolution loaded, TrustedRoots trustedRoots)
     {
@@ -57,6 +61,27 @@ public static class TrustedGraphGate
                     throw new LoadedGraphOutsideTrustedRootsException(
                         "workspace_open: a document path resolves outside the configured trusted roots and was rejected.");
                 }
+            }
+        }
+
+        var toolchainRoots = ToolchainRoots.Discover();
+        foreach (var project in loaded.Solution.Projects)
+        {
+            foreach (var analyzer in project.AnalyzerReferences)
+            {
+                var fullPath = analyzer.FullPath;
+                if (string.IsNullOrWhiteSpace(fullPath) || !PathExists(fullPath))
+                {
+                    continue;
+                }
+
+                if (trustedRoots.Contains(fullPath) || toolchainRoots.Contains(fullPath))
+                {
+                    continue;
+                }
+
+                throw new LoadedGraphOutsideTrustedRootsException(
+                    "workspace_open: an analyzer reference resolves outside the configured trusted roots and toolchain roots and was rejected.");
             }
         }
     }
