@@ -10,7 +10,7 @@
     <PackageType>McpServer</PackageType>
     <ToolCommandName>dotnet-mcp</ToolCommandName>
     <PackageId>Skymly.DotNetMcp</PackageId>
-    <Version>4.0.1</Version>
+    <Version>4.0.2</Version>
     <Authors>Skymly</Authors>
     <Description>MCP server for .NET symbol analysis, XAML, source-generator attribution, and restricted workspace edit (stdio).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

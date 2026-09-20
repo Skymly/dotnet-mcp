@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "name": "io.github.skymly/dotnet-mcp",
-  "version": "4.0.1",
+  "version": "4.0.2",
   "description": "MCP server for .NET symbols, XAML, source generators, and restricted workspace edit",
   "title": "dotnet-mcp",
   "repository": {
