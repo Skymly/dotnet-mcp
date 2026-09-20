@@ -72,6 +72,28 @@ public class RoslynResolveTestLikeTests
     }
 
     [Fact]
+    public async Task resolve_soft_budget_with_warm_hit_is_not_unique_success()
+    {
+        using var workspace = CreateTwoMainWorkspace();
+        var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+        var lru = new CompilationLru(50);
+        using var session = new WorkspaceSession(loaded, epoch: 1, compilationLru: lru);
+        var libA = workspace.CurrentSolution.Projects.Single(p => p.Name == "LibA");
+        await session.GetCompilationAsync(libA.Id);
+
+        var adapter = new RoslynLanguageAdapter(
+            new GeneratorQueryService(),
+            new SoftBudgetOptions { SingleProjectCompile = TimeSpan.Zero });
+
+        var (success, error) = await adapter.ResolveByNameAsync(session, "Marker");
+
+        Assert.Null(success);
+        Assert.IsType<SoftBudgetExceededError>(error);
+        Assert.Contains("projectId", error!.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SymbolNotFound", error.Code, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task resolve_same_name_in_two_main_projects_is_ambiguous_cold_and_warm()
     {
         using var workspace = CreateTwoMainWorkspace();
