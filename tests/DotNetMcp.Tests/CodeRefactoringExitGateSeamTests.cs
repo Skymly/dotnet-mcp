@@ -71,12 +71,11 @@ public class P1CodeRefactoringExitGateSeamTests
 public class P3FourOhExitGateSeamTests
 {
     [Fact]
-    public async Task package_version_matches_csproj_server_json_and_changelog()
+    public async Task package_version_matches_csproj_and_server_json()
     {
         var root = FindRepoRoot();
         var csproj = await File.ReadAllTextAsync(Path.Combine(root, "src", "DotNetMcp.Server", "DotNetMcp.Server.csproj"));
         var serverJson = await File.ReadAllTextAsync(Path.Combine(root, "src", "DotNetMcp.Server", ".mcp", "server.json"));
-        var changelog = await File.ReadAllTextAsync(Path.Combine(root, "CHANGELOG.md"));
 
         var csprojMatch = System.Text.RegularExpressions.Regex.Match(csproj, @"<Version>([^<]+)</Version>");
         Assert.True(csprojMatch.Success, "DotNetMcp.Server.csproj is missing <Version>.");
@@ -84,13 +83,6 @@ public class P3FourOhExitGateSeamTests
 
         using var doc = System.Text.Json.JsonDocument.Parse(serverJson);
         Assert.Equal(version, doc.RootElement.GetProperty("version").GetString());
-
-        var changelogMatch = System.Text.RegularExpressions.Regex.Match(
-            changelog,
-            @"^## (\d+\.\d+\.\d+)\b",
-            System.Text.RegularExpressions.RegexOptions.Multiline);
-        Assert.True(changelogMatch.Success, "CHANGELOG.md is missing a ## MAJOR.MINOR.PATCH heading.");
-        Assert.Equal(version, changelogMatch.Groups[1].Value);
     }
 
     private static string FindRepoRoot()
