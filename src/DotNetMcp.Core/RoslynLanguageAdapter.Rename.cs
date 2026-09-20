@@ -14,7 +14,7 @@ public sealed partial class RoslynLanguageAdapter
         string newName,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(newName) || newName.IndexOfAny(['.', ' ', '\t']) >= 0)
+        if (string.IsNullOrWhiteSpace(newName))
         {
             return (null, new InvalidRenameNameError(
                 "New name must be a single identifier.",
@@ -33,6 +33,15 @@ public sealed partial class RoslynLanguageAdapter
             return (null, new InvalidSymbolHandleError(
                 $"Unsupported language '{parsed.Language}'.",
                 "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
+        }
+
+        if (!IsValidIdentifier(parsed.Language, newName))
+        {
+            return (null, new InvalidRenameNameError(
+                "New name must be a single identifier.",
+                string.Equals(parsed.Language, VbLanguage, StringComparison.Ordinal)
+                    ? "Pass a VB identifier (no qualification) as newName."
+                    : "Pass a C# identifier (no qualification) as newName."));
         }
 
         var (project, symbol, resolveError) = await TryResolveHandleAsync(session, handle, cancellationToken)
@@ -104,4 +113,17 @@ public sealed partial class RoslynLanguageAdapter
         return (new RenamePreviewDraft(handle, newName, slices, invalidated), null);
     }
 
+    private static bool IsValidIdentifier(string language, string newName)
+    {
+        if (string.Equals(language, VbLanguage, StringComparison.Ordinal))
+        {
+            var kind = Microsoft.CodeAnalysis.VisualBasic.SyntaxFacts.GetKeywordKind(newName);
+            return Microsoft.CodeAnalysis.VisualBasic.SyntaxFacts.IsValidIdentifier(newName)
+                && !Microsoft.CodeAnalysis.VisualBasic.SyntaxFacts.IsReservedKeyword(kind);
+        }
+
+        var csharpKind = Microsoft.CodeAnalysis.CSharp.SyntaxFacts.GetKeywordKind(newName);
+        return Microsoft.CodeAnalysis.CSharp.SyntaxFacts.IsValidIdentifier(newName)
+            && !Microsoft.CodeAnalysis.CSharp.SyntaxFacts.IsReservedKeyword(csharpKind);
+    }
 }
