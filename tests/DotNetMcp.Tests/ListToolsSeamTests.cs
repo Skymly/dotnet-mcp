@@ -47,7 +47,7 @@ public class ListToolsSeamTests
                 var rest = match.Groups["rest"].Value;
                 names.Add(name);
                 Assert.Contains("OpenWorld = false", rest, StringComparison.Ordinal);
-                if (apply.Contains(name) || name == "workspace_open")
+                if (apply.Contains(name) || name is "workspace_open" or "workspace_check_drift")
                 {
                     Assert.Contains("ReadOnly = false", rest, StringComparison.Ordinal);
                 }

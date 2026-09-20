@@ -125,7 +125,7 @@ public sealed class WorkspaceTools
         return McpToolEnvelope.OkResult(result);
     }
 
-    [McpServerTool(Name = "workspace_check_drift", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
+    [McpServerTool(Name = "workspace_check_drift", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false), Description(
         "Compare tracked workspace documents to on-disk content (fallback when FileSystemWatcher misses a change). " +
         "Also detects project/solution file mtime changes. Repairs source-file content mismatches and advances the " +
         "workspace epoch; project/solution drifts require workspace_open. Fails with WorkspaceNotReady while loading.")]
