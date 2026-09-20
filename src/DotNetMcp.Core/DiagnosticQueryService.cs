@@ -142,7 +142,8 @@ public sealed class DiagnosticQueryService
             "*",
             "Workspace has no error or warning diagnostics.",
             "Batch diagnostics page complete.",
-            "the diagnostics list");
+            "the diagnostics list",
+            scanIncomplete: stoppedEarly);
         if (paged is not null && projectFailures.Count > 0)
         {
             var failed = string.Join(", ", projectFailures);
