@@ -218,16 +218,22 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         ISymbol? found = null;
         for (var current = type; current is not null; current = current.BaseType)
         {
-            var candidates = current.GetMembers(name)
-                .Where(m => !m.IsStatic && !m.IsImplicitlyDeclared)
-                .Where(m => !publicOnly || m.DeclaredAccessibility == Accessibility.Public)
-                .ToArray();
-
-            found = candidates.OfType<IPropertySymbol>().FirstOrDefault(p => p.Parameters.Length == 0)
-                ?? (ISymbol?)candidates.OfType<IFieldSymbol>().FirstOrDefault();
+            found = FindInstancePropertyOrField(current, name, publicOnly);
             if (found is not null)
             {
                 break;
+            }
+        }
+
+        if (found is null)
+        {
+            foreach (var iface in type.AllInterfaces)
+            {
+                found = FindInstancePropertyOrField(iface, name, publicOnly);
+                if (found is not null)
+                {
+                    break;
+                }
             }
         }
 
@@ -580,6 +586,18 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
     public static bool IsSupportedLanguageToken(string token) =>
         string.Equals(token, CSharpLanguage, StringComparison.Ordinal) ||
         string.Equals(token, VbLanguage, StringComparison.Ordinal);
+
+
+    private static ISymbol? FindInstancePropertyOrField(ITypeSymbol type, string name, bool publicOnly)
+    {
+        var candidates = type.GetMembers(name)
+            .Where(m => !m.IsStatic && !m.IsImplicitlyDeclared)
+            .Where(m => !publicOnly || m.DeclaredAccessibility == Accessibility.Public)
+            .ToArray();
+
+        return candidates.OfType<IPropertySymbol>().FirstOrDefault(p => p.Parameters.Length == 0)
+            ?? (ISymbol?)candidates.OfType<IFieldSymbol>().FirstOrDefault();
+    }
 
     public static bool IsSupportedRoslynLanguage(string roslynLanguage) =>
         roslynLanguage is LanguageNames.CSharp or LanguageNames.VisualBasic;
