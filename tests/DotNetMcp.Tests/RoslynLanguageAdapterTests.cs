@@ -203,14 +203,20 @@ namespace B { public class Widget {} }
         Assert.Contains(draft.Documents, s => s.NewText.Contains("Gadget", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task build_rename_preview_illegal_name_is_invalid()
+    [Theory]
+    [InlineData("A.B")]
+    [InlineData("1bad")]
+    [InlineData("a-b")]
+    [InlineData("class")]
+    [InlineData(" ")]
+    public async Task build_rename_preview_illegal_name_is_invalid(string newName)
     {
         using var workspace = CreateWorkspace(WidgetSource);
         using var session = new FakeSession(workspace.CurrentSolution);
         var adapter = Adapter();
         var (resolved, _) = await adapter.ResolveByNameAsync(session, "Widget");
-        var (_, error) = await adapter.BuildRenamePreviewAsync(session, resolved!.Handle, "A.B");
+        var (draft, error) = await adapter.BuildRenamePreviewAsync(session, resolved!.Handle, newName);
+        Assert.Null(draft);
         Assert.IsType<InvalidRenameNameError>(error);
     }
 
