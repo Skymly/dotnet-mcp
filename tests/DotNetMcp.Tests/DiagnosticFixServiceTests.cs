@@ -124,6 +124,37 @@ public class DiagnosticFixServiceTests
     }
 
     [Fact]
+    public async Task build_preview_project_scope_mismatched_key_is_leftover_not_success()
+    {
+        using var workspace = CreateWorkspace(
+            @"C:\fake\FixAllMixed.csproj",
+            ("One.cs", @"C:\fake\One.cs", MissingUsing("One")),
+            ("Two.cs", @"C:\fake\Two.cs", """
+                namespace Lib;
+                public class Two
+                {
+                    public DefinitelyMissingTypeFromProjectFixAll Value() => default!;
+                }
+                """));
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var service = new DiagnosticFixService();
+        var projectId = ProjectIdOf(workspace);
+        var (listed, listError) = await service.ListFixesAsync(
+            session, projectId, "CS0246", @"C:\fake\One.cs", null, null, null, null);
+        Assert.Null(listError);
+        var withKey = listed!.Items.First(i =>
+            !string.IsNullOrWhiteSpace(i.EquivalenceKey) &&
+            i.Title.Contains("System.Collections.Generic", StringComparison.Ordinal));
+
+        var (draft, error) = await service.BuildPreviewAsync(
+            session, projectId, "CS0246", @"C:\fake\One.cs", null, null, null, null,
+            withKey.FixIndex, DiagnosticFixScopes.Project);
+        Assert.Null(draft);
+        var exceeded = Assert.IsType<FixAllBudgetExceededError>(error);
+        Assert.Contains("remaining", exceeded.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task build_preview_unknown_project_is_not_found()
     {
         using var workspace = CreateMissingUsingWorkspace();

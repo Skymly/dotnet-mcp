@@ -103,6 +103,50 @@ public class ProjectFixAllSeamTests
     }
 
     [Fact]
+    public async Task project_scope_mismatched_equivalence_key_fails_without_silent_partial_preview()
+    {
+        var root = CreateTempDir("root");
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithFixAllMismatchedKeyOnDisk(projectDir));
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var projectId = await DiagnosticFixSeamTests.FirstProjectIdAsync(fx);
+            var page = await DiagnosticFixSeamTests.ProjectDiagnosticsAsync(fx, projectId);
+            var one = page.Items.First(d =>
+                d.Id is "CS0246" &&
+                d.FilePath is not null &&
+                d.FilePath.EndsWith("One.cs", StringComparison.OrdinalIgnoreCase));
+            var listed = await DiagnosticFixSeamTests.ListFixesAsync(fx, one);
+            var usingFix = listed.Items.First(i =>
+                !string.IsNullOrWhiteSpace(i.EquivalenceKey) &&
+                i.Title.Contains("System.Collections.Generic", StringComparison.Ordinal));
+            var args = DiagnosticFixSeamTests.Locator(one);
+            args["fixIndex"] = usingFix.FixIndex;
+            args["scope"] = "project";
+            var preview = await fx.Client.CallToolAsync("diagnostics_preview_fix", args);
+            Assert.True(preview.IsError is true);
+            Assert.Equal(
+                PolicyErrorCodes.FixAllBudgetExceeded,
+                InProcessMcpFixture.Deserialize<PolicyErrorDto>(preview).Error);
+            Assert.DoesNotContain(
+                "System.Collections.Generic",
+                await File.ReadAllTextAsync(Path.Combine(projectDir, "One.cs")),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task project_scope_zero_budget_fails_without_writing()
     {
         var root = CreateTempDir("root");

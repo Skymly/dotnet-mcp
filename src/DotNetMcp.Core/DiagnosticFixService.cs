@@ -484,6 +484,7 @@ public sealed class DiagnosticFixService
         var applied = 0;
         var deadline = DateTime.UtcNow + _budgets.FixAllProject;
         var cap = Math.Max(1, _budgets.FixAllProjectMaxApplications);
+        var skipped = new HashSet<(DocumentId DocumentId, int Start, int Length)>();
 
         while (applied < cap)
         {
@@ -518,7 +519,8 @@ public sealed class DiagnosticFixService
 
                 var hit = compilation.GetDiagnostics()
                     .Where(d => d.Location.SourceTree == tree &&
-                                string.Equals(d.Id, diagnosticId, StringComparison.Ordinal))
+                                string.Equals(d.Id, diagnosticId, StringComparison.Ordinal) &&
+                                !skipped.Contains((candidate.Id, d.Location.SourceSpan.Start, d.Location.SourceSpan.Length)))
                     .OrderByDescending(d => d.Location.SourceSpan.Start)
                     .FirstOrDefault();
                 if (hit is null)
@@ -541,30 +543,36 @@ public sealed class DiagnosticFixService
                 string.Equals(a.EquivalenceKey, equivalenceKey, StringComparison.Ordinal));
             if (match is null)
             {
-                break;
+                skipped.Add((nextDoc.Id, nextOccurrence.Location.SourceSpan.Start, nextOccurrence.Location.SourceSpan.Length));
+                continue;
             }
 
             var next = await CodeActionDocuments.ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
             if (next is null)
             {
-                break;
+                skipped.Add((nextDoc.Id, nextOccurrence.Location.SourceSpan.Start, nextOccurrence.Location.SourceSpan.Length));
+                continue;
             }
 
             currentSolution = next;
             applied++;
         }
 
-        if (applied >= cap)
+        var leftover = await ProjectHasRemainingAsync(
+                currentSolution.GetProject(projectId), diagnosticId, cancellationToken)
+            .ConfigureAwait(false);
+        if (leftover)
         {
-            var leftover = await ProjectHasRemainingAsync(
-                    currentSolution.GetProject(projectId), diagnosticId, cancellationToken)
-                .ConfigureAwait(false);
-            if (leftover)
+            if (applied >= cap)
             {
                 return (null, new FixAllBudgetExceededError(
                     $"Project-scope Fix all hit the application cap ({cap}) before every occurrence could be applied.",
                     "Apply scope=document per file, or raise the host FixAllProjectMaxApplications cap."));
             }
+
+            return (null, new FixAllBudgetExceededError(
+                "Project-scope Fix all stopped before every matching occurrence could be applied.",
+                "Retry with scope=document per file, or apply scope=occurrence for the remaining diagnostics."));
         }
 
         return applied > 0 ? (currentSolution, null) : (null, null);

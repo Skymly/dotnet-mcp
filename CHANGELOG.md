@@ -24,6 +24,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - Apply serializes `WriteDeclaredPaths` so a failing rollback cannot clobber a winning write (`#261`)
 - F# compiler args include `MetadataReferences` and project-reference output paths so real `.fsproj` graphs are not FS0039 (`#248`)
 - All 31 tools declare MCP annotations (`readOnly` / `destructive` / `idempotent` / `openWorld=false`) (`#263`)
+- Project-scope Fix all reports leftover same-Id diagnostics instead of a successful partial preview (`#283`)
 
 ### Security
 

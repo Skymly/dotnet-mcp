@@ -17,6 +17,9 @@ public sealed partial class FakeSolutionLoader
     public static FakeSolutionLoader ImmediateWithFixAllOnDisk(string projectDir) =>
         new(TimeSpan.Zero, () => CreateFixAllLoadedOnDisk(projectDir));
 
+    public static FakeSolutionLoader ImmediateWithFixAllMismatchedKeyOnDisk(string projectDir) =>
+        new(TimeSpan.Zero, () => CreateFixAllMismatchedKeyLoadedOnDisk(projectDir));
+
     public static LoadedSolution CreateMissingUsingLoadedOnDisk(string projectDir)
     {
         Directory.CreateDirectory(projectDir);
@@ -103,6 +106,40 @@ public sealed partial class FakeSolutionLoader
             LanguageNames.CSharp,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
             error: "Failed to apply AdhocWorkspace fix-all fixture.",
+            documents: [("One.cs", onePath), ("Two.cs", twoPath)]);
+    }
+
+    public static LoadedSolution CreateFixAllMismatchedKeyLoadedOnDisk(string projectDir)
+    {
+        Directory.CreateDirectory(projectDir);
+        var projectFilePath = Path.Combine(projectDir, "FixAllMixed.csproj");
+        var onePath = Path.Combine(projectDir, "One.cs");
+        var twoPath = Path.Combine(projectDir, "Two.cs");
+        File.WriteAllText(projectFilePath, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        File.WriteAllText(onePath, """
+            namespace FixAllMixed;
+
+            public sealed class One
+            {
+                public int A() => new List<int>().Count;
+            }
+            """);
+        File.WriteAllText(twoPath, """
+            namespace FixAllMixed;
+
+            public sealed class Two
+            {
+                public DefinitelyMissingTypeFromProjectFixAll B() => default!;
+            }
+            """);
+
+        return CreateOnDiskProject(
+            projectDir,
+            projectFilePath,
+            "FixAllMixed",
+            LanguageNames.CSharp,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
+            error: "Failed to apply AdhocWorkspace mismatched-key fix-all fixture.",
             documents: [("One.cs", onePath), ("Two.cs", twoPath)]);
     }
 
