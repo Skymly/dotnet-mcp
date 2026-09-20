@@ -63,6 +63,52 @@ public class SecurityHighFixTests
     }
 
     [Fact]
+    public void build_index_omits_unresolvable_reparse_point_and_try_get_document_id_misses()
+    {
+        var root = CreateTempDir("root");
+        var okFile = Path.Combine(root, "Ok.cs");
+        File.WriteAllText(okFile, "class Ok {}");
+        var missingTarget = Path.Combine(root, "missing-target.cs");
+        var dangling = Path.Combine(root, "Dangling.cs");
+        File.CreateSymbolicLink(dangling, missingTarget);
+
+        var workspace = new AdhocWorkspace();
+        var project = workspace.AddProject("Lib", LanguageNames.CSharp);
+        var okId = DocumentId.CreateNewId(project.Id);
+        var danglingId = DocumentId.CreateNewId(project.Id);
+        Assert.True(workspace.TryApplyChanges(
+            workspace.CurrentSolution
+                .AddDocument(DocumentInfo.Create(
+                    okId,
+                    "Ok.cs",
+                    loader: TextLoader.From(TextAndVersion.Create(SourceText.From("class Ok {}"), VersionStamp.Create())),
+                    filePath: okFile))
+                .AddDocument(DocumentInfo.Create(
+                    danglingId,
+                    "Dangling.cs",
+                    loader: TextLoader.From(TextAndVersion.Create(SourceText.From("class Dangling {}"), VersionStamp.Create())),
+                    filePath: dangling))));
+
+        try
+        {
+            Assert.ThrowsAny<PathPolicyException>(() => PathPolicy.Normalize(dangling));
+
+            var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, []);
+
+            Assert.DoesNotContain(
+                loaded.TrackedDocumentPaths,
+                p => PathPolicy.Comparer.Equals(p, Path.GetFullPath(dangling)));
+            Assert.False(loaded.TryGetDocumentId(dangling, out _));
+            Assert.True(loaded.TryGetDocumentId(okFile, out var foundOk));
+            Assert.Equal(okId, foundOk);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public void trusted_roots_from_startup_fail_closed_without_explicit_roots()
     {
         var previous = Environment.GetEnvironmentVariable("DOTNET_MCP_TRUSTED_ROOTS");

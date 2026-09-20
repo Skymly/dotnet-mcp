@@ -39,12 +39,22 @@ public sealed class LoadedSolution : IAsyncDisposable
 
     public IReadOnlyCollection<string> TrackedDocumentPaths => _docsByPath.Keys;
 
-    public bool TryGetDocumentId(string fullPath, out DocumentId documentId) =>
-        _docsByPath.TryGetValue(Normalize(fullPath), out documentId!);
+    public bool TryGetDocumentId(string fullPath, out DocumentId documentId)
+    {
+        var normalized = TryNormalize(fullPath);
+        if (normalized is null)
+        {
+            documentId = null!;
+            return false;
+        }
+
+        return _docsByPath.TryGetValue(normalized, out documentId!);
+    }
 
     public bool TryUpdateDocumentFromText(string fullPath, SourceText text)
     {
-        if (!_docsByPath.TryGetValue(Normalize(fullPath), out var documentId))
+        var normalized = TryNormalize(fullPath);
+        if (normalized is null || !_docsByPath.TryGetValue(normalized, out var documentId))
         {
             return false;
         }
@@ -112,7 +122,8 @@ public sealed class LoadedSolution : IAsyncDisposable
 
         foreach (var projectPath in extraProjectOrSolutionPaths
                      .Where(static p => !string.IsNullOrWhiteSpace(p))
-                     .Select(Normalize)
+                     .Select(TryNormalize)
+                     .OfType<string>()
                      .Distinct(PathPolicy.Comparer))
         {
             if (_docsByPath.ContainsKey(projectPath))
@@ -155,9 +166,11 @@ public sealed class LoadedSolution : IAsyncDisposable
         var result = new List<DocumentDrift>(detected.Count);
         foreach (var drift in detected)
         {
+            var normalized = TryNormalize(drift.Path);
             if (drift.Kind == "ContentMismatch"
                 && IsSourceFile(drift.Path)
-                && diskTexts.TryGetValue(Normalize(drift.Path), out var diskText)
+                && normalized is not null
+                && diskTexts.TryGetValue(normalized, out var diskText)
                 && TryUpdateDocumentFromText(drift.Path, SourceText.From(diskText)))
             {
                 result.Add(drift with { Kind = "ContentMismatchRepaired", Repaired = true });
@@ -174,7 +187,8 @@ public sealed class LoadedSolution : IAsyncDisposable
     {
         foreach (var path in paths
                      .Where(static p => !string.IsNullOrWhiteSpace(p))
-                     .Select(Normalize)
+                     .Select(TryNormalize)
+                     .OfType<string>()
                      .Distinct(PathPolicy.Comparer))
         {
             if (File.Exists(path))
@@ -281,29 +295,29 @@ public sealed class LoadedSolution : IAsyncDisposable
                     continue;
                 }
 
-                try
-                {
-                    map[Normalize(document.FilePath)] = document.Id;
-                }
-                catch (PathPolicyException)
+                var normalized = TryNormalize(document.FilePath);
+                if (normalized is null)
                 {
                     // Fail closed: unresolvable reparse points stay out of the index.
+                    continue;
                 }
+
+                map[normalized] = document.Id;
             }
         }
 
         return map;
     }
 
-    private static string Normalize(string path)
+    private static string? TryNormalize(string path)
     {
         try
         {
             return PathPolicy.Normalize(path);
         }
-        catch (PathPolicyException)
+        catch (Exception ex) when (ex is PathPolicyException or ArgumentException)
         {
-            return Path.GetFullPath(path);
+            return null;
         }
     }
 }
