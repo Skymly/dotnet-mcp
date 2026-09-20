@@ -366,6 +366,51 @@ public class FSharpSymbolQueryServiceTests
     }
 
     [Fact]
+    public async Task find_references_and_callers_do_not_mix_overloaded_ping()
+    {
+        const string source = """
+            module FsLib.Widget
+
+            type Gadget() =
+                member _.Ping(x: int) = 1
+                member _.Ping(x: string) = 0
+                member this.UseInt() = this.Ping(1)
+                member this.UseStr() = this.Ping("x")
+            """;
+        using var session = Session(new FSharpWorkspaceSnapshot(1, [SnapshotProject(FsProjectId, "FsLib", WidgetPath, source)]));
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Gadget");
+        Assert.Null(resolveError);
+        var (members, membersError) = await adapter.GetMembersAsync(session, resolved!.Handle, limit: 50);
+        Assert.Null(membersError);
+        var pings = members!.Items.Where(m => m.Summary.DisplayName == "Ping").ToList();
+        Assert.Equal(2, pings.Count);
+        var intPing = Assert.Single(pings, p => p.Handle.Contains("(int)", StringComparison.Ordinal));
+        var strPing = Assert.Single(pings, p => p.Handle.Contains("(string)", StringComparison.Ordinal));
+
+        var (intRefs, intRefError) = await adapter.FindReferencesAsync(session, intPing.Handle);
+        Assert.Null(intRefError);
+        var (strRefs, strRefError) = await adapter.FindReferencesAsync(session, strPing.Handle);
+        Assert.Null(strRefError);
+
+        var intCall = source.IndexOf("this.Ping(1)", StringComparison.Ordinal);
+        var strCall = source.IndexOf("this.Ping(\"x\")", StringComparison.Ordinal);
+        Assert.True(intCall >= 0);
+        Assert.True(strCall >= 0);
+        Assert.Contains(intRefs!.Items, r => r.Start is int s && s >= intCall && s < intCall + "this.Ping(1)".Length);
+        Assert.DoesNotContain(intRefs.Items, r => r.Start is int s && s >= strCall && s < strCall + "this.Ping(\"x\")".Length);
+        Assert.Contains(strRefs!.Items, r => r.Start is int s && s >= strCall && s < strCall + "this.Ping(\"x\")".Length);
+        Assert.DoesNotContain(strRefs.Items, r => r.Start is int s && s >= intCall && s < intCall + "this.Ping(1)".Length);
+
+        var (intCallers, intCallerError) = await adapter.FindCallersAsync(session, intPing.Handle);
+        Assert.Null(intCallerError);
+        var (strCallers, strCallerError) = await adapter.FindCallersAsync(session, strPing.Handle);
+        Assert.Null(strCallerError);
+        Assert.DoesNotContain(intCallers!.Items, c => c.CallerSummary.DisplayName == "UseStr");
+        Assert.DoesNotContain(strCallers!.Items, c => c.CallerSummary.DisplayName == "UseInt");
+    }
+
+    [Fact]
     public async Task check_does_not_notify_unchanged_snapshot_files()
     {
         using var session = Session(WidgetSnapshot());
