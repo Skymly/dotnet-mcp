@@ -188,6 +188,38 @@ public class ProjectDiagnosticsSeamTests
     }
 
     [Fact]
+    public async Task GetProjectDiagnosticsAsync_omitted_project_id_budget_hit_before_scan_completes_is_truncated_not_complete()
+    {
+        var loaded = FakeSolutionLoader.CreateDiagnosticsLoaded(@"C:\fake\BrokenLib.csproj");
+        var service = new DiagnosticQueryService();
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (page, error) = await service.GetProjectDiagnosticsAsync(
+            session,
+            projectId: string.Empty,
+            softBudget: TimeSpan.Zero);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.True(page!.Truncated);
+        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
+        Assert.DoesNotContain("complete", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("no error or warning", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
+
+        var (continued, continueError) = await service.GetProjectDiagnosticsAsync(
+            session,
+            projectId: string.Empty,
+            cursor: page.NextCursor,
+            softBudget: TimeSpan.FromSeconds(30));
+
+        Assert.Null(continueError);
+        Assert.NotNull(continued);
+        Assert.NotEmpty(continued!.Items);
+        Assert.DoesNotContain("no error or warning", continued.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task project_diagnostics_rejects_stale_cursor()
     {
         var root = CreateTempDir("root");

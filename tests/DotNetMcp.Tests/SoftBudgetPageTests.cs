@@ -7,7 +7,7 @@ namespace DotNetMcp.Tests;
 public class SoftBudgetPageTests
 {
     [Fact]
-    public void budget_hit_with_items_that_fit_one_page_does_not_emit_cursor()
+    public void scan_incomplete_with_items_that_fit_one_page_emits_cursor()
     {
         var items = new[] { "a", "b", "c" };
 
@@ -20,14 +20,28 @@ public class SoftBudgetPageTests
             tool: "symbol_members",
             queryId: "h1",
             emptyMessage: "No members.",
-            completeMessage: "Page complete.");
+            completeMessage: "Page complete.",
+            scanIncomplete: true);
 
         Assert.Null(error);
         Assert.NotNull(page);
         Assert.Equal(items, page!.Items);
-        Assert.False(page.Truncated);
-        Assert.Null(page.NextCursor);
-        Assert.Equal("Page complete.", page.Message);
+        Assert.True(page.Truncated);
+        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
+        Assert.DoesNotContain("Page complete.", page.Message, StringComparison.Ordinal);
+        Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(MemberPageCursor.TryDecode(
+            page.NextCursor,
+            out var epoch,
+            out var offset,
+            out var tool,
+            out var queryId,
+            out var cursorError));
+        Assert.Null(cursorError);
+        Assert.Equal(7, epoch);
+        Assert.Equal(3, offset);
+        Assert.Equal("symbol_members", tool);
+        Assert.Equal("h1", queryId);
     }
 
     [Fact]

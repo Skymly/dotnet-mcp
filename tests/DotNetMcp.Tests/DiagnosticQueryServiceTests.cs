@@ -88,6 +88,61 @@ public class DiagnosticQueryServiceTests
     }
 
     [Fact]
+    public async Task batch_diagnostics_budget_hit_with_items_that_fit_one_page_is_truncated_and_continues()
+    {
+        using var workspace = CreateTwoProjectWorkspace();
+        var projects = workspace.CurrentSolution.Projects.OrderBy(p => p.Name).ToArray();
+        var projectA = projects[0].Id.Id.ToString("D");
+        var projectB = projects[1].Id.Id.ToString("D");
+        var fake = new FakeAdapter
+        {
+            TreatShortBudgetAsHit = true,
+            PagesByProject =
+            {
+                [projectA] =
+                [
+                    new DiagnosticItem("CS0001", "Error", "a1", @"C:\a.cs", 1, 0, 1, 1, projectA),
+                    new DiagnosticItem("CS0002", "Error", "a2", @"C:\a.cs", 2, 0, 2, 1, projectA),
+                ],
+                [projectB] =
+                [
+                    new DiagnosticItem("CS0003", "Error", "b1", @"C:\b.cs", 1, 0, 1, 1, projectB),
+                ],
+            }
+        };
+        var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
+        using var session = new FakeSession(workspace.CurrentSolution);
+
+        var (page, error) = await service.GetProjectDiagnosticsAsync(
+            session,
+            projectId: string.Empty,
+            limit: 50,
+            softBudget: TimeSpan.FromSeconds(1));
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Equal(2, page!.Items.Count);
+        Assert.True(page.Truncated);
+        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
+        Assert.DoesNotContain("complete", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("no error or warning", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(page.Items, i => i.Id == "CS0003");
+
+        var (continued, continueError) = await service.GetProjectDiagnosticsAsync(
+            session,
+            projectId: string.Empty,
+            limit: 50,
+            cursor: page.NextCursor,
+            softBudget: TimeSpan.FromSeconds(30));
+
+        Assert.Null(continueError);
+        Assert.NotNull(continued);
+        Assert.Contains(continued!.Items, i => i.Id == "CS0003");
+        Assert.DoesNotContain(continued.Items, i => i.Id == "CS0001");
+    }
+
+    [Fact]
     public async Task get_project_diagnostics_unknown_project_is_not_found()
     {
         using var workspace = CreateWorkspace();
@@ -174,6 +229,8 @@ public class DiagnosticQueryServiceTests
 
         public TimeSpan? LastSoftBudget { get; private set; }
 
+        public bool TreatShortBudgetAsHit { get; set; }
+
         public List<string?> Cursors { get; } = [];
 
         public bool OwnsLanguage(string languageToken) =>
@@ -229,6 +286,19 @@ public class DiagnosticQueryServiceTests
                     truncated,
                     truncated ? MemberPageCursor.Encode(1, next, "project_diagnostics", projectId) : null,
                     truncated ? "Results truncated; pass nextCursor" : "done");
+                if (TreatShortBudgetAsHit &&
+                    softBudget is { } budget &&
+                    budget > TimeSpan.Zero &&
+                    budget < TimeSpan.FromSeconds(10))
+                {
+                    page = page with
+                    {
+                        Truncated = true,
+                        NextCursor = page.NextCursor ?? MemberPageCursor.Encode(1, next, "project_diagnostics", projectId),
+                        Message = $"Soft budget reached after {slice.Count} item(s). Pass nextCursor to project_diagnostics to continue; do not retry from scratch."
+                    };
+                }
+
                 return Task.FromResult<(PagedResult<DiagnosticItem>?, SymbolQueryError?)>((page, null));
             }
 
