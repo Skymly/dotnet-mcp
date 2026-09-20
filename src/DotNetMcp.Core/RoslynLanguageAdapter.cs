@@ -120,6 +120,13 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 "Pass projectId (and a more specific FQN if needed) to symbol_resolve to disambiguate."));
         }
 
+        if (timedOut)
+        {
+            return (null, new SoftBudgetExceededError(
+                $"Timed out while resolving '{name}' after finding a candidate; remaining projects were not scanned.",
+                "Pass projectId from workspace_list_projects, or retry symbol_resolve."));
+        }
+
         var (projectHit, symbolHit) = matches[0];
         return (ToSuccess(projectHit, symbolHit), null);
     }
