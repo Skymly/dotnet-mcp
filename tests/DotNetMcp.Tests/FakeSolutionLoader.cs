@@ -674,6 +674,16 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
                 public Address Home { get; set; } = new();
                 public string Nickname;
             }
+
+            public interface INamed
+            {
+                string Name { get; }
+            }
+
+            public interface ICustomer : INamed
+            {
+                string Email { get; }
+            }
             """;
 
         var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
@@ -852,6 +862,16 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
                 public Address Home { get; set; } = new();
                 public string Name { get; set; } = "";
                 public void Save() { }
+            }
+
+            public interface INamed
+            {
+                string Name { get; }
+            }
+
+            public interface ICustomer : INamed
+            {
+                string Email { get; }
             }
             """;
 

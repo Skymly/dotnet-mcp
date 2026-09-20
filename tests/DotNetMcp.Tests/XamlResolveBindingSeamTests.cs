@@ -50,6 +50,47 @@ public class XamlResolveBindingSeamTests
     }
 
     [Fact]
+    public async Task xaml_resolve_binding_resolves_parent_interface_property_on_interface_datatype()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        var axaml = Path.Combine(root, "MainWindow.axaml");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        await File.WriteAllTextAsync(axaml, """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:SampleApp"
+                    x:Class="SampleApp.MainWindow"
+                    x:DataType="local:ICustomer">
+                <TextBlock Text="{Binding Name}" />
+            </Window>
+            """);
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TestTrustedRoots.Create(root),
+                FakeSolutionLoader.ImmediateWithAvalonia());
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var result = await fx.Client.CallToolAsync(
+                "xaml_resolve_binding",
+                new Dictionary<string, object?> { ["path"] = axaml, ["bindingPath"] = "Name" });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<XamlResolveBindingResultDto>(result);
+            var item = Assert.Single(body.Items);
+            Assert.Equal("Name", item.Name);
+            Assert.Equal("Property", item.Summary.Kind);
+            Assert.True(SymbolHandle.TryParse(item.Handle, out _, out _));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task xaml_resolve_binding_distinguishes_missing_property_from_type_mismatch()
     {
         var root = CreateTempDir("root");

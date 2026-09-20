@@ -89,6 +89,32 @@ public class TypeMemberLookupSeamTests
     }
 
     [Fact]
+    public async Task interface_parent_property_is_found_on_derived_interface_handle()
+    {
+        var (session, symbols) = OpenViewModels();
+        using (session)
+        {
+            var handle = await ResolveHandleAsync(symbols, session, "SampleApp.ICustomer");
+
+            var (name, nameError) = await symbols.LookupTypeMemberAsync(session, handle, "Name");
+            Assert.Null(nameError);
+            Assert.NotNull(name);
+            Assert.Equal("Name", name!.Member.Name);
+            Assert.Equal(SymbolKind.Property, name.Member.Kind);
+            Assert.Equal("String", name.MemberType.Name);
+
+            var (email, emailError) = await symbols.LookupTypeMemberAsync(session, handle, "Email");
+            Assert.Null(emailError);
+            Assert.NotNull(email);
+            Assert.Equal("Email", email!.Member.Name);
+
+            var (missing, missingError) = await symbols.LookupTypeMemberAsync(session, handle, "NoSuchProperty");
+            Assert.Null(missing);
+            Assert.IsType<MemberNotFoundError>(missingError);
+        }
+    }
+
+    [Fact]
     public async Task missing_member_is_distinguishable_from_invalid_handle()
     {
         var (session, symbols) = OpenViewModels();
