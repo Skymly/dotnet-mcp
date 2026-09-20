@@ -26,6 +26,24 @@ public class ListToolsSeamTests
     }
 
     [Fact]
+    public async Task symbol_resolve_description_covers_csharp_vb_and_fsharp()
+    {
+        await using var fx = new InProcessMcpFixture();
+        var tools = await fx.Client.ListToolsAsync();
+        var resolve = Assert.Single(tools, t => t.Name == "symbol_resolve");
+
+        Assert.DoesNotContain("Resolve a C# symbol", resolve.Description, StringComparison.Ordinal);
+        Assert.Contains("C#", resolve.Description, StringComparison.Ordinal);
+        Assert.Contains("VB", resolve.Description, StringComparison.Ordinal);
+        Assert.Contains("F#", resolve.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("Roslyn projectId", resolve.Description, StringComparison.OrdinalIgnoreCase);
+
+        var symbolTools = File.ReadAllText(Path.Combine(FindServerDir(), "SymbolTools.cs"));
+        Assert.DoesNotContain("Optional Roslyn projectId", symbolTools, StringComparison.Ordinal);
+        Assert.Contains("Optional projectId GUID string from workspace_list_projects", symbolTools, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void mcp_server_tools_declare_annotations()
     {
         var serverDir = FindServerDir();
