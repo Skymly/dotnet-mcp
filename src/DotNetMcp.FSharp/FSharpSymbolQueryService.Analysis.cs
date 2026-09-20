@@ -281,11 +281,35 @@ public sealed partial class FSharpSymbolQueryService
             return true;
         }
 
-        if (!string.Equals(symbol.DisplayName, item.DisplayName, StringComparison.Ordinal))
+        if (symbol is FSharpMemberOrFunctionOrValue member)
         {
-            return false;
+            var signature = FormatParameterSignature(member);
+            var signed = name + signature;
+            if (string.Equals(signed, item.SignatureQualifiedName, StringComparison.Ordinal)
+                || item.SignatureQualifiedName.StartsWith(signed + "@", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (!string.Equals(symbol.DisplayName, item.DisplayName, StringComparison.Ordinal)
+                || !SameDeclarationFile(symbol, item))
+            {
+                return false;
+            }
+
+            // Same file + display name is not enough for overloads: require the catalog
+            // signature to include this parameter list when both sides are signed.
+            return string.IsNullOrEmpty(signature)
+                || !item.SignatureQualifiedName.Contains('(', StringComparison.Ordinal)
+                || item.SignatureQualifiedName.Contains(signature, StringComparison.Ordinal);
         }
 
+        return string.Equals(symbol.DisplayName, item.DisplayName, StringComparison.Ordinal)
+            && SameDeclarationFile(symbol, item);
+    }
+
+    private static bool SameDeclarationFile(FSharpSymbol symbol, FSharpCatalogItem item)
+    {
         if (!OptionModule.IsSome(symbol.DeclarationLocation))
         {
             return false;
