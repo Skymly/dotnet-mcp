@@ -324,6 +324,47 @@ public class WorkspaceEditSeamTests
     }
 
     [Fact]
+    public async Task check_drift_cannot_rollback_in_flight_apply_new_text()
+    {
+        var root = CreateTempDir();
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir));
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var path = Path.Combine(projectDir, "Widget.cs");
+            var old = await File.ReadAllTextAsync(path);
+            var applied = old + "//NEW";
+            var applyTask = Task.Run(() => fx.WorkspaceHost.WriteDeclaredPaths(
+                [new WorkspaceEditDocument(path, old, applied)]));
+            var driftTask = Task.Run(() => fx.WorkspaceHost.CheckDrift());
+            var apply = await applyTask;
+            await driftTask;
+
+            var disk = (await File.ReadAllTextAsync(path)).Replace("\r\n", "\n");
+            if (!apply.Failed)
+            {
+                Assert.Contains("//NEW", disk, StringComparison.Ordinal);
+                Assert.True(fx.WorkspaceHost.CurrentEpoch >= apply.Value);
+            }
+            else
+            {
+                Assert.DoesNotContain("//NEW", disk, StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task apply_missing_workspace_document_writes_nothing()
     {
         var root = CreateTempDir();

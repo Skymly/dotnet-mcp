@@ -478,6 +478,19 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     /// </summary>
     public WorkspaceCheckDriftResultDto CheckDrift()
     {
+        _writeMutex.Wait();
+        try
+        {
+            return CheckDriftWhileWriteLocked();
+        }
+        finally
+        {
+            _writeMutex.Release();
+        }
+    }
+
+    private WorkspaceCheckDriftResultDto CheckDriftWhileWriteLocked()
+    {
         LoadedSolution loaded;
         string? openedPath;
         lock (_gate)
