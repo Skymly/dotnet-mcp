@@ -181,10 +181,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         CancelWarmUnlocked();
         // Replace the instance so in-flight sessions keep the previous epoch's compilations.
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
-        // Empty snapshot at the new epoch until CaptureFSharpOutsideGate commits I/O.
-        // Never leave a previous epoch's F# texts on a newer session.
-        _fsharpSnapshot = new FSharpWorkspaceSnapshot(_epoch, []);
-        // F# snapshot capture does disk I/O / GetResult — run outside _gate.
+        // Keep the previous F# snapshot until CaptureFSharpOutsideGate commits the new
+        // epoch's texts. Ready sessions must not observe an empty table as "no F# projects".
+        // Capture does disk I/O / GetResult — run it outside _gate.
     }
 
     private void CaptureFSharpOutsideGate()
@@ -623,6 +622,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
         }
 
+        var bumped = false;
         lock (_gate)
         {
             if (_phase != "ready" || _loaded is null)
@@ -645,13 +645,31 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 }
             }
 
+            foreach (var path in filtered)
+            {
+                if (diskTexts.ContainsKey(path))
+                {
+                    continue;
+                }
+
+                if (path.EndsWith(".fs", StringComparison.OrdinalIgnoreCase) ||
+                    path.EndsWith(".fsi", StringComparison.OrdinalIgnoreCase))
+                {
+                    changed = true;
+                }
+            }
+
             if (changed)
             {
                 AdvanceEpochUnlocked();
+                bumped = true;
             }
         }
 
-        CaptureFSharpOutsideGate();
+        if (bumped)
+        {
+            CaptureFSharpOutsideGate();
+        }
     }
 
     private static DriftItemDto ToDto(DocumentDrift d) => new()
