@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Ready F# snapshot stays populated across epoch bumps; deleting `.fs` / `.fsi` advances Epoch before recapture (`#296`)
 - `server.json` omits unpublished NuGet/dnx install packages; version gate rejects Unreleased product entries that still use the previous release (`#295`)
 - Version gate reads the csproj `<Version>` and requires `.mcp/server.json` plus the latest CHANGELOG heading to match; CI checks the same three places (`#245`)
 - README Quick Start leads with `dotnet run` / local pack; `dnx Skymly.DotNetMcp` is documented as available after NuGet publish (`#246`)
