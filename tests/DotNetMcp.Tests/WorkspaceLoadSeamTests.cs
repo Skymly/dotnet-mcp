@@ -2,6 +2,7 @@ using System.Diagnostics;
 using DotNetMcp.Server;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
+using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Tests;
 
@@ -230,7 +231,69 @@ public class WorkspaceLoadSeamTests
     }
 
     [Fact]
+    public async Task workspace_open_on_disk_document_outside_roots_is_loaded_graph_error()
+    {
+        var root = CreateTempDir("root");
+        var outside = CreateTempDir("outside");
+        var outsideCs = Path.Combine(outside, "Evil.cs");
+        await File.WriteAllTextAsync(outsideCs, "namespace Evil; public class Leak {}");
+        var insideProj = Path.Combine(root, "App.csproj");
+        await File.WriteAllTextAsync(insideProj, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        LoadedSolution Factory()
+        {
+            var workspace = new AdhocWorkspace();
+            var projectId = ProjectId.CreateNewId();
+            var docId = DocumentId.CreateNewId(projectId);
+            var loaded = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+                projectId,
+                VersionStamp.Create(),
+                "App",
+                "App",
+                LanguageNames.CSharp,
+                filePath: insideProj));
+            loaded = loaded.AddDocument(docId, "Evil.cs", SourceText.From("namespace Evil; public class Leak {}"), filePath: outsideCs);
+            if (!workspace.TryApplyChanges(loaded))
+            {
+                throw new InvalidOperationException("Failed to apply out-of-root document fixture.");
+            }
+
+            return new LoadedSolution(workspace, workspace.CurrentSolution, []);
+        }
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                new FakeSolutionLoader(TimeSpan.Zero, Factory));
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = solution });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+            var status = await WaitUntilFailedAsync(fx);
+            Assert.Equal(PolicyErrorCodes.LoadedGraphOutsideTrustedRoots, status.ErrorCode);
+
+            var list = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(list.IsError is true);
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(list);
+            Assert.Equal(PolicyErrorCodes.LoadedGraphOutsideTrustedRoots, body.Error);
+        }
+        finally
+        {
+            TryDelete(root);
+            TryDelete(outside);
+        }
+    }
+
+    [Fact]
     public async Task workspace_open_analyzer_outside_roots_is_loaded_graph_error()
+
     {
         var root = CreateTempDir("root");
         var outside = CreateTempDir("outside");

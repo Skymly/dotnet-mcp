@@ -38,7 +38,8 @@ public class P0ExitGateSeamTests
             var summary = await fx.Client.CallToolAsync(
                 "symbol_summary",
                 new Dictionary<string, object?> { ["handle"] = drawable });
-            Assert.True(summary.IsError is not true);
+            Assert.True(summary.IsError is not true, InProcessMcpFixture.TextOf(summary));
+            Assert.Contains("IDrawable", InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(summary).Summary.DisplayName, StringComparison.Ordinal);
 
             var gotoDef = await fx.Client.CallToolAsync(
                 "symbol_goto_definition",
@@ -49,12 +50,14 @@ public class P0ExitGateSeamTests
             var members = await fx.Client.CallToolAsync(
                 "symbol_members",
                 new Dictionary<string, object?> { ["handle"] = drawable });
-            Assert.True(members.IsError is not true);
+            Assert.True(members.IsError is not true, InProcessMcpFixture.TextOf(members));
+            Assert.NotEmpty(InProcessMcpFixture.Deserialize<SymbolMembersResultDto>(members).Items);
 
             var refs = await fx.Client.CallToolAsync(
                 "symbol_find_references",
                 new Dictionary<string, object?> { ["handle"] = drawable });
-            Assert.True(refs.IsError is not true);
+            Assert.True(refs.IsError is not true, InProcessMcpFixture.TextOf(refs));
+            Assert.NotEmpty(InProcessMcpFixture.Deserialize<SymbolFindReferencesResultDto>(refs).Items);
 
             var impls = await fx.Client.CallToolAsync(
                 "symbol_find_implementations",
@@ -74,6 +77,8 @@ public class P0ExitGateSeamTests
                 "symbol_find_callers",
                 new Dictionary<string, object?> { ["handle"] = draw });
             Assert.True(callers.IsError is not true, InProcessMcpFixture.TextOf(callers));
+            var callerBody = InProcessMcpFixture.Deserialize<SymbolFindCallersResultDto>(callers);
+            Assert.False(string.IsNullOrWhiteSpace(callerBody.Message));
         }
         finally
         {
@@ -132,12 +137,17 @@ public class P0ExitGateSeamTests
                     ["assemblyName"] = "CustomGenerator",
                     ["typeFullName"] = "CustomGenerator.DiagnosticEmittingGenerator"
                 });
-            Assert.True(genDiags.IsError is not true);
+            Assert.True(genDiags.IsError is not true, InProcessMcpFixture.TextOf(genDiags));
+            var genDiagBody = InProcessMcpFixture.Deserialize<ProjectListGeneratorDiagnosticsResultDto>(genDiags);
+            Assert.Equal("CustomGenerator.DiagnosticEmittingGenerator", genDiagBody.Generator.TypeFullName);
+            Assert.NotEmpty(genDiagBody.Items);
 
             var diags = await fx.Client.CallToolAsync(
                 "project_diagnostics",
                 new Dictionary<string, object?> { ["projectId"] = projectId });
-            Assert.True(diags.IsError is not true);
+            Assert.True(diags.IsError is not true, InProcessMcpFixture.TextOf(diags));
+            var diagBody = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(diags);
+            Assert.False(string.IsNullOrWhiteSpace(diagBody.Message));
 
             var resolved = await ResolveAsync(fx, "SampleApp.Generated.CustomMarker");
             var attr = await fx.Client.CallToolAsync(
@@ -179,6 +189,7 @@ public class P0ExitGateSeamTests
             Assert.True(drift.IsError is not true, InProcessMcpFixture.TextOf(drift));
             var body = InProcessMcpFixture.Deserialize<WorkspaceCheckDriftResultDto>(drift);
             Assert.True(body.Epoch > 0);
+            Assert.NotNull(body.Drifted);
         }
         finally
         {
