@@ -39,7 +39,7 @@ public class FsharpSnapshotDiskSeamTests
     }
 
     [Fact]
-    public void session_without_snapshot_does_not_walk_disk_without_roots()
+    public void session_without_captured_snapshot_has_empty_fsharp_projects()
     {
         var fsproj = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "fixtures", "MixedCsharpVb", "FsLib", "FsLib.fsproj"));
         Assert.True(File.Exists(fsproj), fsproj);
