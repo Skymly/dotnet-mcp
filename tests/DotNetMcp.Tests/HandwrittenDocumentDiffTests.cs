@@ -98,23 +98,114 @@ public class HandwrittenDocumentDiffTests
     }
 
     [Fact]
-    public async Task from_solutions_flags_added_documents_without_emitting_them_as_slices()
+    public async Task from_solutions_emits_handwritten_added_documents_without_generated_flag()
     {
-        using var workspace = CreateWorkspace();
+        using var workspace = CreatePlainWorkspace();
         var project = workspace.CurrentSolution.Projects.Single();
+        var extraPath = Path.Combine(Path.GetDirectoryName(project.FilePath) ?? @"C:\fake", "Extra.cs");
         var after = workspace.CurrentSolution.AddDocument(
             DocumentId.CreateNewId(project.Id),
             "Extra.cs",
-            SourceText.From("namespace GeneratorHost; public class Extra {}"),
-            filePath: Path.Combine(Path.GetDirectoryName(project.FilePath) ?? @"C:\fake", "Extra.cs"));
+            SourceText.From("namespace Host; public class Extra {}"),
+            filePath: extraPath);
 
         var (slices, touchedGenerated) = await HandwrittenDocumentDiff.FromSolutionsAsync(
             workspace.CurrentSolution,
             after,
             CancellationToken.None);
 
-        Assert.True(touchedGenerated);
-        Assert.Empty(slices);
+        Assert.False(touchedGenerated);
+        var added = Assert.Single(slices);
+        Assert.True(PathsEqual(added.Path, extraPath));
+        Assert.Equal(string.Empty, added.OldText);
+        Assert.Contains("class Extra", added.NewText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task from_solutions_emits_handwritten_removed_documents_without_generated_flag()
+    {
+        using var workspace = CreatePlainWorkspace();
+        var handwritten = Assert.Single(workspace.CurrentSolution.Projects.Single().Documents);
+        var after = workspace.CurrentSolution.RemoveDocument(handwritten.Id);
+
+        var (slices, touchedGenerated) = await HandwrittenDocumentDiff.FromSolutionsAsync(
+            workspace.CurrentSolution,
+            after,
+            CancellationToken.None);
+
+        Assert.False(touchedGenerated);
+        var removed = Assert.Single(slices);
+        Assert.True(PathsEqual(removed.Path, handwritten.FilePath));
+        Assert.Equal(string.Empty, removed.NewText);
+        Assert.Contains("class Host", removed.OldText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task handwritten_add_is_not_generated_document_fix_refused()
+    {
+        using var workspace = CreatePlainWorkspace();
+        var project = workspace.CurrentSolution.Projects.Single();
+        var extraPath = Path.Combine(Path.GetDirectoryName(project.FilePath) ?? @"C:\fake", "Extra.cs");
+        var after = workspace.CurrentSolution.AddDocument(
+            DocumentId.CreateNewId(project.Id),
+            "Extra.cs",
+            SourceText.From("namespace Host; public class Extra {}"),
+            filePath: extraPath);
+
+        var (slices, error) = await CodeActionDocuments.ToHandwrittenSlicesAsync(
+            workspace.CurrentSolution,
+            after,
+            () => new FixApplyFailedError("no handwritten change", "retry"),
+            () => new GeneratedDocumentFixRefusedError("generated", "change input"),
+            CancellationToken.None);
+
+        Assert.Null(error);
+        Assert.Contains(slices!, s => PathsEqual(s.Path, extraPath) && s.OldText.Length == 0);
+    }
+
+
+    private static AdhocWorkspace CreatePlainWorkspace()
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        const string projectFilePath = @"C:\plain\Host.csproj";
+
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "Host",
+            "Host",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        const string source = """
+            namespace Host;
+
+            public static class Host
+            {
+                public static string Name => "host";
+            }
+            """;
+
+        solution = solution.AddDocument(
+            docId,
+            "Host.cs",
+            SourceText.From(source),
+            filePath: Path.Combine(Path.GetDirectoryName(projectFilePath) ?? @"C:\plain", "Host.cs"));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply plain AdhocWorkspace.");
+        }
+
+        return workspace;
     }
 
     private static AdhocWorkspace CreateWorkspace()
