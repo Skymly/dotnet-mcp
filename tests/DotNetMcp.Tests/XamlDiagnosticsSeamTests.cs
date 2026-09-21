@@ -127,7 +127,7 @@ public class XamlDiagnosticsSeamTests
     }
 
     [Fact]
-    public async Task xaml_diagnostics_soft_budget_returns_partial_results()
+    public async Task xaml_diagnostics_zero_budget_does_not_hard_fail()
     {
         var root = CreateTempDir("root");
         var solution = Path.Combine(root, "App.slnx");
