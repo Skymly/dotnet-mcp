@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Failed/idle query tools no longer tell the agent to wait until load completes (`#302`)
 - Tests: graph-gate seam uses on-disk escaped documents; P0 exit-gate asserts payloads; XAML Zero budget is not labeled partial (`#301`)
 - Handwritten document add/remove become Workspace Edit slices instead of `GeneratedDocument*Refused` (`#299`)
 - `GeneratedSourcesPageCursor` binds the issuing tool so generated-source and generator-diagnostic pages cannot be chained (`#298`)

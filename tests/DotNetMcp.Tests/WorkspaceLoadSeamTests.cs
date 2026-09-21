@@ -154,6 +154,8 @@ public class WorkspaceLoadSeamTests
             Assert.True(list.IsError is true);
             var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(list);
             Assert.Equal(PolicyErrorCodes.WorkspaceNotReady, body.Error);
+            Assert.Contains("phase=idle", body.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("until load completes", body.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("workspace_open", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("poll until", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
         }
@@ -386,6 +388,8 @@ public class WorkspaceLoadSeamTests
             Assert.True(list.IsError is true);
             var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(list);
             Assert.Equal(PolicyErrorCodes.WorkspaceNotReady, body.Error);
+            Assert.Contains("phase=failed", body.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("until load completes", body.Message, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("poll until", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
         }
         finally

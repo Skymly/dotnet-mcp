@@ -32,11 +32,20 @@ public static class McpToolEnvelope
             return false;
         }
 
+        var message = status.Phase switch
+        {
+            "failed" or "cancelled" =>
+                $"Workspace is not ready (phase={status.Phase}). Query tools cannot run; load is not in progress.",
+            "idle" =>
+                "Workspace is not ready (phase=idle). Open a workspace before calling query tools.",
+            _ =>
+                $"Workspace is not ready (phase={status.Phase}). Query tools cannot run until load completes.",
+        };
+
         errorResult = ErrorResult(new PolicyErrorDto
         {
             Error = PolicyErrorCodes.WorkspaceNotReady,
-            Message =
-                $"Workspace is not ready (phase={status.Phase}). Query tools cannot run until load completes.",
+            Message = message,
             SuggestedAction = status.SuggestedAction
         });
         return false;
