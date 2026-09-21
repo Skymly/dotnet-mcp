@@ -237,7 +237,8 @@ public class GeneratorQueryServiceTests
             epoch: 99,
             assemblyName: "CustomGenerator",
             typeFullName: "CustomGenerator.MarkerGenerator",
-            offset: 0);
+            offset: 0,
+            tool: "project_list_generated_sources");
 
         var (_, error) = await service.ListGeneratedSourcesAsync(
             session,

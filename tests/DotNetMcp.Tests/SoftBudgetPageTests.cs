@@ -198,19 +198,21 @@ public class SoftBudgetPageTests
             out var assembly,
             out var type,
             out var offset,
+            out var cursorTool,
             out var cursorError));
         Assert.Null(cursorError);
         Assert.Equal(4, epoch);
         Assert.Equal("Gen", assembly);
         Assert.Equal("G.T", type);
         Assert.Equal(2, offset);
+        Assert.Equal("project_list_generated_sources", cursorTool);
         Assert.DoesNotContain("Page complete.", page.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void generated_cursor_wrong_identity_is_stale()
     {
-        var cursor = GeneratedSourcesPageCursor.Encode(4, "Gen", "G.T", 0);
+        var cursor = GeneratedSourcesPageCursor.Encode(4, "Gen", "G.T", 0, "project_list_generated_sources");
 
         var (_, error) = SoftBudgetPage.PageGenerated(
             new[] { "s1" },
@@ -228,7 +230,63 @@ public class SoftBudgetPageTests
     }
 
     [Fact]
+    public void generated_cursor_from_other_tool_is_stale()
+    {
+        var cursor = GeneratedSourcesPageCursor.Encode(
+            4, "Gen", "G.T", 0, "project_list_generated_sources");
+
+        var (_, error) = SoftBudgetPage.PageGenerated(
+            new[] { "s1", "s2" },
+            epoch: 4,
+            assemblyName: "Gen",
+            typeFullName: "G.T",
+            cursor: cursor,
+            pageLimit: 10,
+            tool: "project_list_generator_diagnostics",
+            emptyMessage: "none",
+            completeMessage: "done");
+
+        Assert.IsType<StaleCursorError>(error);
+        Assert.Contains("different tool", error!.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void generated_cursor_same_tool_continues()
+    {
+        var (first, firstError) = SoftBudgetPage.PageGenerated(
+            new[] { "s1", "s2", "s3" },
+            epoch: 4,
+            assemblyName: "Gen",
+            typeFullName: "G.T",
+            cursor: null,
+            pageLimit: 2,
+            tool: "project_list_generated_sources",
+            emptyMessage: "none",
+            completeMessage: "done");
+
+        Assert.Null(firstError);
+        Assert.NotNull(first);
+        Assert.True(first!.Truncated);
+
+        var (second, secondError) = SoftBudgetPage.PageGenerated(
+            new[] { "s1", "s2", "s3" },
+            epoch: 4,
+            assemblyName: "Gen",
+            typeFullName: "G.T",
+            cursor: first.NextCursor,
+            pageLimit: 2,
+            tool: "project_list_generated_sources",
+            emptyMessage: "none",
+            completeMessage: "done");
+
+        Assert.Null(secondError);
+        Assert.Equal(new[] { "s3" }, second!.Items);
+        Assert.False(second.Truncated);
+    }
+
+    [Fact]
     public void list_query_modules_do_not_hand_decode_cursors()
+
     {
         var coreDir = FindCoreDir();
         foreach (var name in new[] { "DynamicInvocationQueryService.cs", "GeneratorQueryService.cs" })

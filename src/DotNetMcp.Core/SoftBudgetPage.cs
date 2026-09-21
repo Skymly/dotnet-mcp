@@ -106,7 +106,7 @@ public static class SoftBudgetPage
             slice,
             moreItems: next < items.Count,
             budgetHit: false,
-            () => GeneratedSourcesPageCursor.Encode(epoch, assemblyName, typeFullName, next),
+            () => GeneratedSourcesPageCursor.Encode(epoch, assemblyName, typeFullName, next, tool),
             tool,
             items.Count == 0 ? emptyMessage : completeMessage), null);
     }
@@ -237,6 +237,7 @@ public static class SoftBudgetPage
                 out var cursorAssembly,
                 out var cursorType,
                 out offset,
+                out var cursorTool,
                 out var cursorError))
         {
             error = new StaleCursorError(
@@ -251,6 +252,13 @@ public static class SoftBudgetPage
             error = new StaleCursorError(
                 $"Cursor epoch {cursorEpoch} does not match workspace epoch {epoch}.",
                 $"Call {tool} again without a cursor; do not retry with the stale cursor.");
+            offset = 0;
+            return false;
+        }
+
+        if (!string.Equals(cursorTool, tool, StringComparison.Ordinal))
+        {
+            error = MismatchedQuery(tool);
             offset = 0;
             return false;
         }
