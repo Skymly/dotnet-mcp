@@ -25,6 +25,36 @@ public class ReadmeInstallSeamTests
         Assert.Contains("after the package is published", rest, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void server_json_does_not_advertise_unpublished_nuget_dnx_package()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "DotNetMcp.Server", ".mcp", "server.json");
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        var root = doc.RootElement;
+        var nugetOrDnx = false;
+        if (root.TryGetProperty("packages", out var packages) && packages.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            foreach (var package in packages.EnumerateArray())
+            {
+                var registry = package.TryGetProperty("registryType", out var registryType)
+                    ? registryType.GetString()
+                    : null;
+                var hint = package.TryGetProperty("runtimeHint", out var runtimeHint)
+                    ? runtimeHint.GetString()
+                    : null;
+                if (string.Equals(registry, "nuget", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(hint, "dnx", StringComparison.OrdinalIgnoreCase))
+                {
+                    nugetOrDnx = true;
+                }
+            }
+        }
+
+        Assert.False(
+            nugetOrDnx,
+            "server.json must not advertise a NuGet/dnx package while Skymly.DotNetMcp is unpublished.");
+    }
+
     private static int IndexOfFence(string text, string fence) =>
         text.IndexOf(fence + Environment.NewLine, StringComparison.Ordinal) >= 0
             ? text.IndexOf(fence + Environment.NewLine, StringComparison.Ordinal)

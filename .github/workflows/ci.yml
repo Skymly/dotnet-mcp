@@ -33,9 +33,37 @@ jobs:
           $version = $Matches[1]
           $json = Get-Content src/DotNetMcp.Server/.mcp/server.json -Raw | ConvertFrom-Json
           if ($json.version -ne $version) { throw "server.json version '$($json.version)' != csproj '$version'" }
+          if ($null -ne $json.packages) {
+            foreach ($pkg in @($json.packages)) {
+              if ([string]$pkg.registryType -ne 'nuget') { continue }
+              $id = ([string]$pkg.identifier).ToLowerInvariant()
+              $pkgVersion = if ($pkg.version) { [string]$pkg.version } else { $version }
+              $url = "https://api.nuget.org/v3-flatcontainer/$id/index.json"
+              try {
+                $resp = Invoke-WebRequest -Uri $url -UseBasicParsing
+              } catch {
+                throw "server.json nuget package $id@$pkgVersion is not on nuget.org"
+              }
+              $published = ($resp.Content | ConvertFrom-Json).versions
+              if ($published -notcontains $pkgVersion) {
+                throw "server.json nuget package $id@$pkgVersion is not on nuget.org"
+              }
+            }
+          }
           $changelog = Get-Content CHANGELOG.md -Raw
           if ($changelog -notmatch '(?m)^## (\d+\.\d+\.\d+)\b') { throw "CHANGELOG.md missing ## MAJOR.MINOR.PATCH heading" }
-          if ($Matches[1] -ne $version) { throw "CHANGELOG version '$($Matches[1])' != csproj '$version'" }
+          $released = $Matches[1]
+          $unreleasedHasEntries = $false
+          if ($changelog -match '(?ms)^## Unreleased\b(.*?)(?=^## |\z)') {
+            if ($Matches[1] -match '(?m)^- ') { $unreleasedHasEntries = $true }
+          }
+          if ($unreleasedHasEntries) {
+            if ($version -eq $released) {
+              throw "Unreleased has product entries but Version '$version' still equals previous release '$released'"
+            }
+          } elseif ($released -ne $version) {
+            throw "CHANGELOG version '$released' != csproj '$version'"
+          }
 
       - name: Restore
         run: dotnet restore DotNetMcp.slnx
