@@ -91,7 +91,51 @@ public class ProjectListGeneratorDiagnosticsSeamTests
     }
 
     [Fact]
+    public async Task project_list_generator_diagnostics_rejects_generated_sources_cursor()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TestTrustedRoots.Create(root),
+                FakeSolutionLoader.ImmediateWithGenerators());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var projectId = await GetSingleProjectIdAsync(fx);
+
+            var crossed = DotNetMcp.Core.GeneratedSourcesPageCursor.Encode(
+                epoch: fx.WorkspaceHost.CurrentEpoch,
+                assemblyName: "CustomGenerator",
+                typeFullName: "CustomGenerator.DiagnosticEmittingGenerator",
+                offset: 0,
+                tool: "project_list_generated_sources");
+
+            var result = await fx.Client.CallToolAsync(
+                "project_list_generator_diagnostics",
+                new Dictionary<string, object?>
+                {
+                    ["projectId"] = projectId,
+                    ["assemblyName"] = "CustomGenerator",
+                    ["typeFullName"] = "CustomGenerator.DiagnosticEmittingGenerator",
+                    ["cursor"] = crossed
+                });
+
+            Assert.True(result.IsError is true);
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(result);
+            Assert.Equal(PolicyErrorCodes.StaleCursor, body.Error);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task project_list_generator_diagnostics_stale_epoch_cursor_errors()
+
     {
         var root = CreateTempDir("root");
         var solution = Path.Combine(root, "App.slnx");
@@ -110,7 +154,8 @@ public class ProjectListGeneratorDiagnosticsSeamTests
                 epoch: 999_999,
                 assemblyName: "CustomGenerator",
                 typeFullName: "CustomGenerator.DiagnosticEmittingGenerator",
-                offset: 0);
+                offset: 0,
+                tool: "project_list_generator_diagnostics");
 
             var result = await fx.Client.CallToolAsync(
                 "project_list_generator_diagnostics",

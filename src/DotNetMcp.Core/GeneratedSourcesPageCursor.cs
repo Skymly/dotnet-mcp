@@ -5,11 +5,12 @@ namespace DotNetMcp.Core;
 
 /// <summary>
 /// Opaque page cursor for generated-source lists. Keys include generator identity because HintName
-/// is not unique across generators (ADR-0001 §6 / Spike S1 Q4).
+/// is not unique across generators (ADR-0001 §6 / Spike S1 Q4), plus the issuing tool so list
+/// and diagnostics pages cannot be chained.
 /// </summary>
 public static class GeneratedSourcesPageCursor
 {
-    private const string Version = "v1";
+    private const string Version = "v2";
     public static readonly TimeSpan DefaultTtl = TimeSpan.FromMinutes(30);
 
     private sealed record Payload(
@@ -18,15 +19,18 @@ public static class GeneratedSourcesPageCursor
         string AssemblyName,
         string TypeFullName,
         int Offset,
-        long IssuedAtUnixMs);
+        long IssuedAtUnixMs,
+        string Tool);
 
     public static string Encode(
         long epoch,
         string assemblyName,
         string typeFullName,
         int offset,
+        string tool,
         DateTimeOffset? issuedAt = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tool);
         var issued = (issuedAt ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds();
         var json = JsonSerializer.Serialize(new Payload(
             Version,
@@ -34,7 +38,8 @@ public static class GeneratedSourcesPageCursor
             assemblyName,
             typeFullName,
             offset,
-            issued));
+            issued,
+            tool));
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
     }
 
@@ -44,6 +49,7 @@ public static class GeneratedSourcesPageCursor
         out string assemblyName,
         out string typeFullName,
         out int offset,
+        out string tool,
         out string? error,
         DateTimeOffset? now = null,
         TimeSpan? ttl = null)
@@ -52,6 +58,7 @@ public static class GeneratedSourcesPageCursor
         assemblyName = string.Empty;
         typeFullName = string.Empty;
         offset = 0;
+        tool = string.Empty;
         error = null;
 
         if (string.IsNullOrWhiteSpace(cursor))
@@ -68,6 +75,7 @@ public static class GeneratedSourcesPageCursor
                 !string.Equals(payload.V, Version, StringComparison.Ordinal) ||
                 string.IsNullOrWhiteSpace(payload.AssemblyName) ||
                 string.IsNullOrWhiteSpace(payload.TypeFullName) ||
+                string.IsNullOrWhiteSpace(payload.Tool) ||
                 payload.Offset < 0 ||
                 payload.IssuedAtUnixMs <= 0)
             {
@@ -88,6 +96,7 @@ public static class GeneratedSourcesPageCursor
             assemblyName = payload.AssemblyName;
             typeFullName = payload.TypeFullName;
             offset = payload.Offset;
+            tool = payload.Tool;
             return true;
         }
         catch (Exception)

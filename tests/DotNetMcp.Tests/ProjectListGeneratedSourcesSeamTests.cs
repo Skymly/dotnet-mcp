@@ -151,7 +151,8 @@ public class ProjectListGeneratedSourcesSeamTests
                 epoch: 999_999,
                 assemblyName: "CustomGenerator",
                 typeFullName: "CustomGenerator.MarkerGenerator",
-                offset: 0);
+                offset: 0,
+                tool: "project_list_generated_sources");
 
             var result = await fx.Client.CallToolAsync(
                 "project_list_generated_sources",
