@@ -19,7 +19,9 @@ jobs:
       - name: Setup .NET SDKs
         uses: actions/setup-dotnet@v4
         with:
-          # Product/tests target net10.0; SampleFilter/MultiTfm fixtures need 8/9 for MSBuild evaluation.
+          # Product SDK: global.json 10.0.100 + rollForward latestFeature (10.0.x, not a patch pin).
+          # 8.0.x / 9.0.x stay floating: SampleFilter/MultiTfm fixtures need those MSBuild workloads.
+          global-json-file: global.json
           dotnet-version: |
             8.0.x
             9.0.x

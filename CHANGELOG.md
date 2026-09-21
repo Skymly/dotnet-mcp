@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- `global.json` pins the .NET 10 feature band with `rollForward: latestFeature`; CI keeps floating 8/9 for fixtures and does not commit a restore lock (`#300`)
 - Failed/idle query tools no longer tell the agent to wait until load completes (`#302`)
 - Tests: graph-gate seam uses on-disk escaped documents; P0 exit-gate asserts payloads; XAML Zero budget is not labeled partial (`#301`)
 - Handwritten document add/remove become Workspace Edit slices instead of `GeneratedDocument*Refused` (`#299`)
