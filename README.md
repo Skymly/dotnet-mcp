@@ -119,7 +119,7 @@ dotnet build DotNetMcp.slnx -c Release --no-restore
 dotnet test DotNetMcp.slnx -c Release --no-build
 ```
 
-CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Ubuntu **and** Windows, SDK 8/9/10, pack + `McpServer` metadata check).
+CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Ubuntu **and** Windows; product SDK via [`global.json`](global.json) 10.0.x roll-forward, fixture SDKs 8.0.x/9.0.x, pack + `McpServer` metadata check).
 
 Product benches: [`docs/perf/benchmark.md`](docs/perf/benchmark.md).
 
