@@ -65,14 +65,9 @@ public class ListToolsSeamTests
                 var rest = match.Groups["rest"].Value;
                 names.Add(name);
                 Assert.Contains("OpenWorld = false", rest, StringComparison.Ordinal);
-                if (apply.Contains(name) || name is "workspace_open" or "workspace_check_drift")
-                {
-                    Assert.Contains("ReadOnly = false", rest, StringComparison.Ordinal);
-                }
-                else
-                {
-                    Assert.Contains("ReadOnly = true", rest, StringComparison.Ordinal);
-                }
+                Assert.Contains(ExpectReadOnly(name) ? "ReadOnly = true" : "ReadOnly = false", rest, StringComparison.Ordinal);
+                Assert.Contains(ExpectDestructive(name) ? "Destructive = true" : "Destructive = false", rest, StringComparison.Ordinal);
+                Assert.Contains(ExpectIdempotent(name) ? "Idempotent = true" : "Idempotent = false", rest, StringComparison.Ordinal);
             }
         }
 
@@ -80,6 +75,32 @@ public class ListToolsSeamTests
         Assert.Contains("symbol_preview_rename", names);
         Assert.Contains("diagnostics_apply_fix", names);
     }
+
+    [Fact]
+    public async Task listed_tools_expose_all_four_annotations()
+    {
+        await using var fx = new InProcessMcpFixture();
+        var tools = await fx.Client.ListToolsAsync();
+        Assert.Equal(31, tools.Count);
+
+        foreach (var tool in tools)
+        {
+            var annotations = tool.ProtocolTool.Annotations;
+            Assert.NotNull(annotations);
+            Assert.Equal(false, annotations!.OpenWorldHint);
+            Assert.Equal(ExpectReadOnly(tool.Name), annotations.ReadOnlyHint);
+            Assert.Equal(ExpectDestructive(tool.Name), annotations.DestructiveHint);
+            Assert.Equal(ExpectIdempotent(tool.Name), annotations.IdempotentHint);
+        }
+    }
+
+    private static bool ExpectDestructive(string name) =>
+        name is "diagnostics_apply_fix" or "symbol_apply_rename" or "symbol_apply_refactoring";
+
+    private static bool ExpectReadOnly(string name) =>
+        !ExpectDestructive(name) && name is not ("workspace_open" or "workspace_check_drift");
+
+    private static bool ExpectIdempotent(string name) => ExpectReadOnly(name);
 
     private static string FindServerDir()
     {
