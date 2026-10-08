@@ -60,43 +60,94 @@ public class FileTextCodecTests
 public class FSharpCompileOrderTests
 {
     [Fact]
-    public void capture_uses_compile_include_order_not_directory_enumeration()
+    public async Task capture_uses_compile_include_order_not_directory_enumeration()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-fsord-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
+        var dir = CreateOrderFixture();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "Use.fs"), "module Use\nlet ping () = Types.Marker.Value\n");
-            File.WriteAllText(Path.Combine(dir, "Types.fs"), "module Types\ntype Marker = { Value: int }\n");
-            File.WriteAllText(Path.Combine(dir, "Lib.fsproj"), """
-                <Project Sdk="Microsoft.NET.Sdk">
-                  <PropertyGroup>
-                    <TargetFramework>net8.0</TargetFramework>
-                    <DefineConstants>TRACE;CUSTOM</DefineConstants>
-                  </PropertyGroup>
-                  <ItemGroup>
-                    <Compile Include="Types.fs" />
-                    <Compile Include="Use.fs" />
-                  </ItemGroup>
-                </Project>
-                """);
-
-            var workspace = new AdhocWorkspace();
-            var projectId = ProjectId.CreateNewId();
-            var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
-                projectId, VersionStamp.Create(), "Lib", "Lib", LanguageNames.FSharp,
-                filePath: Path.Combine(dir, "Lib.fsproj")));
-            Assert.True(workspace.TryApplyChanges(solution));
-            var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+            var loaded = LoadFsproj(dir);
             var snapshot = WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch: 1, TrustedRoots.Create([dir]));
             using var session = new WorkspaceSession(loaded, epoch: 1, fsharpSnapshot: snapshot);
             var project = Assert.Single(session.FSharpSnapshot.Projects);
-            Assert.Equal(new[] { "Types.fs", "Use.fs" }, project.Documents.Select(d => Path.GetFileName(d.Path)).ToArray());
+            Assert.Equal(new[] { "Zebra.fs", "Apple.fs" }, project.Documents.Select(d => Path.GetFileName(d.Path)).ToArray());
+            Assert.Equal(
+                new[] { "Zebra.fs", "Apple.fs" },
+                FSharpProjectFile.ReadCompilePaths(Path.Combine(dir, "Lib.fsproj")).Select(Path.GetFileName).ToArray());
             Assert.Contains("CUSTOM", project.Defines);
+
+            var (page, error) = await new DotNetMcp.FSharp.FSharpSymbolQueryService().GetProjectDiagnosticsAsync(session, project.ProjectId);
+            Assert.Null(error);
+            Assert.DoesNotContain(page!.Items, d => d.Id == "FS0039");
         }
         finally
         {
-            try { Directory.Delete(dir, true); } catch { }
+            TryDelete(dir);
         }
+    }
+
+    [Fact]
+    public async Task reversed_compile_order_fails_fsharp_check_with_fs0039()
+    {
+        var dir = CreateOrderFixture();
+        try
+        {
+            var loaded = LoadFsproj(dir);
+            var snapshot = WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch: 1, TrustedRoots.Create([dir]));
+            var project = Assert.Single(snapshot.Projects);
+            var reversed = new FSharpWorkspaceSnapshot(1, [
+                new FSharpProjectSnapshot(
+                    project.ProjectId,
+                    project.Name,
+                    project.FilePath,
+                    project.Documents.Reverse().ToArray(),
+                    project.Defines,
+                    project.References)
+            ]);
+            using var session = new WorkspaceSession(loaded, epoch: 1, fsharpSnapshot: reversed);
+            var (page, error) = await new DotNetMcp.FSharp.FSharpSymbolQueryService().GetProjectDiagnosticsAsync(session, project.ProjectId);
+            Assert.Null(error);
+            Assert.Contains(page!.Items, d => d.Id == "FS0039");
+        }
+        finally
+        {
+            TryDelete(dir);
+        }
+    }
+
+    private static string CreateOrderFixture()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-fsord-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "Apple.fs"), "module Apple\nlet ping () = Zebra.marker\n");
+        File.WriteAllText(Path.Combine(dir, "Zebra.fs"), "module Zebra\nlet marker = 7\n");
+        File.WriteAllText(Path.Combine(dir, "Lib.fsproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net8.0</TargetFramework>
+                <DefineConstants>TRACE;CUSTOM</DefineConstants>
+              </PropertyGroup>
+              <ItemGroup>
+                <Compile Include="Zebra.fs" />
+                <Compile Include="Apple.fs" />
+              </ItemGroup>
+            </Project>
+            """);
+        return dir;
+    }
+
+    private static LoadedSolution LoadFsproj(string dir)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId, VersionStamp.Create(), "Lib", "Lib", LanguageNames.FSharp,
+            filePath: Path.Combine(dir, "Lib.fsproj")));
+        Assert.True(workspace.TryApplyChanges(solution));
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    private static void TryDelete(string dir)
+    {
+        try { Directory.Delete(dir, true); } catch { }
     }
 }
