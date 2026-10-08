@@ -49,6 +49,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private readonly TrustedRoots _trustedRoots;
     private readonly GeneratorQueryService? _generators;
     private FSharpWorkspaceSnapshot? _fsharpSnapshot;
+    private Solution? _publishedSolution;
     private volatile bool _disposed;
 
     public WorkspaceHost(
@@ -120,6 +121,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             generation = _generation;
             _openedPath = Path.GetFullPath(path);
             _phase = "loading";
+            _publishedSolution = null;
             _completedUnits = 0;
             _totalUnits = 1;
             _error = null;
@@ -171,7 +173,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 fsharpSnapshot: _fsharpSnapshot,
                 generatorRunCache: _generatorRunCache,
                 compilationLru: _compilationLru,
-                findHitCache: _findHitCache);
+                findHitCache: _findHitCache,
+                solution: _publishedSolution);
             return true;
         }
     }
@@ -185,9 +188,37 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         CancelWarmUnlocked();
         // Replace the instance so in-flight sessions keep the previous epoch's compilations.
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
-        // Keep the previous F# snapshot until CaptureFSharpOutsideGate commits the new
-        // epoch's texts. Ready sessions must not observe an empty table as "no F# projects".
-        // Capture does disk I/O / GetResult — run it outside _gate.
+        // In-place advances publish the new F# snapshot in the same gate section.
+        // Load still captures before phase becomes ready. Disk I/O stays outside _gate.
+    }
+
+    private void CommitEpochWithFSharpSnapshot()
+    {
+        LoadedSolution? loaded;
+        long nextEpoch;
+        lock (_gate)
+        {
+            loaded = _loaded;
+            nextEpoch = _epoch + 1;
+        }
+
+        var snap = loaded is null
+            ? null
+            : WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, nextEpoch, _trustedRoots);
+
+        _options.BeforeFSharpSnapshotCommitForTests?.Invoke();
+
+        lock (_gate)
+        {
+            if (loaded is null || !ReferenceEquals(_loaded, loaded) || _epoch + 1 != nextEpoch)
+            {
+                return;
+            }
+
+            AdvanceEpochUnlocked();
+            _fsharpSnapshot = snap;
+            _publishedSolution = loaded.Solution;
+        }
     }
 
     private void CaptureFSharpOutsideGate()
@@ -203,6 +234,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         var snap = loaded is null
             ? null
             : WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch, _trustedRoots);
+
+        _options.BeforeFSharpSnapshotCommitForTests?.Invoke();
 
         lock (_gate)
         {
@@ -374,11 +407,10 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                     }
                 }
 
-                AdvanceEpochUnlocked();
             }
         }
 
-        CaptureFSharpOutsideGate();
+        CommitEpochWithFSharpSnapshot();
         lock (_gate)
         {
             return new WorkspaceEditOutcome<long>(_epoch, null);
@@ -549,6 +581,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
         IReadOnlyList<DocumentDrift> drifts;
         long epoch;
+        var repaired = false;
         lock (_gate)
         {
             if (!ReferenceEquals(_loaded, loaded) || _phase != "ready")
@@ -563,15 +596,22 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
 
             drifts = loaded.RepairSourceDrifts(detected, repairTexts);
-            if (drifts.Any(static d => d.Repaired))
-            {
-                AdvanceEpochUnlocked();
-            }
-
+            repaired = drifts.Any(static d => d.Repaired);
             epoch = _epoch;
         }
 
-        CaptureFSharpOutsideGate();
+        if (repaired)
+        {
+            CommitEpochWithFSharpSnapshot();
+            lock (_gate)
+            {
+                epoch = _epoch;
+            }
+        }
+        else
+        {
+            CaptureFSharpOutsideGate();
+        }
 
         var projectDrift = drifts.Any(d =>
             !d.Repaired && (d.Kind is "ProjectFileChanged" || LoadedSolution.IsProjectOrSolutionFile(d.Path)));
@@ -711,14 +751,13 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             if (changed)
             {
-                AdvanceEpochUnlocked();
                 bumped = true;
             }
         }
 
         if (bumped)
         {
-            CaptureFSharpOutsideGate();
+            CommitEpochWithFSharpSnapshot();
         }
     }
 
@@ -924,6 +963,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             {
                 if (generation == _generation && ReferenceEquals(_loaded, loaded) && _phase != "failed" && _phase != "cancelled")
                 {
+                    _publishedSolution = loaded.Solution;
                     _phase = "ready";
                 }
             }
