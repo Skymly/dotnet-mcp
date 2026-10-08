@@ -761,7 +761,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 {
                     try
                     {
-                        await Task.Delay(delay, token).ConfigureAwait(false);
+                        await Task.Delay(delay, _options.TimeProvider, token).ConfigureAwait(false);
 
                         string[] batch;
                         lock (_debounceGate)

@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: file-system watcher debounce above zero and Error-to-drift fallback fail if that wiring is removed (`#338`)
 - Tests: apply's final path gate and the .slnf pre-open check each fail if that gate is removed (`#336`)
 - Tests: MCP tool annotations now lock Destructive and Idempotent for every tool, not only ReadOnly and OpenWorld (`#334`)
 - F# diagnostics name an unbuilt project-reference output instead of leaving only FS0039 (`#330`)
@@ -52,6 +53,7 @@ Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended 
 
 ### Fixed
 
+- Tests: file-system watcher debounce above zero and Error-to-drift fallback fail if that wiring is removed (`#338`)
 - Find-refs / callers soft-budget cancel no longer treats the document table as exhausted; `ms<=0` budgets fall back to the ADR default instead of emitting a stuck cursor (`#242`)
 - Scoped find-refs and `symbol_find_callers` walk dependents (plus the defining project); callers takes `entireSolution` like find-refs (`#242`)
 - Workspace Edit apply maps I/O failures to `*ApplyFailed`, restores the previewId, rolls back the in-progress file, and preserves encoding/BOM (`#242`)
