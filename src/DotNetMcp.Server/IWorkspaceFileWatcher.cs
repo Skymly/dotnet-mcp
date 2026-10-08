@@ -24,7 +24,7 @@ public interface IWorkspaceFileWatcher : IDisposable
 /// </summary>
 public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
 {
-    private readonly List<FileSystemWatcher> _watchers = [];
+    private readonly List<ErrorRaisableWatcher> _watchers = [];
     private Action<IReadOnlyList<string>>? _onPathsChanged;
     private Action? _onWatchLost;
     private bool _disposed;
@@ -46,7 +46,7 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
                 continue;
             }
 
-            var watcher = new FileSystemWatcher(root)
+            var watcher = new ErrorRaisableWatcher(root)
             {
                 IncludeSubdirectories = true,
                 NotifyFilter = NotifyFilters.FileName
@@ -97,6 +97,25 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
         _onPathsChanged = null;
     }
 
+    /// <summary>
+    /// Raises <see cref="FileSystemWatcher.Error"/> on each active watcher so tests can
+    /// prove the production subscription still calls watch-lost. Production never calls this.
+    /// </summary>
+    internal void RaiseErrorForTests()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_watchers.Count == 0)
+        {
+            throw new InvalidOperationException("FileSystemWorkspaceWatcher has no active watchers.");
+        }
+
+        var args = new ErrorEventArgs(new InternalBufferOverflowException("injected watch error"));
+        foreach (var watcher in _watchers.ToArray())
+        {
+            watcher.RaiseError(args);
+        }
+    }
+
     private void OnEvent(object sender, FileSystemEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(e.FullPath))
@@ -129,5 +148,19 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
     private void OnError(object sender, ErrorEventArgs e)
     {
         _onWatchLost?.Invoke();
+    }
+
+    /// <summary>
+    /// Subclass only so tests can raise the protected error event.
+    /// Production behavior is otherwise <see cref="FileSystemWatcher"/>.
+    /// </summary>
+    private sealed class ErrorRaisableWatcher : FileSystemWatcher
+    {
+        public ErrorRaisableWatcher(string path)
+            : base(path)
+        {
+        }
+
+        public void RaiseError(ErrorEventArgs args) => OnError(args);
     }
 }

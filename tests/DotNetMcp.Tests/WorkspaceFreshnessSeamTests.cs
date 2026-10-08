@@ -354,6 +354,138 @@ public class WorkspaceFreshnessSeamTests
         }
     }
 
+    [Fact]
+    public async Task filesystem_watcher_default_debounce_applies_disk_edit_without_reopen()
+    {
+        var root = CreateTempDir("root");
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithSymbolsOnDisk(projectDir),
+                new WorkspaceHostOptions());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var epochBefore = fx.WorkspaceHost.CurrentEpoch;
+            var calcCs = Path.Combine(projectDir, "Calculator.cs");
+            var source = await File.ReadAllTextAsync(calcCs);
+            var next = source.Replace(
+                "public void Reset() { Name = \"calc\"; Mode = 0; }",
+                "public void Reset() { Name = \"calc\"; Mode = 0; }\n                public int Extra() => 7;",
+                StringComparison.Ordinal);
+            Assert.NotEqual(source, next);
+            await File.WriteAllTextAsync(calcCs, next);
+
+            await WaitUntilEpochAdvancesAsync(fx.WorkspaceHost, epochBefore, TimeSpan.FromSeconds(15));
+
+            var found = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "SampleLib.Calculator.Extra" });
+            Assert.True(found.IsError is not true, InProcessMcpFixture.TextOf(found));
+            var body = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(found);
+            Assert.Equal("Extra", body.Summary.DisplayName);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task debounce_above_zero_holds_epoch_until_delay_completes()
+    {
+        var root = CreateTempDir("root");
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        var watcher = new ManualWorkspaceFileWatcher();
+        var clock = new GateDelayTimeProvider();
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithSymbolsOnDisk(projectDir),
+                new WorkspaceHostOptions
+                {
+                    Debounce = TimeSpan.FromMilliseconds(300),
+                    FileWatcher = watcher,
+                    TimeProvider = clock
+                });
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var epoch = fx.WorkspaceHost.CurrentEpoch;
+            var calcCs = Path.Combine(projectDir, "Calculator.cs");
+            await File.WriteAllTextAsync(calcCs, await File.ReadAllTextAsync(calcCs) + "\n");
+            watcher.Raise(calcCs);
+
+            Assert.Equal(epoch, fx.WorkspaceHost.CurrentEpoch);
+            await clock.WaitForArmedAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(epoch, fx.WorkspaceHost.CurrentEpoch);
+            clock.Release();
+            await WaitUntilEpochAdvancesAsync(fx.WorkspaceHost, epoch, TimeSpan.FromSeconds(5));
+            Assert.Equal(epoch + 1, fx.WorkspaceHost.CurrentEpoch);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task filesystem_watcher_error_falls_back_to_drift_repair()
+    {
+        var root = CreateTempDir("root");
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        var watcher = new FileSystemWorkspaceWatcher();
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithSymbolsOnDisk(projectDir),
+                new WorkspaceHostOptions
+                {
+                    Debounce = TimeSpan.FromMinutes(5),
+                    FileWatcher = watcher
+                });
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var epoch = fx.WorkspaceHost.CurrentEpoch;
+            var calcCs = Path.Combine(projectDir, "Calculator.cs");
+            await File.WriteAllTextAsync(calcCs, await File.ReadAllTextAsync(calcCs) + "\n");
+            watcher.RaiseErrorForTests();
+            Assert.Equal(epoch + 1, fx.WorkspaceHost.CurrentEpoch);
+        }
+        finally
+        {
+            watcher.Dispose();
+            TryDelete(root);
+        }
+    }
+
+    private static async Task WaitUntilEpochAdvancesAsync(WorkspaceHost host, long epochBefore, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (host.CurrentEpoch > epochBefore)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25)).ConfigureAwait(false);
+        }
+
+        Assert.Fail($"epoch did not advance from {epochBefore}; still {host.CurrentEpoch}");
+    }
+
     private static string CreateTempDir(string prefix)
     {
         var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-freshness", prefix + "-" + Guid.NewGuid().ToString("N"));
@@ -373,6 +505,104 @@ public class WorkspaceFreshnessSeamTests
         catch
         {
             // best-effort cleanup
+        }
+    }
+}
+
+internal sealed class GateDelayTimeProvider : TimeProvider
+{
+    private readonly object _sync = new();
+    private readonly List<GateTimer> _pending = [];
+    private readonly TaskCompletionSource _armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _released;
+
+    public void Release()
+    {
+        Volatile.Write(ref _released, 1);
+        GateTimer[] due;
+        lock (_sync)
+        {
+            due = _pending.ToArray();
+            _pending.Clear();
+        }
+
+        foreach (var timer in due)
+        {
+            timer.Fire();
+        }
+    }
+
+    public async Task WaitForArmedAsync(TimeSpan timeout)
+    {
+        var finished = await Task.WhenAny(_armed.Task, Task.Delay(timeout)).ConfigureAwait(false);
+        if (!ReferenceEquals(finished, _armed.Task))
+        {
+            throw new TimeoutException("Debounce delay was not armed.");
+        }
+    }
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = new GateTimer(callback, state);
+        if (dueTime <= TimeSpan.Zero)
+        {
+            callback(state);
+            _armed.TrySetResult();
+            return timer;
+        }
+
+        if (dueTime == Timeout.InfiniteTimeSpan)
+        {
+            return timer;
+        }
+
+        var fireNow = false;
+        lock (_sync)
+        {
+            if (Volatile.Read(ref _released) == 1)
+            {
+                fireNow = true;
+            }
+            else
+            {
+                _pending.Add(timer);
+            }
+        }
+
+        _armed.TrySetResult();
+        if (fireNow)
+        {
+            timer.Fire();
+        }
+
+        return timer;
+    }
+
+    private sealed class GateTimer : ITimer
+    {
+        private TimerCallback? _callback;
+        private readonly object? _state;
+
+        public GateTimer(TimerCallback callback, object? state)
+        {
+            _callback = callback;
+            _state = state;
+        }
+
+        public void Fire()
+        {
+            var callback = Interlocked.Exchange(ref _callback, null);
+            callback?.Invoke(_state);
+        }
+
+        public bool Change(TimeSpan dueTime, TimeSpan period) => false;
+
+        public void Dispose() => Interlocked.Exchange(ref _callback, null);
+
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
         }
     }
 }
