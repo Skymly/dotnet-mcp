@@ -26,4 +26,10 @@ public sealed class WorkspaceHostOptions
     public TimeSpan WorkspaceEditPreviewTtl { get; init; } = TimeSpan.FromMinutes(5);
 
     public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
+
+    /// <summary>
+    /// Test seam invoked after the initial trust check and immediately before the
+    /// final canonical path gate. Production leaves this null.
+    /// </summary>
+    public Action? BeforeApplyFinalPathGate { get; init; }
 }
