@@ -79,6 +79,19 @@ public class SymbolHandleTests
         Assert.Equal("Handle must include projectId and signatureQualifiedName.", error);
     }
 
+    [Theory]
+    [InlineData("vb", "proj-id", "Ns.Type.Member")]
+    [InlineData("csharp", "other-proj", "Ns.Type.Member")]
+    [InlineData("csharp", "proj-id", "Ns.Type.Other")]
+    public void tryparse_rejects_tampered_checksum_input(string language, string projectId, string signature)
+    {
+        var created = SymbolHandle.Create("csharp", "proj-id", "Ns.Type.Member");
+        var tampered = $"{language}:{projectId}:{signature}#{created.Checksum}";
+
+        Assert.False(SymbolHandle.TryParse(tampered, out var handle, out var error));
+        Assert.Null(handle);
+        Assert.Equal("Checksum does not match handle fields.", error);
+    }
     [Fact]
     public void tryparse_checksum_mismatch_returns_error_string()
     {
