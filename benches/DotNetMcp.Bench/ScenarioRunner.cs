@@ -8,6 +8,8 @@ internal sealed class ScenarioRunner
 {
     private readonly BenchOptions _options;
     private readonly BenchReport _report;
+
+    public BenchReport Report => _report;
     private readonly ProcessSampler _sampler;
 
     public ScenarioRunner(BenchOptions options, BenchReport report, ProcessSampler sampler)
@@ -264,6 +266,24 @@ internal sealed class ScenarioRunner
 
     public void EvaluateGates()
     {
+        var blocked = _report.Workspaces
+            .Where(w => w.Phase is "failed" or "missing")
+            .Select(w => $"{w.Name} ({w.Phase})")
+            .ToList();
+        if (_report.Scenarios.Count == 0 || blocked.Count > 0)
+        {
+            var message = _report.Scenarios.Count == 0 && blocked.Count == 0
+                ? "No scenarios ran. An empty filter or a missing fixture is not a pass."
+                : blocked.Count > 0 && _report.Scenarios.Count == 0
+                    ? "No scenarios ran. Workspace open blocked: " + string.Join(", ", blocked)
+                    : "Workspace open blocked: " + string.Join(", ", blocked);
+            AddGate("open-nonblocking", false, message);
+            AddGate("under-client-timeout", false, message);
+            AddGate("required-scenarios-ok", false, message);
+            AddGate("under-soft-budget", false, message);
+            return;
+        }
+
         AddGate(
             "open-nonblocking",
             _report.Scenarios

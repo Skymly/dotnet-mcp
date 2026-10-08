@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotNetMcp.Server\DotNetMcp.Server.csproj" />
+    <ProjectReference Include="..\..\benches\DotNetMcp.Bench\DotNetMcp.Bench.csproj" />
     <ProjectReference Include="..\..\src\DotNetMcp.FSharp\DotNetMcp.FSharp.csproj" />
     <ProjectReference Include="..\fixtures\CustomGenerator\CustomGenerator.csproj" />
   </ItemGroup>

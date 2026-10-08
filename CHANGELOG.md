@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Bench gates fail when no scenarios ran or a workspace open is missing or failed, instead of a vacuous 4/4 pass (`#358`)
 - Tests: MSBuild SDK selection picks the newest install root that contains MSBuild.dll, and CI SDK versions are read from the dotnet-version list (`#356`)
 - Tests: the version gate reads the on-disk CHANGELOG, not only csproj and server.json (`#354`)
 - Tests: .fsi files follow Compile order, are captured by the directory fallback after .fs files, and advance epoch when deleted (`#352`)
@@ -62,6 +63,7 @@ Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended 
 
 ### Fixed
 
+- Bench gates fail when no scenarios ran or a workspace open is missing or failed, instead of a vacuous 4/4 pass (`#358`)
 - Tests: MSBuild SDK selection picks the newest install root that contains MSBuild.dll, and CI SDK versions are read from the dotnet-version list (`#356`)
 - Tests: the version gate reads the on-disk CHANGELOG, not only csproj and server.json (`#354`)
 - Tests: .fsi files follow Compile order, are captured by the directory fallback after .fs files, and advance epoch when deleted (`#352`)

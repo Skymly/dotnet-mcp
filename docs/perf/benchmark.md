@@ -94,7 +94,7 @@ Defaults match `SoftBudgetOptions` / ADR-0003:
 | Batch diagnostics | 15 s |
 | Any tools/call | < 60 s client hard top |
 
-Gate outcomes: `pass` / `warn` (p95 > 50% of budget) / `fail` (p95 > budget or > 60 s, or open blocked).
+Gate outcomes: `pass` / `warn` (p95 > 50% of budget) / `fail` (p95 > budget or > 60 s, or open blocked). An empty scenario set fails; it is not a vacuous 4/4 pass.
 `--no-gates` records gates but always exits 0 after a completed run.
 
 ## How to run
