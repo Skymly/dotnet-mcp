@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: .fsi files follow Compile order, are captured by the directory fallback after .fs files, and advance epoch when deleted (`#352`)
 - Tests: F# snapshot capture keeps an on-disk metadata reference path (`#350`)
 - Tests: F# adapter source is scanned recursively for Roslyn solution access, including aliases, and a real fsproj open keeps the F# snapshot on the session epoch (`#348`)
 - Tests: F# compile order is the fsproj Include order, not directory enumeration, and the reverse order fails FCS with FS0039 (`#346`)
@@ -59,6 +60,7 @@ Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended 
 
 ### Fixed
 
+- Tests: .fsi files follow Compile order, are captured by the directory fallback after .fs files, and advance epoch when deleted (`#352`)
 - Tests: F# snapshot capture keeps an on-disk metadata reference path (`#350`)
 - Tests: F# adapter source is scanned recursively for Roslyn solution access, including aliases, and a real fsproj open keeps the F# snapshot on the session epoch (`#348`)
 - Tests: F# compile order is the fsproj Include order, not directory enumeration, and the reverse order fails FCS with FS0039 (`#346`)

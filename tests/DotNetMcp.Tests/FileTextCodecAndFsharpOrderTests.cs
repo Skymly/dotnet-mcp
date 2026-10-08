@@ -187,3 +187,75 @@ public class FSharpMetadataReferenceCaptureTests
         }
     }
 }
+
+public class FSharpSignatureFileTests
+{
+    [Fact]
+    public void compile_include_order_places_fsi_before_fs_when_xml_says_so()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-fsi-xml-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Widget.fs"), "module Widget\nlet ping () = 1\n");
+            File.WriteAllText(Path.Combine(dir, "Widget.fsi"), "module Widget\nval ping: unit -> int\n");
+            File.WriteAllText(Path.Combine(dir, "Lib.fsproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <ItemGroup>
+                    <Compile Include="Widget.fsi" />
+                    <Compile Include="Widget.fs" />
+                  </ItemGroup>
+                </Project>
+                """);
+
+            var names = CaptureNames(dir);
+            Assert.Equal(new[] { "Widget.fsi", "Widget.fs" }, names);
+            Assert.Equal(
+                new[] { "Widget.fsi", "Widget.fs" },
+                FSharpProjectFile.ReadCompilePaths(Path.Combine(dir, "Lib.fsproj")).Select(Path.GetFileName).ToArray());
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void enumeration_fallback_includes_fsi_after_fs()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-fsi-enum-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Widget.fs"), "module Widget\nlet ping () = 1\n");
+            File.WriteAllText(Path.Combine(dir, "Widget.fsi"), "module Widget\nval ping: unit -> int\n");
+            File.WriteAllText(Path.Combine(dir, "Lib.fsproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net8.0</TargetFramework>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            var names = CaptureNames(dir);
+            Assert.Equal(new[] { "Widget.fs", "Widget.fsi" }, names);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    private static string[] CaptureNames(string dir)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId, VersionStamp.Create(), "Lib", "Lib", LanguageNames.FSharp,
+            filePath: Path.Combine(dir, "Lib.fsproj")));
+        Assert.True(workspace.TryApplyChanges(solution));
+        var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+        var snapshot = WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch: 1, TrustedRoots.Create([dir]));
+        return Assert.Single(snapshot.Projects).Documents.Select(d => Path.GetFileName(d.Path)).ToArray();
+    }
+}

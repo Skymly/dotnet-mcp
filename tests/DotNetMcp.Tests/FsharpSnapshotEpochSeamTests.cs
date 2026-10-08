@@ -97,6 +97,56 @@ public class FsharpSnapshotEpochSeamTests
         }
     }
 
+    [Fact]
+    public async Task deleting_fsi_file_bumps_epoch_and_drops_it_from_fsharp_snapshot()
+    {
+        var root = CreateTempDir("del-fsi");
+        var solution = Path.Combine(root, "Mixed.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        var watcher = new ManualWorkspaceFileWatcher();
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithFsharpSymbols(root),
+                new WorkspaceHostOptions
+                {
+                    Debounce = TimeSpan.Zero,
+                    FileWatcher = watcher
+                });
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var fsDir = Path.Combine(root, "FsLib");
+            var signature = Path.Combine(fsDir, "Widget.fsi");
+            await File.WriteAllTextAsync(signature, "module FsLib.Widget\nval ping: unit -> string\n");
+            await File.WriteAllTextAsync(
+                Path.Combine(fsDir, "FsLib.fsproj"),
+                "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><Compile Include=\"Widget.fsi\" /><Compile Include=\"Widget.fs\" /><Compile Include=\"Uses.fs\" /></ItemGroup></Project>");
+            watcher.Raise(signature);
+
+            Assert.True(fx.WorkspaceHost.TryGetReadySession(out var beforeSession));
+            Assert.Contains(
+                Assert.Single(beforeSession!.FSharpSnapshot.Projects).Documents,
+                d => d.Path.Equals(signature, StringComparison.OrdinalIgnoreCase));
+
+            var epochBefore = fx.WorkspaceHost.CurrentEpoch;
+            File.Delete(signature);
+            watcher.Raise(signature);
+
+            Assert.True(fx.WorkspaceHost.CurrentEpoch > epochBefore);
+            Assert.True(fx.WorkspaceHost.TryGetReadySession(out var afterSession));
+            Assert.Equal(fx.WorkspaceHost.CurrentEpoch, afterSession!.Epoch);
+            Assert.Equal(afterSession.Epoch, afterSession.FSharpSnapshot.Epoch);
+            Assert.DoesNotContain(
+                Assert.Single(afterSession.FSharpSnapshot.Projects).Documents,
+                d => d.Path.Equals(signature, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
     private static string CreateTempDir(string prefix)
     {
         var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-fs-epoch-" + prefix + "-" + Guid.NewGuid().ToString("N"));
