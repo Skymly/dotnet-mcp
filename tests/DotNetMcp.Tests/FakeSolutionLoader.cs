@@ -192,7 +192,6 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             let beta: int = "also-bad"
             let gamma: int = "still-bad"
             """;
-
         var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
             projectId,
             VersionStamp.Create(),
@@ -246,12 +245,16 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader ImmediateWithFsharpSymbols(string root = @"C:\fake") =>
         new(TimeSpan.Zero, () => CreateFsharpSymbolsLoaded(root));
 
-    public static LoadedSolution CreateFsharpSymbolsLoaded(string root)
+    public static FakeSolutionLoader ImmediateWithFsharpSignature(string root) =>
+        new(TimeSpan.Zero, () => CreateFsharpSymbolsLoaded(root, includeSignature: true));
+
+    public static LoadedSolution CreateFsharpSymbolsLoaded(string root, bool includeSignature = false)
     {
         var workspace = new AdhocWorkspace();
         var fsId = ProjectId.CreateNewId();
         var csId = ProjectId.CreateNewId();
         var widgetDoc = DocumentId.CreateNewId(fsId);
+        var signatureDoc = DocumentId.CreateNewId(fsId);
         var usesDoc = DocumentId.CreateNewId(fsId);
         var callerDoc = DocumentId.CreateNewId(csId);
 
@@ -292,8 +295,14 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             }
             """;
 
+        var signaturePath = Path.Combine(fsDir, "Widget.fsi");
+        const string signatureSource = "module FsLib.Widget\nval ping: unit -> string\n";
         File.WriteAllText(widgetPath, widgetSource);
         File.WriteAllText(usesPath, usesSource);
+        if (includeSignature)
+        {
+            File.WriteAllText(signaturePath, signatureSource);
+        }
         File.WriteAllText(callerPath, callerSource);
 
         var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
@@ -310,6 +319,11 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             "CsLib",
             LanguageNames.CSharp,
             filePath: Path.Combine(csDir, "CsLib.csproj")));
+        if (includeSignature)
+        {
+            solution = solution.AddDocument(signatureDoc, "Widget.fsi", SourceText.From(signatureSource), filePath: signaturePath);
+        }
+
         solution = solution.AddDocument(widgetDoc, "Widget.fs", SourceText.From(widgetSource), filePath: widgetPath);
         solution = solution.AddDocument(usesDoc, "Uses.fs", SourceText.From(usesSource), filePath: usesPath);
         solution = solution.AddProjectReference(fsId, new ProjectReference(csId));
