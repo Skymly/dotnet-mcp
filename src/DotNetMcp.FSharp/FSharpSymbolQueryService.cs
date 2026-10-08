@@ -14,10 +14,10 @@ namespace DotNetMcp.FSharp;
 public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 {
     private readonly SoftBudgetOptions _softBudgets;
-    private readonly ConcurrentDictionary<string, string> _snapshotTexts =
-        new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, string> _notifiedTexts =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<(long Epoch, string Path), string> _snapshotTexts = new(EpochPathComparer.Instance);
+    private readonly ConcurrentDictionary<(long Epoch, string Path), string> _notifiedTexts = new(EpochPathComparer.Instance);
+    private readonly ConcurrentDictionary<long, int> _epochsInFlight = new();
+    private readonly AsyncLocal<long?> _currentEpoch = new();
     private readonly FSharpChecker _checker;
 
     internal int FileChangeNotifications { get; private set; }
@@ -81,7 +81,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            var catalog = FlattenCatalog(await CatalogAsync(project, cancellationToken).ConfigureAwait(false));
+            var catalog = FlattenCatalog(await CatalogAsync(project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false));
             matches.AddRange(catalog.Where(item => Matches(item, query)));
         }
 
@@ -255,7 +255,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 "Call workspace_list_projects, then symbol_resolve for an F# symbol."));
         }
 
-        var catalog = FlattenCatalog(await CatalogAsync(project, cancellationToken).ConfigureAwait(false));
+        var catalog = FlattenCatalog(await CatalogAsync(project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false));
         var hit = catalog.FirstOrDefault(item =>
             string.Equals(item.SignatureQualifiedName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
             string.Equals(item.DisplayName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
@@ -304,14 +304,35 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
     private async Task<IReadOnlyList<FSharpCatalogItem>> CatalogAsync(
         FSharpProjectSnapshot project,
+        long epoch,
         CancellationToken cancellationToken)
     {
-        var (items, _, _) = await CheckProjectAsync(project, cancellationToken).ConfigureAwait(false);
+        var (items, _, _) = await CheckProjectAsync(project, epoch, cancellationToken).ConfigureAwait(false);
         return items;
     }
 
     private async Task<(IReadOnlyList<FSharpCatalogItem> Items, FSharpCheckProjectResults? Check, IReadOnlyList<(string Path, string Text)> Sources)> CheckProjectAsync(
         FSharpProjectSnapshot project,
+        long epoch,
+        CancellationToken cancellationToken)
+    {
+        var previousEpoch = _currentEpoch.Value;
+        EnterEpoch(epoch);
+        _currentEpoch.Value = epoch;
+        try
+        {
+            return await CheckProjectCoreAsync(project, epoch, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _currentEpoch.Value = previousEpoch;
+            ExitEpoch(epoch);
+        }
+    }
+
+    private async Task<(IReadOnlyList<FSharpCatalogItem> Items, FSharpCheckProjectResults? Check, IReadOnlyList<(string Path, string Text)> Sources)> CheckProjectCoreAsync(
+        FSharpProjectSnapshot project,
+        long epoch,
         CancellationToken cancellationToken)
     {
         var sources = new List<(string Path, string Text)>();
@@ -326,7 +347,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             return ([], null, sources);
         }
 
-        PublishSnapshots(sources);
+        PublishSnapshots(epoch, sources);
 
         var projectFile = project.FilePath ?? Path.Combine(
             Path.GetDirectoryName(sources[0].Path) ?? Path.GetTempPath(),
@@ -336,7 +357,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         var options = _checker.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
         foreach (var (path, sourceText) in sources)
         {
-            if (_notifiedTexts.TryGetValue(path, out var previous) &&
+            var key = (epoch, path);
+            if (_notifiedTexts.TryGetValue(key, out var previous) &&
                 string.Equals(previous, sourceText, StringComparison.Ordinal))
             {
                 continue;
@@ -347,17 +369,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                     taskCreationOptions: null,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
-            _notifiedTexts[path] = sourceText;
+            _notifiedTexts[key] = sourceText;
             FileChangeNotifications++;
-        }
-
-        var live = new HashSet<string>(sources.Select(s => s.Path), StringComparer.OrdinalIgnoreCase);
-        foreach (var key in _notifiedTexts.Keys)
-        {
-            if (!live.Contains(key))
-            {
-                _notifiedTexts.TryRemove(key, out _);
-            }
         }
 
         var check = await FSharpAsync.StartAsTask(
@@ -665,7 +678,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
     private FSharpAsync<FSharpOption<ISourceText>?> TryReadSnapshot(string fileName)
     {
-        if (TryGetSnapshot(fileName, out _, out var text))
+        if (TryReadCurrentEpoch(fileName, out var text))
         {
             return FSharpAsync.AwaitTask(
                 Task.FromResult<FSharpOption<ISourceText>?>(FSharpOption<ISourceText>.Some(SourceText.ofString(text))));
@@ -674,31 +687,60 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         return FSharpAsync.AwaitTask(Task.FromResult<FSharpOption<ISourceText>?>(null));
     }
 
-    private void PublishSnapshots(IReadOnlyList<(string Path, string Text)> sources)
+    private bool TryReadCurrentEpoch(string fileName, out string text)
     {
-        var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        text = string.Empty;
+        if (_currentEpoch.Value is long epoch && TryGetSnapshot(epoch, fileName, out _, out text))
+        {
+            return true;
+        }
+
+        string? only = null;
+        foreach (var pair in _snapshotTexts)
+        {
+            if (!string.Equals(pair.Key.Path, fileName, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(TryFullPath(pair.Key.Path), fileName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (only is null)
+            {
+                only = pair.Value;
+                continue;
+            }
+
+            if (!string.Equals(only, pair.Value, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        if (only is null)
+        {
+            return false;
+        }
+
+        text = only;
+        return true;
+    }
+
+    internal void PublishSnapshots(long epoch, IReadOnlyList<(string Path, string Text)> sources)
+    {
         foreach (var (path, text) in sources)
         {
-            _snapshotTexts[path] = text;
-            live.Add(path);
+            _snapshotTexts[(epoch, path)] = text;
             var full = TryFullPath(path);
             if (full is not null)
             {
-                _snapshotTexts[full] = text;
-                live.Add(full);
+                _snapshotTexts[(epoch, full)] = text;
             }
         }
 
-        foreach (var key in _snapshotTexts.Keys)
-        {
-            if (!live.Contains(key))
-            {
-                _snapshotTexts.TryRemove(key, out _);
-            }
-        }
+        DropIdleEpochsOlderThan(epoch);
     }
 
-    private bool TryGetSnapshot(string? file, out string path, out string text)
+    internal bool TryGetSnapshot(long epoch, string? file, out string path, out string text)
     {
         path = file ?? string.Empty;
         text = string.Empty;
@@ -707,20 +749,92 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             return false;
         }
 
-        if (_snapshotTexts.TryGetValue(file, out text!))
+        if (_snapshotTexts.TryGetValue((epoch, file), out text!))
         {
             path = TryFullPath(file) ?? file;
             return true;
         }
 
         var full = TryFullPath(file);
-        if (full is not null && _snapshotTexts.TryGetValue(full, out text!))
+        if (full is not null && _snapshotTexts.TryGetValue((epoch, full), out text!))
         {
             path = full;
             return true;
         }
 
         return false;
+    }
+
+    internal void EnterEpochForTests(long epoch) => EnterEpoch(epoch);
+
+    internal void ExitEpochForTests(long epoch) => ExitEpoch(epoch);
+
+    private EpochHold EnterRequest(long epoch) => new(this, epoch);
+
+    private void EnterEpoch(long epoch)
+    {
+        _epochsInFlight.AddOrUpdate(epoch, 1, static (_, count) => count + 1);
+    }
+
+    private readonly struct EpochHold : IDisposable
+    {
+        private readonly FSharpSymbolQueryService _owner;
+        private readonly long _epoch;
+        private readonly long? _previous;
+
+        public EpochHold(FSharpSymbolQueryService owner, long epoch)
+        {
+            _owner = owner;
+            _epoch = epoch;
+            _previous = owner._currentEpoch.Value;
+            owner.EnterEpoch(epoch);
+            owner._currentEpoch.Value = epoch;
+        }
+
+        public void Dispose()
+        {
+            _owner._currentEpoch.Value = _previous;
+            _owner.ExitEpoch(_epoch);
+        }
+    }
+
+    private void ExitEpoch(long epoch)
+    {
+        var left = _epochsInFlight.AddOrUpdate(epoch, 0, static (_, count) => count - 1);
+        if (left <= 0)
+        {
+            _epochsInFlight.TryRemove(new KeyValuePair<long, int>(epoch, left));
+        }
+    }
+
+    private void DropIdleEpochsOlderThan(long epoch)
+    {
+        foreach (var key in _snapshotTexts.Keys)
+        {
+            if (key.Epoch < epoch && !_epochsInFlight.ContainsKey(key.Epoch))
+            {
+                _snapshotTexts.TryRemove(key, out _);
+            }
+        }
+
+        foreach (var key in _notifiedTexts.Keys)
+        {
+            if (key.Epoch < epoch && !_epochsInFlight.ContainsKey(key.Epoch))
+            {
+                _notifiedTexts.TryRemove(key, out _);
+            }
+        }
+    }
+
+    private sealed class EpochPathComparer : IEqualityComparer<(long Epoch, string Path)>
+    {
+        public static readonly EpochPathComparer Instance = new();
+
+        public bool Equals((long Epoch, string Path) x, (long Epoch, string Path) y) =>
+            x.Epoch == y.Epoch && string.Equals(x.Path, y.Path, StringComparison.OrdinalIgnoreCase);
+
+        public int GetHashCode((long Epoch, string Path) obj) =>
+            HashCode.Combine(obj.Epoch, StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Path));
     }
 
     private static bool SameDocumentPath(string? left, string? right)

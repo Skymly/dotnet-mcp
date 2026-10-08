@@ -18,6 +18,7 @@ public sealed partial class FSharpSymbolQueryService
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
+        using var epochHold = EnterRequest(session.FSharpSnapshot.Epoch);
         var (item, _, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
@@ -52,6 +53,7 @@ public sealed partial class FSharpSymbolQueryService
                 }
 
                 hits.Add(ToReference(
+                    session.FSharpSnapshot.Epoch,
                     item!.ProjectId,
                     use.FileName,
                     use.Range,
@@ -85,7 +87,7 @@ public sealed partial class FSharpSymbolQueryService
                 "Call symbol_resolve for a type name/FQN, then call symbol_find_implementations with that handle."));
         }
 
-        var catalog = await CatalogAsync(project!, cancellationToken).ConfigureAwait(false);
+        var catalog = await CatalogAsync(project!, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false);
         var impls = catalog
             .Where(candidate => candidate.IsContainer && candidate.SignatureQualifiedName != item.SignatureQualifiedName)
             .Where(candidate =>
@@ -124,7 +126,7 @@ public sealed partial class FSharpSymbolQueryService
                 "Call symbol_resolve for a type name/FQN, then call symbol_type_hierarchy with that handle."));
         }
 
-        var catalog = await CatalogAsync(project!, cancellationToken).ConfigureAwait(false);
+        var catalog = await CatalogAsync(project!, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false);
         var byName = catalog.Where(c => c.IsContainer)
             .ToDictionary(c => c.SignatureQualifiedName, StringComparer.Ordinal);
         var chain = new List<HierarchyItem>();
@@ -161,6 +163,7 @@ public sealed partial class FSharpSymbolQueryService
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
+        using var epochHold = EnterRequest(session.FSharpSnapshot.Epoch);
         var (item, project, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
@@ -185,7 +188,7 @@ public sealed partial class FSharpSymbolQueryService
         {
             var catalog = project is null
                 ? []
-                : FlattenCatalog(await CatalogAsync(project, cancellationToken).ConfigureAwait(false)).ToList();
+                : FlattenCatalog(await CatalogAsync(project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false)).ToList();
             var uses = check.GetAllUsesOfAllSymbols(null).ToList();
             var definitions = uses.Where(static u => u.IsFromDefinition).ToList();
 
@@ -211,7 +214,7 @@ public sealed partial class FSharpSymbolQueryService
                 }
 
                 var success = ToSuccess(callerItem);
-                var loc = ToLocation(use.FileName, use.Range);
+                var loc = ToLocation(session.FSharpSnapshot.Epoch, use.FileName, use.Range);
                 hits.Add(new CallerLocationItem(
                     loc.DeclarationAvailability,
                     loc.Origin,
@@ -252,7 +255,7 @@ public sealed partial class FSharpSymbolQueryService
                 "Call workspace_list_projects, then symbol_resolve for an F# symbol."));
         }
 
-        var (catalog, check, _) = await CheckProjectAsync(project, cancellationToken).ConfigureAwait(false);
+        var (catalog, check, _) = await CheckProjectAsync(project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false);
         catalog = FlattenCatalog(catalog).ToList();
         var hit = catalog.FirstOrDefault(item =>
             string.Equals(item.SignatureQualifiedName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
@@ -391,9 +394,9 @@ public sealed partial class FSharpSymbolQueryService
     private static int RangeSize(FcsRange range) =>
         ((range.EndLine - range.StartLine) * 1_000_000) + (range.EndColumn - range.StartColumn);
 
-    private ReferenceLocationItem ToReference(string projectId, string file, FcsRange range, string kind)
+    private ReferenceLocationItem ToReference(long epoch, string projectId, string file, FcsRange range, string kind)
     {
-        var loc = ToLocation(file, range);
+        var loc = ToLocation(epoch, file, range);
         return new ReferenceLocationItem(
             loc.DeclarationAvailability,
             loc.Origin,
@@ -404,9 +407,9 @@ public sealed partial class FSharpSymbolQueryService
             kind);
     }
 
-    private SymbolLocation ToLocation(string file, FcsRange range)
+    private SymbolLocation ToLocation(long epoch, string file, FcsRange range)
     {
-        if (TryGetSnapshot(file, out var path, out var text))
+        if (TryGetSnapshot(epoch, file, out var path, out var text))
         {
             var (start, length) = ToSpan(text, range);
             return new SymbolLocation(DeclarationAvailability.InSource, SymbolOrigin.Handwritten, path, start, length);
