@@ -181,7 +181,8 @@ public sealed class SymbolTools
     [McpServerTool(Name = "symbol_find_references", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Find references to a SymbolHandle. Default scope is the defining project plus projects that depend on it; " +
         "pass entireSolution=true to search the whole solution. Soft time budget may truncate with nextCursor " +
-        "(do not restart from scratch). Cursors bind to the workspace epoch.")]
+        "(do not restart from scratch). Cursors bind to the workspace epoch. A source-generated location that " +
+        "cannot be reconciled fails the page with CompilationUnavailable instead of being reported as Handwritten.")]
     public async Task<CallToolResult> SymbolFindReferences(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
         string handle,
@@ -287,7 +288,8 @@ public sealed class SymbolTools
     [McpServerTool(Name = "symbol_find_callers", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Find direct call sites of a method SymbolHandle (shallow callers, not a full call graph). " +
         "Default scope is the defining project plus projects that depend on it; pass entireSolution=true to search the whole solution. " +
-        "Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch.")]
+        "Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch. A source-generated " +
+        "caller location that cannot be reconciled fails the page with CompilationUnavailable instead of being reported as Handwritten.")]
     public async Task<CallToolResult> SymbolFindCallers(
         [Description("Method SymbolHandle from symbol_resolve.")]
         string handle,

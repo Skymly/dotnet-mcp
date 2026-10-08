@@ -286,6 +286,40 @@ namespace B { public class Widget {} }
     }
 
     [Fact]
+    public async Task find_references_unreconciled_generated_location_is_not_handwritten()
+    {
+        using var workspace = CreateGeneratorWorkspace();
+        using var session = new FakeSession(workspace.CurrentSolution, generatorRunUnavailable: true);
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "CustomMarker");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await adapter.FindReferencesAsync(session, resolved!.Handle);
+
+        Assert.Null(page);
+        Assert.IsType<CompilationUnavailableError>(error);
+        Assert.DoesNotContain(SymbolOrigin.Handwritten, error!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task find_references_handwritten_survives_generator_run_failure()
+    {
+        using var workspace = CreateWorkspace(WidgetSource);
+        using var session = new FakeSession(workspace.CurrentSolution, generatorRunUnavailable: true);
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Widget");
+        Assert.Null(resolveError);
+
+        var (page, error) = await adapter.FindReferencesAsync(session, resolved!.Handle);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Contains(page!.Items, item => item.Origin == SymbolOrigin.Handwritten);
+        Assert.DoesNotContain(page.Items, item => item.Origin == SymbolOrigin.SourceGenerator);
+    }
+
+    [Fact]
     public async Task build_rename_preview_generated_origin_is_refused()
     {
         using var workspace = CreateGeneratorWorkspace();

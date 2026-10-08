@@ -44,6 +44,12 @@ public class ListToolsSeamTests
         Assert.Contains("C#", attribution.Description, StringComparison.Ordinal);
         Assert.Contains("VB", attribution.Description, StringComparison.Ordinal);
 
+        var references = Assert.Single(tools, t => t.Name == "symbol_find_references");
+        Assert.Contains("CompilationUnavailable", references.Description, StringComparison.Ordinal);
+        Assert.Contains("Handwritten", references.Description, StringComparison.Ordinal);
+        var callers = Assert.Single(tools, t => t.Name == "symbol_find_callers");
+        Assert.Contains("CompilationUnavailable", callers.Description, StringComparison.Ordinal);
+
         var symbolTools = File.ReadAllText(Path.Combine(FindServerDir(), "SymbolTools.cs"));
         Assert.DoesNotContain("Optional Roslyn projectId", symbolTools, StringComparison.Ordinal);
         Assert.Contains("Optional projectId GUID string from workspace_list_projects", symbolTools, StringComparison.Ordinal);
