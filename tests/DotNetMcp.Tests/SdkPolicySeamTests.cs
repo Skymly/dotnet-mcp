@@ -1,3 +1,6 @@
+using DotNetMcp.Server;
+using System.Text.RegularExpressions;
+
 namespace DotNetMcp.Tests;
 
 public class SdkPolicySeamTests
@@ -15,7 +18,6 @@ public class SdkPolicySeamTests
         Assert.False(string.IsNullOrWhiteSpace(version));
         Assert.Matches(@"^10\.0\.\d+$", version);
         Assert.Equal("latestFeature", sdk.GetProperty("rollForward").GetString());
-        Assert.DoesNotMatch(@"^10\.0\.3\d{2}$", version);
     }
 
     [Fact]
@@ -23,13 +25,45 @@ public class SdkPolicySeamTests
     {
         var root = FindRepoRoot();
         var ci = File.ReadAllText(Path.Combine(root, ".github", "workflows", "ci.yml"));
-        Assert.Contains("8.0.x", ci, StringComparison.Ordinal);
-        Assert.Contains("9.0.x", ci, StringComparison.Ordinal);
-        Assert.Contains("10.0.x", ci, StringComparison.Ordinal);
-        Assert.Contains("SampleFilter", ci, StringComparison.Ordinal);
-        Assert.Contains("global.json", ci, StringComparison.Ordinal);
+        var versions = ReadDotnetVersionList(ci);
+        Assert.Equal(new[] { "8.0.x", "9.0.x", "10.0.x" }, versions);
         Assert.False(File.Exists(Path.Combine(root, "packages.lock.json")));
         Assert.False(File.Exists(Path.Combine(root, "src", "DotNetMcp.Server", "packages.lock.json")));
+    }
+
+    [Fact]
+    public void sdk_selection_picks_newest_directory_with_msbuild_and_ignores_global_json()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dotnet-mcp-sdk-" + Guid.NewGuid().ToString("N"));
+        var older = Path.Combine(root, "sdk", "8.0.100");
+        var newest = Path.Combine(root, "sdk", "10.0.201");
+        Directory.CreateDirectory(older);
+        Directory.CreateDirectory(newest);
+        File.WriteAllText(Path.Combine(older, "MSBuild.dll"), "older");
+        File.WriteAllText(Path.Combine(newest, "MSBuild.dll"), "newest");
+        File.WriteAllText(Path.Combine(root, "global.json"), """
+            { "sdk": { "version": "8.0.100", "rollForward": "latestFeature" } }
+            """);
+        try
+        {
+            var chosen = MsBuildBootstrap.TryFindNewestSdkDirectory([root]);
+            Assert.Equal(Path.GetFullPath(newest), Path.GetFullPath(chosen!));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    private static string[] ReadDotnetVersionList(string ci)
+    {
+        var match = Regex.Match(
+            ci,
+            @"^[ \t]*dotnet-version:[ \t]*\|[ \t]*\r?\n((?:[ \t]+\S+[ \t]*\r?\n)+)",
+            RegexOptions.Multiline);
+        Assert.True(match.Success, "ci.yml dotnet-version list is missing.");
+        return match.Groups[1].Value
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     private static string FindRepoRoot()

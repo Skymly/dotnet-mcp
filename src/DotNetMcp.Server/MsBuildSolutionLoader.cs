@@ -49,16 +49,21 @@ public static class MsBuildBootstrap
     /// <summary>
     /// Newest SDK version directory (<c>.../dotnet/sdk/x.y.z</c>), or null.
     /// </summary>
-    internal static string? TryFindNewestSdkDirectory()
-    {
-        var roots = new[]
-        {
+    internal static string? TryFindNewestSdkDirectory() =>
+        TryFindNewestSdkDirectory(
+        [
             Environment.GetEnvironmentVariable("DOTNET_ROOT"),
             Environment.GetEnvironmentVariable("DOTNET_ROOT_X64"),
             @"C:\Program Files\dotnet",
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
-        };
+        ]);
 
+    /// <summary>
+    /// Picks the highest SDK directory under <paramref name="roots"/> that contains MSBuild.dll.
+    /// Does not read global.json. Production passes the install roots above.
+    /// </summary>
+    internal static string? TryFindNewestSdkDirectory(IEnumerable<string?> roots)
+    {
         foreach (var root in roots.Where(r => !string.IsNullOrWhiteSpace(r)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var sdkRoot = Path.Combine(root!, "sdk");
