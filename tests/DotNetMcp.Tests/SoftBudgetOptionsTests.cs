@@ -13,6 +13,7 @@ public class SoftBudgetOptionsTests
         Assert.Equal(TimeSpan.FromSeconds(5), options.FindRefsScoped);
         Assert.Equal(TimeSpan.FromSeconds(20), options.FindRefsEntireSolution);
         Assert.Equal(TimeSpan.FromSeconds(15), options.BatchDiagnostics);
+        Assert.Equal(TimeSpan.FromSeconds(15), options.FixAllProject);
     }
 
     [Fact]
@@ -23,7 +24,8 @@ public class SoftBudgetOptionsTests
             [SoftBudgetOptions.SingleProjectCompileEnvName] = "1234",
             [SoftBudgetOptions.FindRefsScopedEnvName] = "0",
             [SoftBudgetOptions.FindRefsEntireSolutionEnvName] = "25000",
-            [SoftBudgetOptions.BatchDiagnosticsEnvName] = "15000"
+            [SoftBudgetOptions.BatchDiagnosticsEnvName] = "15000",
+            [SoftBudgetOptions.FixAllProjectEnvName] = "60000"
         };
 
         var options = SoftBudgetOptions.FromEnvironment(
@@ -33,6 +35,7 @@ public class SoftBudgetOptionsTests
         Assert.Equal(TimeSpan.Zero, options.FindRefsScoped);
         Assert.Equal(TimeSpan.FromMilliseconds(25000), options.FindRefsEntireSolution);
         Assert.Equal(TimeSpan.FromMilliseconds(15000), options.BatchDiagnostics);
+        Assert.Equal(TimeSpan.FromMilliseconds(60000), options.FixAllProject);
     }
 
     [Fact]
@@ -43,7 +46,8 @@ public class SoftBudgetOptionsTests
             [SoftBudgetOptions.SingleProjectCompileEnvName] = "not-a-number",
             [SoftBudgetOptions.FindRefsScopedEnvName] = "-1",
             [SoftBudgetOptions.FindRefsEntireSolutionEnvName] = "  ",
-            [SoftBudgetOptions.BatchDiagnosticsEnvName] = "3.5"
+            [SoftBudgetOptions.BatchDiagnosticsEnvName] = "3.5",
+            [SoftBudgetOptions.FixAllProjectEnvName] = "-5"
         };
 
         var options = SoftBudgetOptions.FromEnvironment(
@@ -53,5 +57,6 @@ public class SoftBudgetOptionsTests
         Assert.Equal(SoftBudgetOptions.Default.FindRefsScoped, options.FindRefsScoped);
         Assert.Equal(SoftBudgetOptions.Default.FindRefsEntireSolution, options.FindRefsEntireSolution);
         Assert.Equal(SoftBudgetOptions.Default.BatchDiagnostics, options.BatchDiagnostics);
+        Assert.Equal(SoftBudgetOptions.Default.FixAllProject, options.FixAllProject);
     }
 }

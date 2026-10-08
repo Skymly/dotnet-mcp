@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: project Fix all budget reads DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS and falls back when the value is invalid (`#342`)
 - Tests: tampering a SymbolHandle field while keeping its checksum is rejected (`#340`)
 - Tests: file-system watcher debounce above zero and Error-to-drift fallback fail if that wiring is removed (`#338`)
 - Tests: apply's final path gate and the .slnf pre-open check each fail if that gate is removed (`#336`)
@@ -54,6 +55,7 @@ Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended 
 
 ### Fixed
 
+- Tests: project Fix all budget reads DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS and falls back when the value is invalid (`#342`)
 - Tests: tampering a SymbolHandle field while keeping its checksum is rejected (`#340`)
 - Tests: file-system watcher debounce above zero and Error-to-drift fallback fail if that wiring is removed (`#338`)
 - Find-refs / callers soft-budget cancel no longer treats the document table as exhausted; `ms<=0` budgets fall back to the ADR default instead of emitting a stuck cursor (`#242`)
