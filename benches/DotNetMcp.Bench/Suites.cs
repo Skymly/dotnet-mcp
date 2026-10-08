@@ -135,7 +135,6 @@ internal static class Suites
             Filter = options.Filter,
             OutDir = options.OutDir,
             Cold = options.Cold,
-            AllowWrites = false,
             NoGates = options.NoGates,
             JsonOnly = options.JsonOnly,
             SyntheticProjects = 2,

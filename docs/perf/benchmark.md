@@ -74,8 +74,9 @@ Cold vs warm: first post-load call is `*.cold`; repeats are `*.warm`.
 
 ### Workspace Edit (preview only)
 
-Apply is off unless `--allow-writes`. Default measures `symbol.preview_rename`,
-`symbol.list_refactorings`, `diagnostics.list_fixes` when a diagnostic exists.
+The harness measures preview and list tools only. It does not run apply.
+Default rows are `symbol.preview_rename`, `symbol.list_refactorings`, and
+`diagnostics.list_fixes` when a diagnostic exists.
 
 ### Concurrency
 
@@ -106,7 +107,7 @@ dotnet run --project benches/DotNetMcp.Bench -c Release -- --suite scale --solut
 dotnet run --project benches/DotNetMcp.Bench -c Release -- --suite smoke
 ```
 
-Useful flags: `--iterations 5` `--warmup 1` `--filter substring` `--cold` `--out benches/DotNetMcp.Bench/data` `--allow-writes` `--no-gates`.
+Useful flags: `--iterations 5` `--warmup 1` `--filter substring` `--cold` `--out benches/DotNetMcp.Bench/data` `--no-gates`.
 
 JSON lands in `--out` as `{stamp}-{suite}.json` and `latest-{suite}.json`. `--cold` deletes `bin`/`obj` under the opened workspace root.
 

@@ -89,7 +89,6 @@ public class BenchGateSeamTests
                 Iterations = 1,
                 Warmup = 0,
                 Cold = false,
-                AllowWrites = false,
             },
         };
         return new ScenarioRunner(options, report, ProcessSampler.Start());
