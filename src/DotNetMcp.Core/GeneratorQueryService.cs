@@ -14,11 +14,12 @@ public sealed class GeneratorQueryService
     public Task<(IReadOnlyList<GeneratorIdentity>? Success, SymbolQueryError? Error)> ListGeneratorsAsync(
         IWorkspaceSession session,
         string projectId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        LanguageAdapters? languages = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!TryResolveSupportedProject(session.Solution, projectId, out var project, out var error))
+        if (!TryResolveSupportedProject(session, projectId, languages, out var project, out var error))
         {
             return Task.FromResult<(IReadOnlyList<GeneratorIdentity>?, SymbolQueryError?)>((null, error));
         }
@@ -59,7 +60,8 @@ public sealed class GeneratorQueryService
         string typeFullName,
         int? limit = null,
         string? cursor = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        LanguageAdapters? languages = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -74,7 +76,7 @@ public sealed class GeneratorQueryService
         typeFullName = typeFullName.Trim();
         var epoch = session.Epoch;
 
-        var (snapshot, snapError) = await GetDriverRunAsync(session, projectId, cancellationToken)
+        var (snapshot, snapError) = await GetDriverRunAsync(session, projectId, cancellationToken, languages)
             .ConfigureAwait(false);
         if (snapError is not null)
         {
@@ -113,7 +115,8 @@ public sealed class GeneratorQueryService
         string typeFullName,
         int? limit = null,
         string? cursor = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        LanguageAdapters? languages = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -128,7 +131,7 @@ public sealed class GeneratorQueryService
         typeFullName = typeFullName.Trim();
         var epoch = session.Epoch;
 
-        var (snapshot, snapError) = await GetDriverRunAsync(session, projectId, cancellationToken)
+        var (snapshot, snapError) = await GetDriverRunAsync(session, projectId, cancellationToken, languages)
             .ConfigureAwait(false);
         if (snapError is not null)
         {
@@ -169,11 +172,12 @@ public sealed class GeneratorQueryService
     public async Task<(DriverRunSnapshot? Success, SymbolQueryError? Error)> GetDriverRunAsync(
         IWorkspaceSession session,
         string projectId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        LanguageAdapters? languages = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!TryResolveSupportedProject(session.Solution, projectId, out var project, out var error))
+        if (!TryResolveSupportedProject(session, projectId, languages, out var project, out var error))
         {
             return (null, error);
         }
@@ -197,9 +201,10 @@ public sealed class GeneratorQueryService
         IWorkspaceSession session,
         string projectId,
         SyntaxTree tree,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        LanguageAdapters? languages = null)
     {
-        var (snapshot, error) = await GetDriverRunAsync(session, projectId, cancellationToken)
+        var (snapshot, error) = await GetDriverRunAsync(session, projectId, cancellationToken, languages)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -218,8 +223,9 @@ public sealed class GeneratorQueryService
     }
 
     private static bool TryResolveSupportedProject(
-        Solution solution,
+        IWorkspaceSession session,
         string projectId,
+        LanguageAdapters? languages,
         out Project? project,
         out SymbolQueryError? error)
     {
@@ -234,21 +240,54 @@ public sealed class GeneratorQueryService
             return false;
         }
 
-        project = solution.Projects
-            .Where(p => RoslynLanguageAdapter.IsSupportedRoslynLanguage(p.Language))
-            .FirstOrDefault(p =>
-                string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        if (languages is not null)
+        {
+            var adapter = languages.ForProjectId(session, projectId);
+            if (adapter is null)
+            {
+                error = new ProjectNotFoundError(
+                    $"No project with projectId '{projectId}' is in the ready workspace.",
+                    "Call workspace_list_projects for valid projectId values, then retry.");
+                return false;
+            }
 
+            if (!adapter.SupportsSourceGenerators)
+            {
+                error = GeneratorLanguageNotSupported();
+                return false;
+            }
+        }
+
+        project = session.Solution.Projects.FirstOrDefault(p =>
+            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
         if (project is null)
         {
+            if (session.FSharpSnapshot.FindProject(projectId) is not null)
+            {
+                error = GeneratorLanguageNotSupported();
+                return false;
+            }
+
             error = new ProjectNotFoundError(
                 $"No project with projectId '{projectId}' is in the ready workspace.",
                 "Call workspace_list_projects for valid projectId values, then retry.");
             return false;
         }
 
+        if (!RoslynLanguageAdapter.IsSupportedRoslynLanguage(project.Language))
+        {
+            error = GeneratorLanguageNotSupported();
+            project = null;
+            return false;
+        }
+
         return true;
     }
+
+    private static GeneratorLanguageNotSupportedError GeneratorLanguageNotSupported() =>
+        new(
+            "Source generator queries are not available for this language.",
+            "Call project_list_generators on a C# or VB project.");
 
     private static IReadOnlyList<GeneratorIdentity> EnumerateGenerators(Project project)
     {

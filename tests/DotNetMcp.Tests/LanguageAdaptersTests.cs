@@ -245,6 +245,8 @@ public class LanguageAdaptersTests
 
         public bool SupportsDiagnosticFix => false;
 
+        public bool SupportsSourceGenerators => false;
+
         public Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
             IWorkspaceSession session,
             string name,

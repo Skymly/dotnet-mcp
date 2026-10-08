@@ -242,6 +242,8 @@ public class DiagnosticQueryServiceTests
 
         public bool SupportsDiagnosticFix => false;
 
+        public bool SupportsSourceGenerators => false;
+
 
         public Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
             IWorkspaceSession session,

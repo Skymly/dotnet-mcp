@@ -388,6 +388,8 @@ public class DiagnosticFixServiceTests
 
         public bool SupportsDiagnosticFix => _supportsFix;
 
+        public bool SupportsSourceGenerators => false;
+
         public Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
             IWorkspaceSession session, string name, string? projectId = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

@@ -43,6 +43,8 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
     public bool SupportsDiagnosticFix => true;
 
+    public bool SupportsSourceGenerators => true;
+
     public async Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
         IWorkspaceSession session,
         string name,

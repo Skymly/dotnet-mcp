@@ -12,6 +12,7 @@ public sealed class ProjectTools
     private readonly DiagnosticQueryService _diagnostics;
     private readonly GeneratorQueryService _generators;
     private readonly DynamicInvocationQueryService _dynamicInvocations;
+    private readonly LanguageAdapters _languages;
     private readonly IAuditLogger _audit;
 
     public ProjectTools(
@@ -19,12 +20,14 @@ public sealed class ProjectTools
         DiagnosticQueryService diagnostics,
         GeneratorQueryService generators,
         DynamicInvocationQueryService dynamicInvocations,
+        LanguageAdapters languages,
         IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
         _diagnostics = diagnostics;
         _generators = generators;
         _dynamicInvocations = dynamicInvocations;
+        _languages = languages;
         _audit = audit;
     }
 
@@ -72,7 +75,7 @@ public sealed class ProjectTools
         "List source generators registered on a project (assembly name, type full name, version) " +
         "via AnalyzerReferences.GetGenerators — not FilePath heuristics. " +
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
-        "Results are cached per (projectId, workspace epoch).")]
+        "Results are cached per (projectId, workspace epoch). F# projects return GeneratorLanguageNotSupported.")]
     public async Task<CallToolResult> ProjectListGenerators(
         [Description("Roslyn projectId GUID string from workspace_list_projects.")]
         string projectId,
@@ -90,7 +93,8 @@ public sealed class ProjectTools
             .ListGeneratorsAsync(
                 session!,
                 projectId,
-                cancellationToken)
+                cancellationToken,
+                _languages)
             .ConfigureAwait(false);
 
         if (error is not null)
@@ -113,7 +117,7 @@ public sealed class ProjectTools
     [McpServerTool(Name = "project_list_generated_sources", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List GeneratedSources for one source generator identity (HintName + content) with forced pagination. " +
         "HintName is not assumed unique across generators — filter by assemblyName + typeFullName. " +
-        "Uses public GeneratorDriver reconciliation (ADR-0001 §6). Cursors bind to workspace epoch.")]
+        "Uses public GeneratorDriver reconciliation (ADR-0001 §6). Cursors bind to workspace epoch. F# projects return GeneratorLanguageNotSupported.")]
     public async Task<CallToolResult> ProjectListGeneratedSources(
         [Description("Roslyn projectId GUID string from workspace_list_projects.")]
         string projectId,
@@ -143,7 +147,8 @@ public sealed class ProjectTools
                 typeFullName,
                 limit,
                 cursor,
-                cancellationToken)
+                cancellationToken,
+                _languages)
             .ConfigureAwait(false);
 
         if (error is not null)
@@ -168,7 +173,7 @@ public sealed class ProjectTools
     [McpServerTool(Name = "project_list_generator_diagnostics", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List diagnostics reported by one source generator identity (severity + message) with forced pagination. " +
         "Uses the attribution GeneratorDriver run result — distinct from project_diagnostics compile errors. " +
-        "Filter by assemblyName + typeFullName from project_list_generators. Cursors bind to workspace epoch.")]
+        "Filter by assemblyName + typeFullName from project_list_generators. Cursors bind to workspace epoch. F# projects return GeneratorLanguageNotSupported.")]
     public async Task<CallToolResult> ProjectListGeneratorDiagnostics(
         [Description("Roslyn projectId GUID string from workspace_list_projects.")]
         string projectId,
@@ -198,7 +203,8 @@ public sealed class ProjectTools
                 typeFullName,
                 limit,
                 cursor,
-                cancellationToken)
+                cancellationToken,
+                _languages)
             .ConfigureAwait(false);
 
         if (error is not null)

@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Generator queries on an F# project return GeneratorLanguageNotSupported instead of claiming the project is missing (`#324`)
 - Dynamic invocation and XAML diagnostic pages report a soft-budget hit instead of a completed scan when the budget stops the scan early (`#321`)
 - Apply refuses a no-BOM source file that is not valid UTF-8 instead of rewriting it with replacement characters (`#319`)
 - `global.json` pins the .NET 10 feature band with `rollForward: latestFeature`; CI keeps floating 8/9 for fixtures and does not commit a restore lock (`#300`)

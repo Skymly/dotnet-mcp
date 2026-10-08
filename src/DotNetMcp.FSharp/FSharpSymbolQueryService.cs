@@ -33,6 +33,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
     public bool SupportsDiagnosticFix => false;
 
+    public bool SupportsSourceGenerators => false;
+
     public FSharpSymbolQueryService(SoftBudgetOptions? softBudgets = null)
     {
         _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
