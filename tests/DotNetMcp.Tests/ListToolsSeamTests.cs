@@ -38,6 +38,12 @@ public class ListToolsSeamTests
         Assert.Contains("F#", resolve.Description, StringComparison.Ordinal);
         Assert.DoesNotContain("Roslyn projectId", resolve.Description, StringComparison.OrdinalIgnoreCase);
 
+        var attribution = Assert.Single(tools, t => t.Name == "symbol_attribution");
+        Assert.Contains("F#", attribution.Description, StringComparison.Ordinal);
+        Assert.Contains("GeneratorLanguageNotSupported", attribution.Description, StringComparison.Ordinal);
+        Assert.Contains("C#", attribution.Description, StringComparison.Ordinal);
+        Assert.Contains("VB", attribution.Description, StringComparison.Ordinal);
+
         var symbolTools = File.ReadAllText(Path.Combine(FindServerDir(), "SymbolTools.cs"));
         Assert.DoesNotContain("Optional Roslyn projectId", symbolTools, StringComparison.Ordinal);
         Assert.Contains("Optional projectId GUID string from workspace_list_projects", symbolTools, StringComparison.Ordinal);

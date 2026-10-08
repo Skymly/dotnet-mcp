@@ -112,9 +112,10 @@ public sealed class SymbolTools
     }
 
     [McpServerTool(Name = "symbol_attribution", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
-        "Two-axis symbol attribution for a SymbolHandle: declaration availability plus Handwritten vs " +
+        "Two-axis symbol attribution for a C# / VB SymbolHandle: declaration availability plus Handwritten vs " +
         "SourceGenerator(identity) via public GeneratorDriver reconciliation (not FilePath heuristics). " +
-        "Named types also return a members map keyed by signature-qualified name (partial/overload safe).")]
+        "Named types also return a members map keyed by signature-qualified name (partial/overload safe). " +
+        "F# handles return GeneratorLanguageNotSupported.")]
     public async Task<CallToolResult> SymbolAttribution(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
         string handle,

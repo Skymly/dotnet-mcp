@@ -162,23 +162,17 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         string handle,
         CancellationToken cancellationToken = default)
     {
-        var (item, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
+        var (_, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
             return (null, error);
         }
 
-        static SymbolAttribution ForItem(FSharpCatalogItem catalogItem) =>
-            new(
-                catalogItem.Locations.Count > 0 ? DeclarationAvailability.InSource : DeclarationAvailability.InMetadata,
-                SymbolOrigin.Handwritten,
-                Generator: null);
-
-        var members = item!.Members
-            .GroupBy(static m => m.SignatureQualifiedName, StringComparer.Ordinal)
-            .ToDictionary(static g => g.Key, g => ForItem(g.First()), StringComparer.Ordinal);
-        return (new SymbolAttributionSuccess(ForItem(item), members), null);
+        // FCS has no GeneratorDriver reconciliation. A constant Handwritten result would look verified.
+        return (null, new GeneratorLanguageNotSupportedError(
+            "Source-generator attribution is not available for this language.",
+            "Call symbol_attribution on a C# or VB SymbolHandle."));
     }
 
     public async Task<(PagedResult<MemberListItem>? Success, SymbolQueryError? Error)> GetMembersAsync(
