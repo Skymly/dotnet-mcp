@@ -1,4 +1,5 @@
 using DotNetMcp.Core;
+using DotNetMcp.FSharp;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -130,6 +131,35 @@ public class GeneratorQueryServiceTests
         Assert.True(cache.TryGet("proj", 3, out var hit));
         Assert.Same(snapshot, hit);
         Assert.False(cache.TryGet("proj", 4, out _));
+    }
+
+    [Fact]
+    public async Task list_generators_existing_fsharp_project_is_not_project_not_found()
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId, VersionStamp.Create(), "FsLib", "FsLib", LanguageNames.FSharp,
+            filePath: "FsLib.fsproj"));
+        Assert.True(workspace.TryApplyChanges(solution));
+        using var session = new FakeSession(workspace.CurrentSolution, epoch: 1);
+        var id = projectId.Id.ToString("D");
+
+        var service = new GeneratorQueryService();
+        var (_, error) = await service.ListGeneratorsAsync(session, id);
+
+        Assert.IsType<GeneratorLanguageNotSupportedError>(error);
+        Assert.Equal(SymbolQueryErrorCodes.GeneratorLanguageNotSupported, error!.Code);
+        Assert.False(string.IsNullOrWhiteSpace(error.SuggestedAction));
+        Assert.DoesNotContain("ready workspace", error.Message, StringComparison.OrdinalIgnoreCase);
+
+        var languages = new LanguageAdapters([
+            new RoslynLanguageAdapter(new GeneratorQueryService()),
+            new FSharpSymbolQueryService(),
+        ]);
+        var (_, viaAdapters) = await service.ListGeneratorsAsync(session, id, languages: languages);
+        Assert.IsType<GeneratorLanguageNotSupportedError>(viaAdapters);
+        Assert.DoesNotContain("ready workspace", viaAdapters!.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

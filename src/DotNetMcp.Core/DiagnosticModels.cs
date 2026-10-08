@@ -20,6 +20,9 @@ public sealed record CompilationUnavailableError(string Message, string Suggeste
 public sealed record GeneratorNotFoundError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.GeneratorNotFound, Message, SuggestedAction);
 
+public sealed record GeneratorLanguageNotSupportedError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.GeneratorLanguageNotSupported, Message, SuggestedAction);
+
 public sealed record GeneratorAttributionAmbiguousError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.GeneratorAttributionAmbiguous, Message, SuggestedAction);
 

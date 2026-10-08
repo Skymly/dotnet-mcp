@@ -16,6 +16,8 @@ public interface ILanguageAdapter
 
     bool SupportsDiagnosticFix { get; }
 
+    bool SupportsSourceGenerators { get; }
+
     Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
         IWorkspaceSession session,
         string name,

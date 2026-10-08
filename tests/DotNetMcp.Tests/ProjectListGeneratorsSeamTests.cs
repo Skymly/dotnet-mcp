@@ -68,6 +68,43 @@ public class ProjectListGeneratorsSeamTests
     }
 
     [Fact]
+    public async Task project_list_generators_existing_fsharp_project_is_language_not_supported()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TestTrustedRoots.Create(root),
+                FakeSolutionLoader.ImmediateWithFsharpAndCSharp());
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var listed = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(listed.IsError is not true, InProcessMcpFixture.TextOf(listed));
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(listed).Projects;
+            var fsharp = Assert.Single(projects, p => p.Name.Contains("FsLib", StringComparison.OrdinalIgnoreCase));
+
+            var result = await fx.Client.CallToolAsync(
+                "project_list_generators",
+                new Dictionary<string, object?> { ["projectId"] = fsharp.ProjectId });
+            Assert.True(result.IsError is true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(result);
+            Assert.Equal(PolicyErrorCodes.GeneratorLanguageNotSupported, body.Error);
+            Assert.NotEqual(PolicyErrorCodes.ProjectNotFound, body.Error);
+            Assert.DoesNotContain("ready workspace", body.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(string.IsNullOrWhiteSpace(body.SuggestedAction));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task project_list_generators_returns_custom_generator_identity()
     {
         var root = CreateTempDir("root");

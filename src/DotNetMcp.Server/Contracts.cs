@@ -28,6 +28,7 @@ public static class PolicyErrorCodes
     public const string CompilationUnavailable = "CompilationUnavailable";
     public const string SoftBudgetExceeded = "SoftBudgetExceeded";
     public const string GeneratorNotFound = "GeneratorNotFound";
+    public const string GeneratorLanguageNotSupported = "GeneratorLanguageNotSupported";
     public const string MissingXamlClass = "MissingXamlClass";
     public const string XamlDocumentNotFound = "XamlDocumentNotFound";
     public const string XamlDocumentAmbiguous = "XamlDocumentAmbiguous";
