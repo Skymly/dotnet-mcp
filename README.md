@@ -21,7 +21,7 @@ Package id on NuGet: **`Skymly.DotNetMcp`** (CLI command remains `dotnet-mcp`). 
 - Generic write / patch / create / delete file tools
 - Shell, process, HTTP, or package-download tools
 - WPF / WinUI XAML
-- F# source-generator attribution, generator queries, diagnostic fix, or code refactoring (`GeneratorLanguageNotSupported`)
+- F# source-generator attribution, generator queries, dynamic invocation queries, diagnostic fix, or code refactoring
 - Extract-method / change-signature UIs
 - Opening untrusted repositories safely — `workspace_open` **runs MSBuild evaluation and project analyzers/generators**
 
