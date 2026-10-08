@@ -52,6 +52,38 @@ public class DynamicInvocationQueryServiceTests
         Assert.IsType<CompilationUnavailableError>(error);
     }
 
+    [Fact]
+    public async Task list_async_zero_budget_is_truncated_not_an_empty_complete_page()
+    {
+        using var workspace = CreateDynamicWorkspace();
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var projectId = ProjectIdOf(workspace);
+        var service = new DynamicInvocationQueryService();
+
+        var (page, error) = await service.ListAsync(session, projectId, softBudget: TimeSpan.Zero);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.True(page!.Truncated);
+        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
+        Assert.Empty(page.Items);
+        Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("no dynamic invocation", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("complete", page.Message, StringComparison.OrdinalIgnoreCase);
+
+        var (continued, continueError) = await service.ListAsync(
+            session,
+            projectId,
+            cursor: page.NextCursor,
+            softBudget: TimeSpan.FromSeconds(30));
+
+        Assert.Null(continueError);
+        Assert.NotNull(continued);
+        Assert.NotEmpty(continued!.Items);
+        Assert.Contains(continued.Items, i => i.Kind == "Invocation");
+        Assert.DoesNotContain("no dynamic invocation", continued.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string ProjectIdOf(AdhocWorkspace workspace) =>
         workspace.CurrentSolution.Projects.Single().Id.Id.ToString("D");
 

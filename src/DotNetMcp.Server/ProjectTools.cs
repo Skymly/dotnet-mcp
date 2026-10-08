@@ -230,7 +230,7 @@ public sealed class ProjectTools
 
     [McpServerTool(Name = "project_list_dynamic_invocations", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List dynamic invocation / member / indexer sites in a C# or VB project, with static receiver and argument types when Roslyn knows them. " +
-        "This is an IOperation call-site listing — not SymbolAttribution. Soft budget and epoch cursors apply.")]
+        "This is an IOperation call-site listing — not SymbolAttribution. Soft budget and epoch cursors apply. A budget hit stays truncated with nextCursor even when the collected page is not full.")]
     public async Task<CallToolResult> ProjectListDynamicInvocations(
         [Description("Roslyn projectId GUID string from workspace_list_projects.")]
         string projectId,

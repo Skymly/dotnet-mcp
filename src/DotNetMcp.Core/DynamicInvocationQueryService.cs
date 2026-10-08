@@ -58,12 +58,14 @@ public sealed class DynamicInvocationQueryService
         var clock = Stopwatch.StartNew();
         var items = new List<DynamicInvocationItem>();
         var projectIdString = project.Id.Id.ToString("D");
+        var stoppedEarly = false;
 
         foreach (var document in project.Documents)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (clock.Elapsed >= budget)
             {
+                stoppedEarly = true;
                 break;
             }
 
@@ -84,6 +86,7 @@ public sealed class DynamicInvocationQueryService
             {
                 if (clock.Elapsed >= budget)
                 {
+                    stoppedEarly = true;
                     break;
                 }
 
@@ -121,6 +124,11 @@ public sealed class DynamicInvocationQueryService
                         break;
                 }
             }
+
+            if (stoppedEarly)
+            {
+                break;
+            }
         }
 
         return SoftBudgetPage.Page(
@@ -133,7 +141,8 @@ public sealed class DynamicInvocationQueryService
             projectId,
             "Project has no dynamic invocation sites.",
             "Dynamic invocation page complete.",
-            "the dynamic invocation list");
+            "the dynamic invocation list",
+            scanIncomplete: stoppedEarly);
     }
 
     private static DynamicInvocationItem ToItem(

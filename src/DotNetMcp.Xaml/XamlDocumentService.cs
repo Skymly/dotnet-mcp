@@ -264,7 +264,7 @@ public sealed class XamlDocumentService
 
         var budget = softBudget ?? _softBudgets.SingleProjectCompile;
         var clock = Stopwatch.StartNew();
-        var all = await CollectSemanticDiagnosticsAsync(
+        var (all, stoppedEarly) = await CollectSemanticDiagnosticsAsync(
                 session, path, root!, xmlns!, clock, budget, cancellationToken)
             .ConfigureAwait(false);
 
@@ -278,7 +278,8 @@ public sealed class XamlDocumentService
             path,
             "No semantic XAML diagnostics.",
             "XAML diagnostic page complete.",
-            "the diagnostic list");
+            "the diagnostic list",
+            scanIncomplete: stoppedEarly);
         return (page, null, pageError);
     }
 
@@ -786,7 +787,7 @@ public sealed class XamlDocumentService
         return names;
     }
 
-    private async Task<List<DiagnosticItem>> CollectSemanticDiagnosticsAsync(
+    private async Task<(List<DiagnosticItem> Items, bool StoppedEarly)> CollectSemanticDiagnosticsAsync(
         IWorkspaceSession session,
         string path,
         XamlDocumentRoot root,
@@ -815,6 +816,12 @@ public sealed class XamlDocumentService
             }
         }
 
+        var stoppedEarly = budget > TimeSpan.Zero && clock.Elapsed >= budget;
+        if (stoppedEarly)
+        {
+            return (items, true);
+        }
+
         try
         {
             using var reader = CreateReader(root.Text);
@@ -827,6 +834,7 @@ public sealed class XamlDocumentService
                 cancellationToken.ThrowIfCancellationRequested();
                 if (budget > TimeSpan.Zero && clock.Elapsed >= budget)
                 {
+                    stoppedEarly = true;
                     break;
                 }
 
@@ -955,7 +963,7 @@ public sealed class XamlDocumentService
             // ReadDocumentAsync already rejected malformed XML.
         }
 
-        return items;
+        return (items, stoppedEarly);
     }
 
     private async Task<INamedTypeSymbol?> ResolveElementTypeAsync(

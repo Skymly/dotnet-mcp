@@ -241,7 +241,7 @@ public sealed class XamlTools
 
     [McpServerTool(Name = "xaml_diagnostics", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Semantic XAML diagnostics for Avalonia .axaml and MAUI .xaml (unknown elements/properties given xmlns, bad Binding paths, unmatched x:Name). " +
-        "Not XML well-formedness. Paged with a soft budget; stale cursors fail distinctly.")]
+        "Not XML well-formedness. Paged with a soft budget; a budget hit stays truncated with nextCursor even when the collected page is not full. Stale cursors fail distinctly.")]
     public async Task<CallToolResult> XamlDiagnostics(
         [Description("Path to an Avalonia .axaml or MAUI .xaml document under a trusted root.")]
         string path,
