@@ -50,6 +50,7 @@ internal sealed class ScenarioRunner
             }
         }
 
+        _sampler.BeginScenario();
         try
         {
             var (returnMs, status, readyMs) = await WorkspacePrep
@@ -80,6 +81,7 @@ internal sealed class ScenarioRunner
                 ReadyMs = readyMs,
             });
 
+            _sampler.Sample();
             if (Accepts($"{name}.workspace.open.return"))
             {
                 RecordOneShot(
@@ -137,6 +139,7 @@ internal sealed class ScenarioRunner
             return;
         }
 
+        _sampler.BeginScenario();
         var elapsed = new List<double>();
         var payloads = new List<double>();
         var allocated = new List<double>();
@@ -204,6 +207,7 @@ internal sealed class ScenarioRunner
             return;
         }
 
+        _sampler.BeginScenario();
         var elapsed = new List<double>();
         var payloads = new List<double>();
         var allocated = new List<double>();

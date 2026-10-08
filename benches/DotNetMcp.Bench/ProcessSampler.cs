@@ -4,28 +4,45 @@ namespace DotNetMcp.Bench;
 
 internal sealed class ProcessSampler : IDisposable
 {
-    private readonly Process _process;
-    private long _peakWorkingSetBytes;
+    private readonly Func<long> _readWorkingSet;
+    private long _runPeakBytes;
+    private long _windowPeakBytes;
 
-    private ProcessSampler(Process process)
+    private ProcessSampler(Func<long> readWorkingSet)
     {
-        _process = process;
+        _readWorkingSet = readWorkingSet;
         Sample();
     }
 
-    public static ProcessSampler Start() => new(Process.GetCurrentProcess());
+    public static ProcessSampler Start() => new(ReadProcessWorkingSet);
 
-    public long PeakWorkingSetBytes => _peakWorkingSetBytes;
+    internal static ProcessSampler ForTest(Func<long> readWorkingSet) => new(readWorkingSet);
 
-    public double PeakWorkingSetMiB => _peakWorkingSetBytes / (1024.0 * 1024.0);
+    public double PeakWorkingSetMiB => _windowPeakBytes / (1024.0 * 1024.0);
+
+    public double RunPeakWorkingSetMiB => _runPeakBytes / (1024.0 * 1024.0);
+
+    public void BeginScenario()
+    {
+        _windowPeakBytes = 0;
+        Sample();
+    }
 
     public void Sample()
     {
-        _process.Refresh();
-        _peakWorkingSetBytes = Math.Max(_peakWorkingSetBytes, _process.WorkingSet64);
+        var current = _readWorkingSet();
+        _runPeakBytes = Math.Max(_runPeakBytes, current);
+        _windowPeakBytes = Math.Max(_windowPeakBytes, current);
     }
 
     public void Dispose() => Sample();
+
+    private static long ReadProcessWorkingSet()
+    {
+        var process = Process.GetCurrentProcess();
+        process.Refresh();
+        return process.WorkingSet64;
+    }
 }
 
 internal static class Statistics

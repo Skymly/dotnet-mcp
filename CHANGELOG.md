@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Bench scenario PeakWorkingSetMiB is the peak sampled during that scenario, not the process lifetime (`#362`)
 - Bench help and docs no longer advertise `--allow-writes`; the harness does not measure apply (`#360`)
 - Bench gates fail when no scenarios ran or a workspace open is missing or failed, instead of a vacuous 4/4 pass (`#358`)
 - Tests: MSBuild SDK selection picks the newest install root that contains MSBuild.dll, and CI SDK versions are read from the dotnet-version list (`#356`)

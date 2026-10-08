@@ -36,7 +36,7 @@ directly. Isolated microbenchmarks (handle parse, path policy) may be added late
 ## Metrics (every scenario)
 
 - Wall clock: min / mean / p50 / p95 / max (warmup discarded)
-- Peak WorkingSet MiB and allocated bytes for the iteration
+- Peak WorkingSet MiB sampled during that scenario (not the process lifetime) and allocated bytes for the measured iterations
 - MCP payload bytes
 - Result cardinality + `truncated` / `nextCursor` (Soft budget)
 - Error code if the tool returned a policy error
