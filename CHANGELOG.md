@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Epoch advances and the F# snapshot are published together, so a ready session cannot see a new epoch with the previous snapshot (`#372`)
 - Watcher updates take the write lock so a stale drift repair cannot put old text back into the workspace (`#370`)
 - FileSystemWorkspaceWatcher serializes start and stop so an overlapping stop cannot leave an active watcher (`#368`)
 - Identical document text no longer counts as a workspace change or advances the epoch (`#366`)

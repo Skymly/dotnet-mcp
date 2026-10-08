@@ -38,4 +38,10 @@ public sealed class WorkspaceHostOptions
     /// Production leaves this null. Must not call CheckDrift or ApplyChangedPaths.
     /// </summary>
     public Action? BeforeDriftRepairForTests { get; init; }
+
+    /// <summary>
+    /// Test seam invoked after an F# snapshot is captured and before it is published.
+    /// Production leaves this null. Must not call back into the host.
+    /// </summary>
+    public Action? BeforeFSharpSnapshotCommitForTests { get; init; }
 }

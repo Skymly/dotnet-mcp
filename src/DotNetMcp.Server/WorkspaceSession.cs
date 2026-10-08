@@ -22,11 +22,12 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         GeneratorRunCache? generatorRunCache = null,
         CompilationLru? compilationLru = null,
         FindHitCache? findHitCache = null,
-        FSharpWorkspaceSnapshot? fsharpSnapshot = null)
+        FSharpWorkspaceSnapshot? fsharpSnapshot = null,
+        Solution? solution = null)
     {
         // Prefer the host-frozen F# snapshot (captured when Epoch advances). Tests that need F#
         // sources must pass a snapshot captured with trusted roots — never walk disk without roots.
-        Solution = loaded.Solution;
+        Solution = solution ?? loaded.Solution;
         Epoch = epoch;
         FSharpSnapshot = fsharpSnapshot ?? new FSharpWorkspaceSnapshot(epoch, []);
         _compilationLru = compilationLru ?? new CompilationLru(compilationLruCapacity);
