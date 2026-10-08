@@ -338,7 +338,39 @@ public class FSharpSymbolQueryServiceTests
     }
 
     [Fact]
-    public async Task attribution_and_members_distinguish_overloaded_ping()
+    public async Task attribution_of_resolved_fsharp_handle_is_language_not_supported()
+    {
+        using var session = Session(WidgetSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Gadget");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+        Assert.StartsWith("fsharp:", resolved!.Handle, StringComparison.Ordinal);
+
+        var (attribution, attrError) = await adapter.GetAttributionAsync(session, resolved.Handle);
+
+        Assert.Null(attribution);
+        var unsupported = Assert.IsType<GeneratorLanguageNotSupportedError>(attrError);
+        Assert.Equal(SymbolQueryErrorCodes.GeneratorLanguageNotSupported, unsupported.Code);
+        Assert.Contains("C#", unsupported.SuggestedAction, StringComparison.Ordinal);
+        Assert.Contains("VB", unsupported.SuggestedAction, StringComparison.Ordinal);
+        Assert.DoesNotContain("Handwritten", unsupported.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("ready workspace", unsupported.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task attribution_of_missing_fsharp_signature_stays_not_found()
+    {
+        using var session = Session(WidgetSnapshot());
+        var handle = SymbolHandle.Create("fsharp", FsProjectId, "FsLib.Gone").Format();
+        var (attribution, error) = await Adapter().GetAttributionAsync(session, handle);
+        Assert.Null(attribution);
+        Assert.IsType<SymbolNotFoundError>(error);
+        Assert.NotEqual(SymbolQueryErrorCodes.GeneratorLanguageNotSupported, error!.Code);
+    }
+
+    [Fact]
+    public async Task members_distinguish_overloaded_ping()
     {
         const string source = """
             module FsLib.Widget
@@ -353,11 +385,7 @@ public class FSharpSymbolQueryServiceTests
         Assert.Null(resolveError);
         Assert.NotNull(resolved);
 
-        var (attribution, attrError) = await adapter.GetAttributionAsync(session, resolved!.Handle);
-        Assert.Null(attrError);
-        Assert.NotNull(attribution);
-
-        var (members, membersError) = await adapter.GetMembersAsync(session, resolved.Handle, limit: 50);
+        var (members, membersError) = await adapter.GetMembersAsync(session, resolved!.Handle, limit: 50);
         Assert.Null(membersError);
         Assert.NotNull(members);
         var pings = members!.Items.Where(m => m.Summary.DisplayName == "Ping").ToList();

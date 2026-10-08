@@ -339,7 +339,7 @@ public class MsBuildWorkspaceIntegrationTests
     }
 
     [Fact]
-    public async Task workspace_open_mixed_solution_fsharp_attribution_is_handwritten()
+    public async Task workspace_open_mixed_solution_fsharp_attribution_is_not_supported()
     {
         Assert.True(File.Exists(MixedWithFsSlnx), $"Missing fixture: {MixedWithFsSlnx}");
         var root = Path.GetDirectoryName(MixedWithFsSlnx)!;
@@ -361,10 +361,11 @@ public class MsBuildWorkspaceIntegrationTests
         var attr = await fx.Client.CallToolAsync(
             "symbol_attribution",
             new Dictionary<string, object?> { ["handle"] = handle });
-        Assert.True(attr.IsError is not true, InProcessMcpFixture.TextOf(attr));
-        var body = InProcessMcpFixture.Deserialize<SymbolAttributionResultDto>(attr);
-        Assert.Equal("Handwritten", body.OriginKind);
-        Assert.Equal("InSource", body.DeclarationAvailability);
+        Assert.True(attr.IsError is true, InProcessMcpFixture.TextOf(attr));
+        var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(attr);
+        Assert.Equal(PolicyErrorCodes.GeneratorLanguageNotSupported, body.Error);
+        Assert.DoesNotContain("Handwritten", body.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("ready workspace", body.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -600,7 +601,10 @@ public class MsBuildWorkspaceIntegrationTests
             var attribution = await fx.Client.CallToolAsync(
                 "symbol_attribution",
                 new Dictionary<string, object?> { ["handle"] = gadget.Handle });
-            Assert.True(attribution.IsError is not true, InProcessMcpFixture.TextOf(attribution));
+            Assert.True(attribution.IsError is true, InProcessMcpFixture.TextOf(attribution));
+            Assert.Equal(
+                PolicyErrorCodes.GeneratorLanguageNotSupported,
+                InProcessMcpFixture.Deserialize<PolicyErrorDto>(attribution).Error);
 
             var members = await fx.Client.CallToolAsync(
                 "symbol_members",

@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- symbol_attribution on an F# handle returns GeneratorLanguageNotSupported instead of a synthetic Handwritten success (`#381`)
 - F# snapshot capture prefers handwritten expanded documents over a raw Compile Include list (`#379`)
 - A lost file watcher is restarted once, and workspace_status reports watcher as ok, lost, or off (`#377`)
 - F# snapshot dictionaries are keyed by epoch, so one request cannot evict or overwrite another request's source text (`#374`)
