@@ -109,7 +109,7 @@ public class FsharpSnapshotEpochSeamTests
         {
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
-                FakeSolutionLoader.ImmediateWithFsharpSymbols(root),
+                FakeSolutionLoader.ImmediateWithFsharpSignature(root),
                 new WorkspaceHostOptions
                 {
                     Debounce = TimeSpan.Zero,
@@ -117,13 +117,7 @@ public class FsharpSnapshotEpochSeamTests
                 });
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
-            var fsDir = Path.Combine(root, "FsLib");
-            var signature = Path.Combine(fsDir, "Widget.fsi");
-            await File.WriteAllTextAsync(signature, "module FsLib.Widget\nval ping: unit -> string\n");
-            await File.WriteAllTextAsync(
-                Path.Combine(fsDir, "FsLib.fsproj"),
-                "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><Compile Include=\"Widget.fsi\" /><Compile Include=\"Widget.fs\" /><Compile Include=\"Uses.fs\" /></ItemGroup></Project>");
-            watcher.Raise(signature);
+            var signature = Path.Combine(root, "FsLib", "Widget.fsi");
 
             Assert.True(fx.WorkspaceHost.TryGetReadySession(out var beforeSession));
             Assert.Contains(

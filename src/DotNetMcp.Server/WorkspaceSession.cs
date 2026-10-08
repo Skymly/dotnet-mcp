@@ -290,6 +290,33 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
             }
         }
 
+        foreach (var document in project.Documents)
+        {
+            if (document.FilePath is null ||
+                IsGeneratedCompilePath(document.FilePath) ||
+                IsDeletedFromExistingDirectory(document.FilePath) ||
+                (!document.FilePath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase) &&
+                 !document.FilePath.EndsWith(".fsi", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            if (!document.TryGetText(out var sourceText))
+            {
+                sourceText = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult();
+            }
+
+            Add(document.FilePath, sourceText.ToString(), requireTrusted: false);
+        }
+
+        // Handwritten expanded documents are the compile set. Raw Compile Include and
+        // directory enumeration must not replace them. Generated obj/bin files are not
+        // that set; SDK projects often have only those in project.Documents.
+        if (documents.Count > 0)
+        {
+            return documents;
+        }
+
         if (!string.IsNullOrWhiteSpace(project.FilePath))
         {
             foreach (var compilePath in FSharpProjectFile.ReadCompilePaths(project.FilePath))
@@ -306,23 +333,6 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
             {
                 return documents;
             }
-        }
-
-        foreach (var document in project.Documents)
-        {
-            if (document.FilePath is null ||
-                (!document.FilePath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase) &&
-                 !document.FilePath.EndsWith(".fsi", StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
-
-            if (!document.TryGetText(out var sourceText))
-            {
-                sourceText = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult();
-            }
-
-            Add(document.FilePath, sourceText.ToString(), requireTrusted: false);
         }
 
         var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -502,6 +512,20 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
     /// <summary>
     /// True when the node is a reparse point, or when attributes cannot be read (fail closed).
     /// </summary>
+    private static bool IsDeletedFromExistingDirectory(string path)
+    {
+        var parent = Path.GetDirectoryName(path);
+        return !string.IsNullOrEmpty(parent) && Directory.Exists(parent) && !File.Exists(path);
+    }
+
+    private static bool IsGeneratedCompilePath(string path)
+    {
+        var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return parts.Any(part =>
+            part.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
+            part.Equals("bin", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static bool IsReparsePoint(string path)
     {
         try
