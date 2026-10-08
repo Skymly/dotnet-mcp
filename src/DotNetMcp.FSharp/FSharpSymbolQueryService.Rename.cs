@@ -13,6 +13,7 @@ public sealed partial class FSharpSymbolQueryService
         string newName,
         CancellationToken cancellationToken = default)
     {
+        using var epochHold = EnterRequest(session.FSharpSnapshot.Epoch);
         if (string.IsNullOrWhiteSpace(newName) || !PrettyNaming.IsIdentifierName(newName))
         {
             return (null, new InvalidRenameNameError(
@@ -65,7 +66,7 @@ public sealed partial class FSharpSymbolQueryService
                     "Rename the handwritten input instead of the generated/provided symbol."));
             }
 
-            if (!TryGetSnapshot(use.FileName, out var path, out var text))
+            if (!TryGetSnapshot(session.FSharpSnapshot.Epoch, use.FileName, out var path, out var text))
             {
                 continue;
             }
@@ -108,7 +109,7 @@ public sealed partial class FSharpSymbolQueryService
         var documents = new List<RenameDocumentSlice>();
         foreach (var (path, spans) in edits)
         {
-            if (!TryGetSnapshot(path, out var full, out var oldText))
+            if (!TryGetSnapshot(session.FSharpSnapshot.Epoch, path, out var full, out var oldText))
             {
                 continue;
             }

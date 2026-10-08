@@ -32,7 +32,7 @@ public sealed partial class FSharpSymbolQueryService
 
         var budget = softBudget ?? _softBudgets.SingleProjectCompile;
         var clock = Stopwatch.StartNew();
-        var (_, check, _) = await CheckProjectAsync(project, cancellationToken).ConfigureAwait(false);
+        var (_, check, _) = await CheckProjectAsync(project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false);
         if (check is null)
         {
             return (null, new CompilationUnavailableError(
