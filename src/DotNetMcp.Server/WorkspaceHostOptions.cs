@@ -32,4 +32,10 @@ public sealed class WorkspaceHostOptions
     /// final canonical path gate. Production leaves this null.
     /// </summary>
     public Action? BeforeApplyFinalPathGate { get; init; }
+
+    /// <summary>
+    /// Test seam invoked after drift has read disk text and before it applies repairs.
+    /// Production leaves this null. Must not call CheckDrift or ApplyChangedPaths.
+    /// </summary>
+    public Action? BeforeDriftRepairForTests { get; init; }
 }

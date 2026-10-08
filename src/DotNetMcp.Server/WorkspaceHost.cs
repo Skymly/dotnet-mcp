@@ -18,6 +18,10 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private readonly bool _ownsWatcher;
     private readonly SemaphoreSlim _loadMutex = new(1, 1);
     private readonly SemaphoreSlim _writeMutex = new(1, 1);
+    private int _applyChangedPathsWaiting;
+
+    internal bool ApplyChangedPathsWaitingForWriteLockForTests =>
+        Volatile.Read(ref _applyChangedPathsWaiting) != 0;
     private readonly object _gate = new();
     private readonly object _debounceGate = new();
 
@@ -541,6 +545,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
         }
 
+        _options.BeforeDriftRepairForTests?.Invoke();
+
         IReadOnlyList<DocumentDrift> drifts;
         long epoch;
         lock (_gate)
@@ -635,6 +641,28 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             return;
         }
 
+        Interlocked.Increment(ref _applyChangedPathsWaiting);
+        try
+        {
+            _writeMutex.Wait();
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _applyChangedPathsWaiting);
+        }
+
+        try
+        {
+            ApplyChangedSourceTexts(filtered);
+        }
+        finally
+        {
+            _writeMutex.Release();
+        }
+    }
+
+    private void ApplyChangedSourceTexts(string[] filtered)
+    {
         var diskTexts = new Dictionary<string, string>(PathPolicy.Comparer);
         foreach (var path in filtered)
         {
