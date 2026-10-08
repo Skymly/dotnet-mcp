@@ -24,50 +24,82 @@ public interface IWorkspaceFileWatcher : IDisposable
 /// </summary>
 public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
 {
+    private readonly object _sync = new();
     private readonly List<ErrorRaisableWatcher> _watchers = [];
     private Action<IReadOnlyList<string>>? _onPathsChanged;
     private Action? _onWatchLost;
     private bool _disposed;
+
+    internal object SyncForTests => _sync;
+
+    /// <summary>Test seam. Must not call back into this watcher.</summary>
+    internal Action? BeforeAddingWatcherForTests { get; set; }
 
     public void Start(
         IReadOnlyList<string> roots,
         Action<IReadOnlyList<string>> onPathsChanged,
         Action? onWatchLost = null)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        Stop();
-        _onPathsChanged = onPathsChanged;
-        _onWatchLost = onWatchLost;
-
-        foreach (var root in roots.Distinct(PathPolicy.Comparer))
+        lock (_sync)
         {
-            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            StopCore();
+            _onPathsChanged = onPathsChanged;
+            _onWatchLost = onWatchLost;
+
+            foreach (var root in roots.Distinct(PathPolicy.Comparer))
             {
-                continue;
+                if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+                {
+                    continue;
+                }
+
+                var watcher = new ErrorRaisableWatcher(root)
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName
+                                   | NotifyFilters.DirectoryName
+                                   | NotifyFilters.LastWrite
+                                   | NotifyFilters.Size
+                                   | NotifyFilters.CreationTime,
+                    Filter = "*.*"
+                };
+
+                watcher.Changed += OnEvent;
+                watcher.Created += OnEvent;
+                watcher.Deleted += OnEvent;
+                watcher.Renamed += OnRenamed;
+                watcher.Error += OnError;
+                watcher.EnableRaisingEvents = true;
+                BeforeAddingWatcherForTests?.Invoke();
+                _watchers.Add(watcher);
             }
-
-            var watcher = new ErrorRaisableWatcher(root)
-            {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName
-                               | NotifyFilters.DirectoryName
-                               | NotifyFilters.LastWrite
-                               | NotifyFilters.Size
-                               | NotifyFilters.CreationTime,
-                Filter = "*.*"
-            };
-
-            watcher.Changed += OnEvent;
-            watcher.Created += OnEvent;
-            watcher.Deleted += OnEvent;
-            watcher.Renamed += OnRenamed;
-            watcher.Error += OnError;
-            watcher.EnableRaisingEvents = true;
-            _watchers.Add(watcher);
         }
     }
 
     public void Stop()
+    {
+        lock (_sync)
+        {
+            StopCore();
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            StopCore();
+        }
+    }
+
+    private void StopCore()
     {
         foreach (var watcher in _watchers)
         {
@@ -85,32 +117,26 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
         _onWatchLost = null;
     }
 
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        Stop();
-        _onPathsChanged = null;
-    }
-
     /// <summary>
     /// Raises <see cref="FileSystemWatcher.Error"/> on each active watcher so tests can
     /// prove the production subscription still calls watch-lost. Production never calls this.
     /// </summary>
     internal void RaiseErrorForTests()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_watchers.Count == 0)
+        ErrorRaisableWatcher[] snapshot;
+        lock (_sync)
         {
-            throw new InvalidOperationException("FileSystemWorkspaceWatcher has no active watchers.");
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_watchers.Count == 0)
+            {
+                throw new InvalidOperationException("FileSystemWorkspaceWatcher has no active watchers.");
+            }
+
+            snapshot = _watchers.ToArray();
         }
 
         var args = new ErrorEventArgs(new InternalBufferOverflowException("injected watch error"));
-        foreach (var watcher in _watchers.ToArray())
+        foreach (var watcher in snapshot)
         {
             watcher.RaiseError(args);
         }
@@ -123,7 +149,13 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
             return;
         }
 
-        _onPathsChanged?.Invoke([e.FullPath]);
+        Action<IReadOnlyList<string>>? callback;
+        lock (_sync)
+        {
+            callback = _onPathsChanged;
+        }
+
+        callback?.Invoke([e.FullPath]);
     }
 
     private void OnRenamed(object sender, RenamedEventArgs e)
@@ -139,15 +171,29 @@ public sealed class FileSystemWorkspaceWatcher : IWorkspaceFileWatcher
             paths.Add(e.FullPath);
         }
 
-        if (paths.Count > 0)
+        if (paths.Count == 0)
         {
-            _onPathsChanged?.Invoke(paths);
+            return;
         }
+
+        Action<IReadOnlyList<string>>? callback;
+        lock (_sync)
+        {
+            callback = _onPathsChanged;
+        }
+
+        callback?.Invoke(paths);
     }
 
     private void OnError(object sender, ErrorEventArgs e)
     {
-        _onWatchLost?.Invoke();
+        Action? callback;
+        lock (_sync)
+        {
+            callback = _onWatchLost;
+        }
+
+        callback?.Invoke();
     }
 
     /// <summary>
