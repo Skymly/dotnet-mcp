@@ -266,6 +266,7 @@ public sealed record ProjectDiagnosticsResultDto
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
     public required string Message { get; init; }
+    public IReadOnlyList<string>? MissingDependencyOutputs { get; init; }
 }
 
 public sealed record GeneratorIdentityDto

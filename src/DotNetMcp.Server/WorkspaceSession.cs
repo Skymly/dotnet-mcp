@@ -137,21 +137,26 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
             var defines = string.IsNullOrWhiteSpace(project.FilePath)
                 ? Array.Empty<string>()
                 : FSharpProjectFile.ReadDefines(project.FilePath);
+            var references = ReadCompilerReferences(project);
             projects.Add(new FSharpProjectSnapshot(
                 project.Id.Id.ToString("D"),
                 project.Name,
                 project.FilePath,
                 documents,
                 defines,
-                ReadCompilerReferences(project)));
+                references.Paths,
+                references.MissingOutputs));
         }
 
         return new FSharpWorkspaceSnapshot(epoch, projects);
     }
 
-    private static IReadOnlyList<string> ReadCompilerReferences(Project project)
+    private readonly record struct CompilerReferenceSet(IReadOnlyList<string> Paths, IReadOnlyList<string> MissingOutputs);
+
+    private static CompilerReferenceSet ReadCompilerReferences(Project project)
     {
         var paths = new List<string>();
+        var missing = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         void Add(string? path)
@@ -189,8 +194,19 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         foreach (var reference in project.ProjectReferences)
         {
             var other = project.Solution.GetProject(reference.ProjectId);
+            var before = paths.Count;
             Add(other?.OutputFilePath);
             Add(FindBuiltOutput(other));
+            if (paths.Count == before)
+            {
+                var name = string.IsNullOrWhiteSpace(other?.Name)
+                    ? reference.ProjectId.Id.ToString("D")
+                    : other!.Name;
+                if (!missing.Contains(name, StringComparer.OrdinalIgnoreCase))
+                {
+                    missing.Add(name);
+                }
+            }
         }
 
         foreach (var other in project.Solution.Projects)
@@ -204,7 +220,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
             Add(FindBuiltOutput(other));
         }
 
-        return paths;
+        return new CompilerReferenceSet(paths, missing);
     }
 
     private static string? FindBuiltOutput(Project? project)

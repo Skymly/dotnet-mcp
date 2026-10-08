@@ -29,7 +29,8 @@ public sealed class FSharpProjectSnapshot
         string? filePath,
         IReadOnlyList<FSharpDocumentSnapshot> documents,
         IReadOnlyList<string>? defines = null,
-        IReadOnlyList<string>? references = null)
+        IReadOnlyList<string>? references = null,
+        IReadOnlyList<string>? missingDependencyOutputs = null)
     {
         ProjectId = projectId;
         Name = name;
@@ -37,6 +38,7 @@ public sealed class FSharpProjectSnapshot
         Documents = documents;
         Defines = defines ?? [];
         References = references ?? [];
+        MissingDependencyOutputs = missingDependencyOutputs ?? [];
     }
 
     public string ProjectId { get; }
@@ -50,6 +52,8 @@ public sealed class FSharpProjectSnapshot
     public IReadOnlyList<string> Defines { get; }
 
     public IReadOnlyList<string> References { get; }
+
+    public IReadOnlyList<string> MissingDependencyOutputs { get; }
 }
 
 public sealed class FSharpDocumentSnapshot
