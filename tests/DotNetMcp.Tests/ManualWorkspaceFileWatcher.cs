@@ -13,6 +13,8 @@ public sealed class ManualWorkspaceFileWatcher : IWorkspaceFileWatcher
 
     public bool IsStarted { get; private set; }
 
+    public int StartCount { get; private set; }
+
     public void Start(
         IReadOnlyList<string> roots,
         Action<IReadOnlyList<string>> onPathsChanged,
@@ -22,6 +24,7 @@ public sealed class ManualWorkspaceFileWatcher : IWorkspaceFileWatcher
         _onPathsChanged = onPathsChanged;
         _onWatchLost = onWatchLost;
         IsStarted = true;
+        StartCount++;
     }
 
     public void Stop()

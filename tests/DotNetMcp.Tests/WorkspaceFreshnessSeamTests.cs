@@ -461,6 +461,7 @@ public class WorkspaceFreshnessSeamTests
             var calcCs = Path.Combine(projectDir, "Calculator.cs");
             await File.WriteAllTextAsync(calcCs, await File.ReadAllTextAsync(calcCs) + "\n");
             watcher.RaiseErrorForTests();
+            await fx.WorkspaceHost.WatcherRecovery;
             Assert.Equal(epoch + 1, fx.WorkspaceHost.CurrentEpoch);
         }
         finally

@@ -117,6 +117,9 @@ public sealed record WorkspaceStatusDto
     public string? ErrorCode { get; init; }
     public string? Message { get; init; }
     public required string SuggestedAction { get; init; }
+
+    /// <summary>ok, lost, or off. Additive; absent on older clients is treated as unknown.</summary>
+    public string Watcher { get; init; } = "off";
 }
 
 public sealed record ProjectSummaryDto

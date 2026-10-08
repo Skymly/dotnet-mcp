@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- A lost file watcher is restarted once, and workspace_status reports watcher as ok, lost, or off (`#377`)
 - F# snapshot dictionaries are keyed by epoch, so one request cannot evict or overwrite another request's source text (`#374`)
 - Epoch advances and the F# snapshot are published together, so a ready session cannot see a new epoch with the previous snapshot (`#372`)
 - Watcher updates take the write lock so a stale drift repair cannot put old text back into the workspace (`#370`)
