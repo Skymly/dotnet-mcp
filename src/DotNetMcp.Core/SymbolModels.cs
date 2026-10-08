@@ -115,6 +115,7 @@ public static class SymbolQueryErrorCodes
     public const string SoftBudgetExceeded = "SoftBudgetExceeded";
     public const string GeneratorNotFound = "GeneratorNotFound";
     public const string GeneratorLanguageNotSupported = "GeneratorLanguageNotSupported";
+    public const string DynamicInvocationLanguageNotSupported = "DynamicInvocationLanguageNotSupported";
     public const string GeneratorAttributionAmbiguous = "GeneratorAttributionAmbiguous";
     public const string GeneratedSymbolRenameRefused = "GeneratedSymbolRenameRefused";
     public const string RenameLanguageNotSupported = "RenameLanguageNotSupported";

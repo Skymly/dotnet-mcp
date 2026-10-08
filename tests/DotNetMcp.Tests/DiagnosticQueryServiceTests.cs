@@ -244,6 +244,8 @@ public class DiagnosticQueryServiceTests
 
         public bool SupportsSourceGenerators => false;
 
+        public bool SupportsDynamicInvocations => false;
+
 
         public Task<(SymbolAttributionSuccess? Success, SymbolQueryError? Error)> GetAttributionAsync(
             IWorkspaceSession session,
