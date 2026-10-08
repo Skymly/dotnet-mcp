@@ -180,24 +180,16 @@ public class SymbolApplyRenameSeamTests
                 new Dictionary<string, object?> { ["previewId"] = previewId }).AsTask();
             var results = await Task.WhenAll(first, second);
             var successes = results.Count(static r => r.IsError is not true);
-            Assert.True(successes <= 1);
-            if (successes == 1)
-            {
-                var applied = InProcessMcpFixture.Deserialize<SymbolApplyRenameResultDto>(
-                    results.Single(static r => r.IsError is not true));
-                Assert.Equal(epochBefore + 1, applied.Epoch);
-                Assert.Equal(epochBefore + 1, fx.WorkspaceHost.CurrentEpoch);
-                Assert.Contains("Pong", await File.ReadAllTextAsync(widget), StringComparison.Ordinal);
-                Assert.Equal(
-                    PolicyErrorCodes.PreviewNotFound,
-                    InProcessMcpFixture.Deserialize<PolicyErrorDto>(
-                        results.Single(static r => r.IsError is true)).Error);
-            }
-            else
-            {
-                Assert.Equal(before, await File.ReadAllTextAsync(widget));
-                Assert.Equal(epochBefore, fx.WorkspaceHost.CurrentEpoch);
-            }
+            Assert.Equal(1, successes);
+            var applied = InProcessMcpFixture.Deserialize<SymbolApplyRenameResultDto>(
+                results.Single(static r => r.IsError is not true));
+            Assert.Equal(epochBefore + 1, applied.Epoch);
+            Assert.Equal(epochBefore + 1, fx.WorkspaceHost.CurrentEpoch);
+            Assert.Contains("Pong", await File.ReadAllTextAsync(widget), StringComparison.Ordinal);
+            Assert.Equal(
+                PolicyErrorCodes.PreviewNotFound,
+                InProcessMcpFixture.Deserialize<PolicyErrorDto>(
+                    results.Single(static r => r.IsError is true)).Error);
         }
         finally
         {

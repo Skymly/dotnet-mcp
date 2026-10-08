@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: a mid-apply IO failure rolls the first file back byte-for-byte, including its BOM, and concurrent apply must succeed exactly once (`#344`)
 - Tests: project Fix all budget reads DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS and falls back when the value is invalid (`#342`)
 - Tests: tampering a SymbolHandle field while keeping its checksum is rejected (`#340`)
 - Tests: file-system watcher debounce above zero and Error-to-drift fallback fail if that wiring is removed (`#338`)
@@ -55,6 +56,7 @@ Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended 
 
 ### Fixed
 
+- Tests: a mid-apply IO failure rolls the first file back byte-for-byte, including its BOM, and concurrent apply must succeed exactly once (`#344`)
 - Tests: project Fix all budget reads DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS and falls back when the value is invalid (`#342`)
 - Tests: tampering a SymbolHandle field while keeping its checksum is rejected (`#340`)
 - Tests: file-system watcher debounce above zero and Error-to-drift fallback fail if that wiring is removed (`#338`)
