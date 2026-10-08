@@ -31,6 +31,10 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private string? _openedPath;
     private long _epoch;
     private string _phase = "idle";
+    private string _watcherHealth = "off";
+    private Task _watcherRecovery = Task.CompletedTask;
+
+    internal Task WatcherRecovery => _watcherRecovery;
     private int _completedUnits;
     private int _totalUnits;
     private string? _error;
@@ -1060,10 +1064,17 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         try
         {
             _watcher.Start(roots, OnWatcherPathsChanged, OnWatchLost);
+            lock (_gate)
+            {
+                _watcherHealth = "ok";
+            }
         }
         catch
         {
-            // Watcher failures must not take down the ready workspace; check-drift remains as fallback.
+            lock (_gate)
+            {
+                _watcherHealth = "lost";
+            }
         }
     }
 
@@ -1076,6 +1087,11 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         catch
         {
             // ignore
+        }
+
+        lock (_gate)
+        {
+            _watcherHealth = "off";
         }
 
         lock (_debounceGate)
@@ -1149,7 +1165,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             Warnings = _warnings.Count == 0 ? null : _warnings,
             Error = _error,
             ErrorCode = _errorCode,
-            SuggestedAction = suggested
+            SuggestedAction = suggested,
+            Watcher = _watcherHealth
         };
     }
 
@@ -1287,6 +1304,11 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
     private void OnWatchLost()
     {
+        lock (_gate)
+        {
+            _watcherHealth = "lost";
+        }
+
         try
         {
             CheckDrift();
@@ -1295,6 +1317,35 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         {
             // Drift fallback must not throw out of the watcher thread.
         }
+
+        // Restart off the watcher callback. FileSystemWatcher must not be disposed
+        // from inside its own Error handler.
+        var recovery = Task.Run(RecoverWatcher);
+        lock (_gate)
+        {
+            _watcherRecovery = recovery;
+        }
+    }
+
+    private void RecoverWatcher()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        LoadedSolution? loaded;
+        lock (_gate)
+        {
+            loaded = _phase == "ready" ? _loaded : null;
+        }
+
+        if (loaded is null)
+        {
+            return;
+        }
+
+        StartWatcherForLoaded(loaded);
     }
 
     private static string? TryNormalize(string path)
