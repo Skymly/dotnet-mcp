@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.CodeAnalysis;
 using DotNetMcp.Server;
 
@@ -230,21 +231,13 @@ public class WorkspaceEditSeamTests
             var second = Task.Run(() => edits.Apply(previewId, WorkspaceEditKind.RefactoringPreview));
             var outcomes = await Task.WhenAll(first, second);
             var successes = outcomes.Count(static o => !o.Failed);
-            Assert.True(successes <= 1);
-            Assert.True(writer.Writes.Count <= 1);
-            Assert.True(writer.WriteCalls <= 1);
-            if (successes == 1)
-            {
-                Assert.Single(writer.Writes);
-                Assert.Equal(2, outcomes.Single(static o => !o.Failed).Value!.Epoch);
-                Assert.Equal(
-                    PolicyErrorCodes.PreviewNotFound,
-                    outcomes.Single(static o => o.Failed).Error!.Error);
-            }
-            else
-            {
-                Assert.Empty(writer.Writes);
-            }
+            Assert.Equal(1, successes);
+            Assert.Single(writer.Writes);
+            Assert.Equal(1, writer.WriteCalls);
+            Assert.Equal(2, outcomes.Single(static o => !o.Failed).Value!.Epoch);
+            Assert.Equal(
+                PolicyErrorCodes.PreviewNotFound,
+                outcomes.Single(static o => o.Failed).Error!.Error);
         }
         finally
         {
@@ -302,20 +295,12 @@ public class WorkspaceEditSeamTests
                 [new WorkspaceEditDocument(path, old, old + "//B")]));
             var outcomes = await Task.WhenAll(first, second);
             var successes = outcomes.Where(static o => !o.Failed).ToArray();
-            Assert.True(successes.Length <= 1);
+            Assert.Single(successes);
             var disk = await File.ReadAllTextAsync(path);
-            if (successes.Length == 1)
-            {
-                Assert.True(
-                    disk.Contains("//A", StringComparison.Ordinal) ||
-                    disk.Contains("//B", StringComparison.Ordinal),
-                    disk);
-                Assert.False(successes[0].Failed);
-            }
-            else
-            {
-                Assert.Equal(old.Replace("\r\n", "\n"), disk.Replace("\r\n", "\n"));
-            }
+            Assert.True(
+                disk.Contains("//A", StringComparison.Ordinal) ||
+                disk.Contains("//B", StringComparison.Ordinal),
+                disk);
         }
         finally
         {
@@ -347,16 +332,10 @@ public class WorkspaceEditSeamTests
             var apply = await applyTask;
             await driftTask;
 
+            Assert.False(apply.Failed, apply.Error?.Message);
             var disk = (await File.ReadAllTextAsync(path)).Replace("\r\n", "\n");
-            if (!apply.Failed)
-            {
-                Assert.Contains("//NEW", disk, StringComparison.Ordinal);
-                Assert.True(fx.WorkspaceHost.CurrentEpoch >= apply.Value);
-            }
-            else
-            {
-                Assert.DoesNotContain("//NEW", disk, StringComparison.Ordinal);
-            }
+            Assert.Contains("//NEW", disk, StringComparison.Ordinal);
+            Assert.True(fx.WorkspaceHost.CurrentEpoch >= apply.Value);
         }
         finally
         {
@@ -493,6 +472,81 @@ public class WorkspaceEditSeamTests
         }
     }
 
+    [Fact]
+    public async Task mid_apply_io_failure_rolls_first_file_back_including_bom_and_preview_retries()
+    {
+        var root = CreateTempDir();
+        var projectDir = Path.Combine(root, "lib");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithRenameOnDisk(projectDir),
+                new WorkspaceHostOptions
+                {
+                    Debounce = TimeSpan.Zero,
+                    FileWatcher = new ManualWorkspaceFileWatcher()
+                });
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var widget = Path.Combine(projectDir, "Widget.cs");
+            var caller = Path.Combine(projectDir, "Caller.cs");
+            var widgetText = await File.ReadAllTextAsync(widget);
+            var callerText = await File.ReadAllTextAsync(caller);
+            await File.WriteAllTextAsync(widget, widgetText, encoding);
+            await File.WriteAllTextAsync(caller, callerText, encoding);
+            var widgetBytes = await File.ReadAllBytesAsync(widget);
+            var callerBytes = await File.ReadAllBytesAsync(caller);
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, widgetBytes[..3]);
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, callerBytes[..3]);
+
+            var edits = new WorkspaceEdit(
+                fx.WorkspaceHost,
+                TrustedRoots.Create([root]),
+                TimeProvider.System,
+                TimeSpan.FromMinutes(5));
+            var preview = edits.Preview(new WorkspaceEditDraft(
+                WorkspaceEditKind.RefactoringPreview,
+                [
+                    new WorkspaceEditDocument(widget, widgetText, widgetText + "//A"),
+                    new WorkspaceEditDocument(caller, callerText, callerText + "//B")
+                ],
+                []));
+            Assert.False(preview.Failed, preview.Error?.Message);
+            var previewId = preview.Value!.PreviewId;
+
+            File.SetAttributes(caller, File.GetAttributes(caller) | FileAttributes.ReadOnly);
+            try
+            {
+                var failed = edits.Apply(previewId, WorkspaceEditKind.RefactoringPreview);
+                Assert.True(failed.Failed);
+                Assert.Equal(PolicyErrorCodes.RefactoringApplyFailed, failed.Error!.Error);
+                Assert.Equal(widgetBytes, await File.ReadAllBytesAsync(widget));
+                Assert.Equal(callerBytes, await File.ReadAllBytesAsync(caller));
+            }
+            finally
+            {
+                File.SetAttributes(caller, File.GetAttributes(caller) & ~FileAttributes.ReadOnly);
+            }
+
+            var retried = edits.Apply(previewId, WorkspaceEditKind.RefactoringPreview);
+            Assert.False(retried.Failed, retried.Error?.Message);
+            var widgetAfter = await File.ReadAllBytesAsync(widget);
+            var callerAfter = await File.ReadAllBytesAsync(caller);
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, widgetAfter[..3]);
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, callerAfter[..3]);
+            Assert.Contains("//A", encoding.GetString(widgetAfter), StringComparison.Ordinal);
+            Assert.Contains("//B", encoding.GetString(callerAfter), StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
     private static string CreateTempDir()
     {
         var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-we-" + Guid.NewGuid().ToString("N"));
