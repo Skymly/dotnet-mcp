@@ -29,7 +29,6 @@ internal sealed class BenchOptionsSnapshot
     public required int Warmup { get; init; }
     public string? Filter { get; init; }
     public required bool Cold { get; init; }
-    public required bool AllowWrites { get; init; }
     public string? SolutionPath { get; init; }
     public string? SymbolName { get; init; }
     public int? SyntheticProjects { get; init; }

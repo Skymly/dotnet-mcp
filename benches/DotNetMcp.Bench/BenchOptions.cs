@@ -10,7 +10,6 @@ internal sealed class BenchOptions
     public string? Filter { get; init; }
     public string OutDir { get; init; } = "";
     public bool Cold { get; init; }
-    public bool AllowWrites { get; init; }
     public bool NoGates { get; init; }
     public bool JsonOnly { get; init; }
     public string? SolutionPath { get; init; }
@@ -27,7 +26,6 @@ internal sealed class BenchOptions
         string? filter = null;
         var outDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "data"));
         var cold = false;
-        var allowWrites = false;
         var noGates = false;
         var jsonOnly = false;
         string? solution = Environment.GetEnvironmentVariable("DOTNET_MCP_BENCH_SOLUTION");
@@ -75,9 +73,6 @@ internal sealed class BenchOptions
                 case "--cold":
                     cold = true;
                     break;
-                case "--allow-writes":
-                    allowWrites = true;
-                    break;
                 case "--no-gates":
                     noGates = true;
                     break;
@@ -107,7 +102,6 @@ internal sealed class BenchOptions
             Filter = filter,
             OutDir = outDir,
             Cold = cold,
-            AllowWrites = allowWrites,
             NoGates = noGates,
             JsonOnly = jsonOnly,
             SolutionPath = solution,
@@ -137,7 +131,6 @@ internal sealed class BenchOptions
           --files <n>               Files per synthetic project (default 8)
           --ready-timeout-s <n>     workspace_status poll budget (default 180)
           --cold                    Delete bin/obj under the workspace root first
-          --allow-writes            Also measure apply_* Workspace Edit
           --no-gates                Do not fail the process on budget gates
           --json-only               Suppress console table
           --help
