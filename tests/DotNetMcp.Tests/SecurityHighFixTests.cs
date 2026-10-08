@@ -214,9 +214,10 @@ public class SecurityHighFixTests
         {
             var trusted = TrustedRoots.Create([root]);
             var loader = new MsBuildSolutionLoader(trusted);
-            var ex = Assert.ThrowsAny<InvalidOperationException>(
+            var ex = Assert.Throws<LoadedGraphOutsideTrustedRootsException>(
                 () => loader.OpenAsync(slnf).GetAwaiter().GetResult());
-            Assert.Contains("trusted roots", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.StartsWith(".slnf:", ex.Message, StringComparison.Ordinal);
+            Assert.False(Directory.Exists(Path.Combine(outside, "obj")), ex.Message);
         }
         finally
         {
@@ -309,6 +310,65 @@ public class SecurityHighFixTests
 
             Assert.True(outcome.Failed);
             Assert.Equal(PolicyErrorCodes.PathOutsideTrustedRoots, outcome.Error!.Error);
+            Assert.Equal("old", File.ReadAllText(outsideFile));
+        }
+        finally
+        {
+            await host.DisposeAsync();
+            TryDelete(root);
+            TryDelete(outside);
+        }
+    }
+
+    [Fact]
+    public async Task apply_final_path_gate_rejects_retarget_after_initial_trust_check()
+    {
+        var root = CreateTempDir("root");
+        var outside = CreateTempDir("outside");
+        var insideFile = Path.Combine(root, "Widget.cs");
+        File.WriteAllText(insideFile, "old");
+        var outsideFile = Path.Combine(outside, "Widget.cs");
+        File.WriteAllText(outsideFile, "old");
+
+        var workspace = new AdhocWorkspace();
+        var project = workspace.AddProject("Lib", LanguageNames.CSharp);
+        var widgetId = DocumentId.CreateNewId(project.Id);
+        workspace.TryApplyChanges(
+            workspace.CurrentSolution.AddDocument(
+                DocumentInfo.Create(
+                    widgetId,
+                    "Widget.cs",
+                    loader: TextLoader.From(TextAndVersion.Create(SourceText.From("old"), VersionStamp.Create())),
+                    filePath: insideFile)));
+        var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, []);
+
+        var host = new WorkspaceHost(
+            new FixedSolutionLoader(loaded),
+            new WorkspaceHostOptions
+            {
+                Debounce = TimeSpan.Zero,
+                FileWatcher = new ManualWorkspaceFileWatcher(),
+                BeforeApplyFinalPathGate = () =>
+                {
+                    File.Delete(insideFile);
+                    File.CreateSymbolicLink(insideFile, outsideFile);
+                }
+            },
+            TrustedRoots.Create([root]));
+
+        try
+        {
+            host.BeginOpen(Path.Combine(root, "Lib.csproj"));
+            WaitReady(host);
+
+            var outcome = host.WriteDeclaredPaths(
+                [new WorkspaceEditDocument(insideFile, "old", "NEW")]);
+
+            Assert.True(outcome.Failed);
+            Assert.Equal(PolicyErrorCodes.PathOutsideTrustedRoots, outcome.Error!.Error);
+            Assert.Equal(
+                "A preview document resolves outside trusted roots; nothing was written.",
+                outcome.Error.Message);
             Assert.Equal("old", File.ReadAllText(outsideFile));
         }
         finally

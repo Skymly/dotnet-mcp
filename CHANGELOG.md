@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: apply's final path gate and the .slnf pre-open check each fail if that gate is removed (`#336`)
 - Tests: MCP tool annotations now lock Destructive and Idempotent for every tool, not only ReadOnly and OpenWorld (`#334`)
 - F# diagnostics name an unbuilt project-reference output instead of leaving only FS0039 (`#330`)
 - F# conditional compilation uses MSBuild-evaluated DefineConstants, so SDK DEBUG is visible and unevaluated $(...) tokens are not passed through (`#328`)

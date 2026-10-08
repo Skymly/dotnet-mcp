@@ -293,6 +293,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                     "Call the matching preview tool again on the current snapshot.");
             }
 
+            _options.BeforeApplyFinalPathGate?.Invoke();
+
             string finalPath;
             try
             {
