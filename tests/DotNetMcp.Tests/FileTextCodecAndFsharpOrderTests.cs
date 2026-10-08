@@ -151,3 +151,39 @@ public class FSharpCompileOrderTests
         try { Directory.Delete(dir, true); } catch { }
     }
 }
+
+public class FSharpMetadataReferenceCaptureTests
+{
+    [Fact]
+    public void capture_copies_existing_metadata_reference_into_snapshot()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-fsref-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var dll = Path.Combine(dir, "Pack.dll");
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "DotNetMcp.Core.dll"), dll);
+        try
+        {
+            var workspace = new AdhocWorkspace();
+            var projectId = ProjectId.CreateNewId();
+            var project = ProjectInfo.Create(
+                    projectId,
+                    VersionStamp.Create(),
+                    "Lib",
+                    "Lib",
+                    LanguageNames.FSharp,
+                    filePath: Path.Combine(dir, "Lib.fsproj"))
+                .WithMetadataReferences([MetadataReference.CreateFromFile(dll)]);
+            Assert.True(workspace.TryApplyChanges(workspace.CurrentSolution.AddProject(project)));
+            var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+            var snapshot = WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch: 1, TrustedRoots.Create([dir]));
+            var captured = Assert.Single(snapshot.Projects);
+            Assert.Contains(
+                captured.References,
+                path => string.Equals(path, Path.GetFullPath(dll), StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+}
