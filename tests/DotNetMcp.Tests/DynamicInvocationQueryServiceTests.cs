@@ -1,4 +1,5 @@
 using DotNetMcp.Core;
+using DotNetMcp.FSharp;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
@@ -33,14 +34,26 @@ public class DynamicInvocationQueryServiceTests
     }
 
     [Fact]
-    public async Task list_async_fsharp_project_is_project_not_found()
+    public async Task list_async_existing_fsharp_project_is_not_project_not_found()
     {
         var workspace = new AdhocWorkspace();
         workspace.AddProject("FsLib", LanguageNames.FSharp);
         using var session = new FakeSession(workspace.CurrentSolution);
         var projectId = workspace.CurrentSolution.Projects.Single().Id.Id.ToString("D");
-        var (_, error) = await new DynamicInvocationQueryService().ListAsync(session, projectId);
-        Assert.IsType<ProjectNotFoundError>(error);
+        var service = new DynamicInvocationQueryService();
+        var (_, error) = await service.ListAsync(session, projectId);
+        Assert.IsType<DynamicInvocationLanguageNotSupportedError>(error);
+        Assert.Equal(SymbolQueryErrorCodes.DynamicInvocationLanguageNotSupported, error!.Code);
+        Assert.False(string.IsNullOrWhiteSpace(error.SuggestedAction));
+        Assert.DoesNotContain("ready workspace", error.Message, StringComparison.OrdinalIgnoreCase);
+
+        var languages = new LanguageAdapters([
+            new RoslynLanguageAdapter(new GeneratorQueryService()),
+            new FSharpSymbolQueryService(),
+        ]);
+        var (_, viaAdapters) = await new DynamicInvocationQueryService(languages: languages).ListAsync(session, projectId);
+        Assert.IsType<DynamicInvocationLanguageNotSupportedError>(viaAdapters);
+        Assert.DoesNotContain("ready workspace", viaAdapters!.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -7,10 +7,12 @@ namespace DotNetMcp.Core;
 public sealed class DynamicInvocationQueryService
 {
     private readonly SoftBudgetOptions _softBudgets;
+    private readonly LanguageAdapters? _languages;
 
-    public DynamicInvocationQueryService(SoftBudgetOptions? softBudgets = null)
+    public DynamicInvocationQueryService(SoftBudgetOptions? softBudgets = null, LanguageAdapters? languages = null)
     {
         _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
+        _languages = languages;
     }
 
     public async Task<(PagedResult<DynamicInvocationItem>? Success, SymbolQueryError? Error)> ListAsync(
@@ -28,14 +30,10 @@ public sealed class DynamicInvocationQueryService
                 "Call workspace_list_projects for valid projectId values, then retry project_list_dynamic_invocations."));
         }
 
-        var project = session.Solution.Projects.FirstOrDefault(p =>
-            RoslynLanguageAdapter.IsSupportedRoslynLanguage(p.Language) &&
-            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        var project = ResolveProject(session, projectId, out var resolveError);
         if (project is null)
         {
-            return (null, new ProjectNotFoundError(
-                $"No C#/VB project with projectId '{projectId}' is in the ready workspace.",
-                "Call workspace_list_projects for valid projectId values, then retry project_list_dynamic_invocations."));
+            return (null, resolveError ?? ProjectMissing(projectId));
         }
 
         var epoch = session.Epoch;
@@ -145,6 +143,53 @@ public sealed class DynamicInvocationQueryService
             scanIncomplete: stoppedEarly);
     }
 
+    private Project? ResolveProject(IWorkspaceSession session, string projectId, out SymbolQueryError? error)
+    {
+        error = null;
+        if (_languages is not null)
+        {
+            var adapter = _languages.ForProjectId(session, projectId);
+            if (adapter is null)
+            {
+                error = ProjectMissing(projectId);
+                return null;
+            }
+
+            if (!adapter.SupportsDynamicInvocations)
+            {
+                error = LanguageNotSupported();
+                return null;
+            }
+        }
+
+        var project = session.Solution.Projects.FirstOrDefault(p =>
+            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        if (project is null)
+        {
+            error = session.FSharpSnapshot.FindProject(projectId) is null
+                ? ProjectMissing(projectId)
+                : LanguageNotSupported();
+            return null;
+        }
+
+        if (!RoslynLanguageAdapter.IsSupportedRoslynLanguage(project.Language))
+        {
+            error = LanguageNotSupported();
+            return null;
+        }
+
+        return project;
+    }
+
+    private static ProjectNotFoundError ProjectMissing(string projectId) =>
+        new(
+            $"No project with projectId '{projectId}' is in the ready workspace.",
+            "Call workspace_list_projects for valid projectId values, then retry project_list_dynamic_invocations.");
+
+    private static DynamicInvocationLanguageNotSupportedError LanguageNotSupported() =>
+        new(
+            "Dynamic invocation queries are not available for this language.",
+            "Call project_list_dynamic_invocations on a C# or VB project.");
     private static DynamicInvocationItem ToItem(
         string kind,
         string? path,

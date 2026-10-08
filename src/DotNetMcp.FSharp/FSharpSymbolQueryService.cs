@@ -35,6 +35,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
     public bool SupportsSourceGenerators => false;
 
+    public bool SupportsDynamicInvocations => false;
+
     public FSharpSymbolQueryService(SoftBudgetOptions? softBudgets = null)
     {
         _softBudgets = softBudgets ?? SoftBudgetOptions.Default;

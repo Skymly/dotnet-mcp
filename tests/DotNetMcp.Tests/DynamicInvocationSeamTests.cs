@@ -37,6 +37,41 @@ public class DynamicInvocationSeamTests
     }
 
     [Fact]
+    public async Task project_list_dynamic_invocations_existing_fsharp_project_is_language_not_supported()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithFsharpAndCSharp());
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var listed = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            Assert.True(listed.IsError is not true, InProcessMcpFixture.TextOf(listed));
+            var fsharp = Assert.Single(
+                InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(listed).Projects,
+                p => p.Name.Contains("FsLib", StringComparison.OrdinalIgnoreCase));
+
+            var result = await fx.Client.CallToolAsync(
+                "project_list_dynamic_invocations",
+                new Dictionary<string, object?> { ["projectId"] = fsharp.ProjectId });
+            Assert.True(result.IsError is true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(result);
+            Assert.Equal(PolicyErrorCodes.DynamicInvocationLanguageNotSupported, body.Error);
+            Assert.NotEqual(PolicyErrorCodes.ProjectNotFound, body.Error);
+            Assert.DoesNotContain("ready workspace", body.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(string.IsNullOrWhiteSpace(body.SuggestedAction));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task tool_surface_includes_dynamic_invocations()
     {
         await using var fx = new InProcessMcpFixture();

@@ -23,6 +23,9 @@ public sealed record GeneratorNotFoundError(string Message, string SuggestedActi
 public sealed record GeneratorLanguageNotSupportedError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.GeneratorLanguageNotSupported, Message, SuggestedAction);
 
+public sealed record DynamicInvocationLanguageNotSupportedError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.DynamicInvocationLanguageNotSupported, Message, SuggestedAction);
+
 public sealed record GeneratorAttributionAmbiguousError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.GeneratorAttributionAmbiguous, Message, SuggestedAction);
 

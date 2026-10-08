@@ -291,6 +291,8 @@ public class CodeRefactoringServiceTests
 
         public bool SupportsSourceGenerators => false;
 
+        public bool SupportsDynamicInvocations => false;
+
         public Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
             IWorkspaceSession session, string name, string? projectId = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

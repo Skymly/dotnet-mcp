@@ -18,6 +18,8 @@ public interface ILanguageAdapter
 
     bool SupportsSourceGenerators { get; }
 
+    bool SupportsDynamicInvocations { get; }
+
     Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
         IWorkspaceSession session,
         string name,

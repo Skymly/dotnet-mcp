@@ -45,6 +45,8 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
     public bool SupportsSourceGenerators => true;
 
+    public bool SupportsDynamicInvocations => true;
+
     public async Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(
         IWorkspaceSession session,
         string name,
