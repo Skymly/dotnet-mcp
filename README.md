@@ -88,7 +88,7 @@ Typical agent loop: `workspace_open` (returns immediately) → poll `workspace_s
 
 1. **Trusted roots** — every path is canonicalized (including parent reparse points). Unresolvable links fail closed. Loaded project graphs and apply-paths are re-checked. Configure `--roots` or `DOTNET_MCP_TRUSTED_ROOTS`.
 2. **Open means execute** — loading a solution runs MSBuild and referenced analyzers / source generators. Do not point this server at untrusted trees. `.slnf` project entries are checked before MSBuild opens them; `.sln` / `.slnx` / single-project graphs are checked after load, so an out-of-root `ProjectReference` is evaluated before it is rejected.
-3. **Default read + named writes** — only rename / diagnostic fix / refactoring preview-apply. No generic write, command, or network tools.
+3. **Default read + named writes** — only rename / diagnostic fix / refactoring preview-apply. No generic write, command, or network tools. Apply refuses, and does not write, a document that has no BOM and is not valid UTF-8 (`SourceEncodingRefused`).
 4. **Audit** — local process logs (stderr under stdio). Tool name and path metadata only; no source text; no telemetry. Disable with `DOTNET_MCP_AUDIT=0`.
 
 See [ADR-0004](docs/adr/0004-security-and-path-policy.md).

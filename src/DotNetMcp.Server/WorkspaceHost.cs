@@ -267,7 +267,14 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             Encoding encoding;
             try
             {
-                (diskText, encoding) = FileTextCodec.Read(document.Path);
+                var raw = File.ReadAllBytes(document.Path);
+                if (!FileTextCodec.TryReadLossless(raw, out diskText, out encoding))
+                {
+                    return FailWrite(
+                        PolicyErrorCodes.SourceEncodingRefused,
+                        "A preview document has no BOM and is not valid UTF-8; nothing was written.",
+                        "Save the file as UTF-8, or as UTF-8 or UTF-16 with a BOM, then preview again.");
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
