@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: F# adapter source is scanned recursively for Roslyn solution access, including aliases, and a real fsproj open keeps the F# snapshot on the session epoch (`#348`)
 - Tests: F# compile order is the fsproj Include order, not directory enumeration, and the reverse order fails FCS with FS0039 (`#346`)
 - Tests: a mid-apply IO failure rolls the first file back byte-for-byte, including its BOM, and concurrent apply must succeed exactly once (`#344`)
 - Tests: project Fix all budget reads DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS and falls back when the value is invalid (`#342`)
@@ -57,6 +58,7 @@ Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended 
 
 ### Fixed
 
+- Tests: F# adapter source is scanned recursively for Roslyn solution access, including aliases, and a real fsproj open keeps the F# snapshot on the session epoch (`#348`)
 - Tests: F# compile order is the fsproj Include order, not directory enumeration, and the reverse order fails FCS with FS0039 (`#346`)
 - Tests: a mid-apply IO failure rolls the first file back byte-for-byte, including its BOM, and concurrent apply must succeed exactly once (`#344`)
 - Tests: project Fix all budget reads DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS and falls back when the value is invalid (`#342`)
