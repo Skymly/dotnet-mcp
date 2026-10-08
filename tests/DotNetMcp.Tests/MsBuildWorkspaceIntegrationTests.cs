@@ -198,6 +198,10 @@ public class MsBuildWorkspaceIntegrationTests
         Assert.Contains(body.Projects, p =>
             p.Name.Contains("FsLib", StringComparison.OrdinalIgnoreCase) && p.Language == "fsharp");
         Assert.All(body.Projects, p => Assert.Equal("fsharp", p.Language));
+        Assert.True(fx.WorkspaceHost.TryGetReadySession(out var session));
+        Assert.Equal(fx.WorkspaceHost.CurrentEpoch, session!.Epoch);
+        Assert.Equal(session.Epoch, session.FSharpSnapshot.Epoch);
+        Assert.NotEmpty(session.FSharpSnapshot.Projects);
     }
 
     [Fact]
