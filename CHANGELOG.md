@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- FileSystemWorkspaceWatcher serializes start and stop so an overlapping stop cannot leave an active watcher (`#368`)
 - Identical document text no longer counts as a workspace change or advances the epoch (`#366`)
 - Tests: drop the unused coverlet.collector reference (`#364`)
 - Bench scenario PeakWorkingSetMiB is the peak sampled during that scenario, not the process lifetime (`#362`)
