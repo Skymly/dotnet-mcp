@@ -218,6 +218,42 @@ public class XamlDocumentServiceTests
     }
 
     [Fact]
+    public async Task get_diagnostics_budget_hit_before_scan_completes_is_truncated_not_complete()
+    {
+        const string axaml = """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:SampleApp"
+                    x:Class="SampleApp.MainWindow">
+                <local:MissingA />
+                <local:MissingB />
+            </Window>
+            """;
+        using var workspace = AvaloniaWorkspace(axaml);
+        using var session = new FakeSession(workspace);
+        var service = Service();
+
+        var (full, fullXamlError, fullSymbolError) = await service.GetDiagnosticsAsync(
+            session, AxamlPath, softBudget: TimeSpan.FromSeconds(30));
+        Assert.Null(fullXamlError);
+        Assert.Null(fullSymbolError);
+        Assert.NotNull(full);
+        Assert.True(full!.Items.Count >= 2, full.Message);
+
+        var (page, xamlError, symbolError) = await service.GetDiagnosticsAsync(
+            session, AxamlPath, softBudget: TimeSpan.FromTicks(1));
+        Assert.Null(xamlError);
+        Assert.Null(symbolError);
+        Assert.NotNull(page);
+        Assert.True(page!.Truncated, page.Message);
+        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
+        Assert.DoesNotContain("complete", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("No semantic", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(page.Items.Count < full.Items.Count);
+    }
+
+    [Fact]
     public async Task get_diagnostics_returns_a_page()
     {
         using var workspace = AvaloniaWorkspace(AvaloniaWindowWithBinding());
