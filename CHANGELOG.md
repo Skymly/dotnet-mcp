@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- symbol_find_references and symbol_find_callers return CompilationUnavailable when a generated location cannot be reconciled, instead of labeling it Handwritten (`#385`)
 - symbol_attribution on an F# handle returns GeneratorLanguageNotSupported instead of a synthetic Handwritten success (`#381`)
 - F# snapshot capture prefers handwritten expanded documents over a raw Compile Include list (`#379`)
 - A lost file watcher is restarted once, and workspace_status reports watcher as ok, lost, or off (`#377`)

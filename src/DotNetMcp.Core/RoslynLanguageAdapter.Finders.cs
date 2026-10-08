@@ -358,19 +358,26 @@ public sealed partial class RoslynLanguageAdapter
 
         if (!fromCache)
         {
-            var scan = await FinderDocumentScan.ScanAsync(
-                    documents,
-                    docIndex,
-                    budget,
-                    findAligned,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            byDocument = scan.ByDocument;
-            truncatedByBudget = scan.TruncatedByBudget;
-            scannedThrough = scan.ScannedThrough;
-            if (!truncatedByBudget && docIndex == 0 && locOffset == 0)
+            try
             {
-                cache?.FindHits.SetByDocument(session.Epoch, handle, scopeKey, scan.ByDocument);
+                var scan = await FinderDocumentScan.ScanAsync(
+                        documents,
+                        docIndex,
+                        budget,
+                        findAligned,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                byDocument = scan.ByDocument;
+                truncatedByBudget = scan.TruncatedByBudget;
+                scannedThrough = scan.ScannedThrough;
+                if (!truncatedByBudget && docIndex == 0 && locOffset == 0)
+                {
+                    cache?.FindHits.SetByDocument(session.Epoch, handle, scopeKey, scan.ByDocument);
+                }
+            }
+            catch (UnreconciledGeneratedLocationException ex)
+            {
+                return (null, ex.Error);
             }
         }
 
@@ -461,12 +468,7 @@ public sealed partial class RoslynLanguageAdapter
                     .ConfigureAwait(false);
                 if (error is not null)
                 {
-                    mapped = new SymbolLocation(
-                        mapped?.DeclarationAvailability ?? DeclarationAvailability.InSource,
-                        SymbolOrigin.Handwritten,
-                        location.IsInSource ? location.SourceTree?.FilePath : null,
-                        location.IsInSource ? location.SourceSpan.Start : null,
-                        location.IsInSource ? location.SourceSpan.Length : null);
+                    throw new UnreconciledGeneratedLocationException(error);
                 }
 
                 if (mapped is null ||
@@ -567,14 +569,8 @@ public sealed partial class RoslynLanguageAdapter
             .ConfigureAwait(false);
         if (error is not null)
         {
-            // Soft-fail individual refs on driver failure: treat as handwritten span rather than
-            // aborting the whole find-refs page. Attribution/goto paths surface the error instead.
-            mapped = new SymbolLocation(
-                mapped?.DeclarationAvailability ?? DeclarationAvailability.InSource,
-                SymbolOrigin.Handwritten,
-                location.IsInSource ? location.SourceTree?.FilePath : null,
-                location.IsInSource ? location.SourceSpan.Start : null,
-                location.IsInSource ? location.SourceSpan.Length : null);
+            // Generated locations that cannot be reconciled must not be reported as Handwritten.
+            throw new UnreconciledGeneratedLocationException(error);
         }
 
         if (mapped is null ||
@@ -591,6 +587,16 @@ public sealed partial class RoslynLanguageAdapter
             mapped.Length,
             document.Project.Id.Id.ToString("D"),
             kind);
+    }
+
+    private sealed class UnreconciledGeneratedLocationException : Exception
+    {
+        public UnreconciledGeneratedLocationException(SymbolQueryError error)
+        {
+            Error = error;
+        }
+
+        public SymbolQueryError Error { get; }
     }
 
 }
