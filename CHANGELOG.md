@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Apply refuses a no-BOM source file that is not valid UTF-8 instead of rewriting it with replacement characters (`#319`)
 - `global.json` pins the .NET 10 feature band with `rollForward: latestFeature`; CI keeps floating 8/9 for fixtures and does not commit a restore lock (`#300`)
 - Failed/idle query tools no longer tell the agent to wait until load completes (`#302`)
 - Tests: graph-gate seam uses on-disk escaped documents; P0 exit-gate asserts payloads; XAML Zero budget is not labeled partial (`#301`)

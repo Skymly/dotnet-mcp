@@ -32,6 +32,29 @@ public class FileTextCodecTests
             try { Directory.Delete(dir, true); } catch { }
         }
     }
+
+    [Fact]
+    public void utf8_without_bom_roundtrip_is_lossless()
+    {
+        var bytes = Encoding.UTF8.GetBytes("class C { int X() => 1; }\n");
+        Assert.True(FileTextCodec.TryReadLossless(bytes, out var text, out var encoding));
+        Assert.Equal("class C { int X() => 1; }\n", text);
+        Assert.Empty(encoding.GetPreamble());
+    }
+
+    [Fact]
+    public void utf8_bom_is_lossless_and_latin1_byte_is_not()
+    {
+        var bom = new byte[] { 0xEF, 0xBB, 0xBF }.Concat(Encoding.UTF8.GetBytes("hello")).ToArray();
+        Assert.True(FileTextCodec.TryReadLossless(bom, out var text, out var encoding));
+        Assert.Equal("hello", text);
+        Assert.NotEmpty(encoding.GetPreamble());
+        Assert.False(FileTextCodec.TryReadLossless(new byte[] { 0xE9 }, out _, out _));
+        var utf16 = Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes("hello")).ToArray();
+        Assert.True(FileTextCodec.TryReadLossless(utf16, out var utf16Text, out var utf16Encoding));
+        Assert.Equal("hello", utf16Text);
+        Assert.Equal(0xFF, utf16Encoding.GetPreamble()[0]);
+    }
 }
 
 public class FSharpCompileOrderTests

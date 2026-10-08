@@ -113,7 +113,7 @@ public sealed class SymbolRefactoringTools
     [McpServerTool(Name = "symbol_apply_refactoring", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false), Description(
         "Apply a still-valid Code Refactoring preview. Writes only the documents listed in that preview, " +
         "all of which must already exist inside a trusted root. Uses WriteSuppression and advances Epoch. " +
-        "There is no apply path that skips preview. Not a generic write / patch / shell tool.")]
+        "There is no apply path that skips preview. Refuses with SourceEncodingRefused, and writes nothing, when a listed document has no BOM and is not valid UTF-8. Not a generic write / patch / shell tool.")]
     public Task<CallToolResult> SymbolApplyRefactoring(
         [Description("previewId from symbol_preview_refactoring (current Epoch, unexpired).")]
         string previewId,

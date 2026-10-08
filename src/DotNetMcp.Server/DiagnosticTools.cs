@@ -161,7 +161,7 @@ public sealed class DiagnosticTools
     [McpServerTool(Name = "diagnostics_apply_fix", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false), Description(
         "Apply a still-valid Diagnostic fix preview. Writes only the documents listed in that preview, " +
         "all of which must already exist inside a trusted root. Uses WriteSuppression and advances Epoch. " +
-        "There is no apply path that skips preview. Not a generic write / patch / shell tool.")]
+        "There is no apply path that skips preview. Refuses with SourceEncodingRefused, and writes nothing, when a listed document has no BOM and is not valid UTF-8. Not a generic write / patch / shell tool.")]
     public Task<CallToolResult> DiagnosticsApplyFix(
         [Description("previewId from diagnostics_preview_fix (current Epoch, unexpired).")]
         string previewId,
