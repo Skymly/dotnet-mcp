@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- F# diagnostics name an unbuilt project-reference output instead of leaving only FS0039 (`#330`)
 - F# conditional compilation uses MSBuild-evaluated DefineConstants, so SDK DEBUG is visible and unevaluated $(...) tokens are not passed through (`#328`)
 - Dynamic invocation queries on an F# project return DynamicInvocationLanguageNotSupported instead of claiming the project is missing (`#326`)
 - Generator queries on an F# project return GeneratorLanguageNotSupported instead of claiming the project is missing (`#324`)

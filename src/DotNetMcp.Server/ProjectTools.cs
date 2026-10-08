@@ -35,7 +35,7 @@ public sealed class ProjectTools
         "List compile errors and warnings for a projectId with forced pagination. " +
         "Soft time budget may truncate with nextCursor (do not restart from scratch). " +
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
-        "Cursors bind to the workspace epoch.")]
+        "Cursors bind to the workspace epoch. An unbuilt F# project reference adds DependencyOutputNotBuilt and missingDependencyOutputs instead of only FS0039.")]
     public async Task<CallToolResult> ProjectDiagnostics(
         [Description("Optional Roslyn projectId. Omit to page diagnostics across projects using the batch soft budget.")]
         string? projectId = null,
@@ -68,7 +68,17 @@ public sealed class ProjectTools
             return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
-        return McpToolEnvelope.OkResult(ToDto(success!));
+        var dto = ToDto(success!);
+        if (!string.IsNullOrWhiteSpace(projectId))
+        {
+            var missing = session!.FSharpSnapshot.FindProject(projectId)?.MissingDependencyOutputs;
+            if (missing is { Count: > 0 })
+            {
+                dto = dto with { MissingDependencyOutputs = missing };
+            }
+        }
+
+        return McpToolEnvelope.OkResult(dto);
     }
 
     [McpServerTool(Name = "project_list_generators", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(

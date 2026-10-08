@@ -58,6 +58,19 @@ public sealed partial class FSharpSymbolQueryService
             .ThenBy(d => d.StartCharacter ?? -1)
             .ThenBy(d => d.Message, StringComparer.Ordinal)
             .ToList();
+        foreach (var name in project.MissingDependencyOutputs)
+        {
+            items.Add(new DiagnosticItem(
+                Id: "DependencyOutputNotBuilt",
+                Severity: "Warning",
+                Message: $"Dependency output was not built for {name}. FS0039 diagnostics may be false until that project is built.",
+                FilePath: project.FilePath,
+                StartLine: null,
+                StartCharacter: null,
+                EndLine: null,
+                EndCharacter: null,
+                ProjectId: projectId));
+        }
 
         return SoftBudgetPage.Page(
             items,
