@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 namespace DotNetMcp.Tests;
 
 public class PackageIdentitySeamTests
@@ -49,6 +50,47 @@ public class PackageIdentitySeamTests
         Assert.Contains("server.json", error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void version_gate_evaluates_repo_changelog_on_disk()
+    {
+        var root = FindRepoRoot();
+        var csproj = File.ReadAllText(Path.Combine(root, "src", "DotNetMcp.Server", "DotNetMcp.Server.csproj"));
+        var serverJson = File.ReadAllText(Path.Combine(root, "src", "DotNetMcp.Server", ".mcp", "server.json"));
+        var changelog = File.ReadAllText(Path.Combine(root, "CHANGELOG.md"));
+
+        Assert.Null(PackageIdentityGate.Evaluate(csproj, serverJson, changelog));
+
+        var version = Regex.Match(csproj, @"<Version>([^<]+)</Version>").Groups[1].Value;
+        var released = Regex.Match(changelog, @"^## (\d+\.\d+\.\d+)\b", RegexOptions.Multiline);
+        Assert.True(released.Success);
+        Assert.NotEqual(version, released.Groups[1].Value);
+        var stuck = Regex.Replace(
+            changelog,
+            @"^## \d+\.\d+\.\d+\b",
+            "## " + version,
+            RegexOptions.Multiline);
+        var error = PackageIdentityGate.Evaluate(csproj, serverJson, stuck);
+        Assert.NotNull(error);
+        Assert.Contains("Unreleased", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FindRepoRoot()
+    {
+        var candidates = new[]
+        {
+            Environment.CurrentDirectory,
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..")),
+        };
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(Path.Combine(candidate, "DotNetMcp.slnx")))
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("Could not locate the repository root from the test host.");
+    }
     private static string Csproj(string version) =>
         $"<Project><PropertyGroup><Version>{version}</Version></PropertyGroup></Project>";
 
