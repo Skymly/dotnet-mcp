@@ -357,9 +357,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
                 foreach (var (document, _, _) in prepared)
                 {
-                    if (!loaded.TryUpdateDocumentFromText(
-                            document.Path,
-                            SourceText.From(document.NewText))
+                    var newText = SourceText.From(document.NewText);
+                    if (!loaded.TryUpdateDocumentFromText(document.Path, newText)
+                        && !loaded.HasMatchingDocumentText(document.Path, newText)
                         && !TryReadFSharpSnapshotText(fsharp, document.Path, out _))
                     {
                         RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: false);

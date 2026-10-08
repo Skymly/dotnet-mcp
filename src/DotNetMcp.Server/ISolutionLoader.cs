@@ -53,8 +53,12 @@ public sealed class LoadedSolution : IAsyncDisposable
 
     public bool TryUpdateDocumentFromText(string fullPath, SourceText text)
     {
-        var normalized = TryNormalize(fullPath);
-        if (normalized is null || !_docsByPath.TryGetValue(normalized, out var documentId))
+        if (!TryGetTrackedText(fullPath, out var documentId, out var current))
+        {
+            return false;
+        }
+
+        if (current.ContentEquals(text))
         {
             return false;
         }
@@ -71,6 +75,35 @@ public sealed class LoadedSolution : IAsyncDisposable
 
         Solution = _workspace.CurrentSolution;
         _docsByPath = BuildIndex(Solution);
+        return true;
+    }
+
+    internal bool HasMatchingDocumentText(string fullPath, SourceText text) =>
+        TryGetTrackedText(fullPath, out _, out var current) && current.ContentEquals(text);
+
+    private bool TryGetTrackedText(string fullPath, out DocumentId documentId, out SourceText text)
+    {
+        documentId = null!;
+        text = null!;
+        var normalized = TryNormalize(fullPath);
+        if (normalized is null || !_docsByPath.TryGetValue(normalized, out documentId!))
+        {
+            return false;
+        }
+
+        var document = (TextDocument?)Solution.GetDocument(documentId)
+            ?? Solution.GetAdditionalDocument(documentId);
+        if (document is null)
+        {
+            return false;
+        }
+
+        if (!document.TryGetText(out var current))
+        {
+            current = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult();
+        }
+
+        text = current;
         return true;
     }
 
