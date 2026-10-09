@@ -1,11 +1,12 @@
 # Changelog
 
-All notable product changes are recorded here. Version numbers match `src/DotNetMcp.Server/DotNetMcp.Server.csproj` and git tags `vMAJOR.MINOR.PATCH`.
+All notable product changes are recorded here. Version numbers match `src/DotNetMcp.Server/DotNetMcp.Server.csproj`. A `vMAJOR.MINOR.PATCH` tag is not guaranteed for every published heading.
 
 ## Unreleased
 
 ### Fixed
 
+- The changelog preface no longer claims every published heading has a matching vMAJOR.MINOR.PATCH tag (`#422`)
 - README no longer calls the process working directory an implicit sandbox; it is not an implicit trusted root (`#420`)
 - ADR-0004 status line lists Amendments 2 and 3, and an appended amendment names the current write surface (`#418`)
 - Audit logs escape control characters in a caller-supplied path and truncate long paths (`#416`)
