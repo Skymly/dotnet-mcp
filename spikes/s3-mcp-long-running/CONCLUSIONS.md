@@ -45,18 +45,21 @@
 
 ### Q4 — 手工模式（ADR-0003 §1）
 
-最终形状（本 spike 工具名可直接映射产品）：
+Spike 工具名可以映射产品的非阻塞行为，但返回字段不是同一形状。产品是单活动工作区，`workspace_open` / `workspace_status` 没有 `jobId`。
 
-| 工具 | 行为 | 返回关键字段 |
-|------|------|----------------|
-| `slow_open` / 产品 `workspace_open` | **立即返回**；后台加载 | `jobId`, `phase` (`queued`/`loading`), `suggestedAction` |
-| `slow_status` / 产品 `workspace_status` | 轮询 | `phase`, `completedUnits`/`totalUnits`, `estimatedRemainingMs`, `suggestedAction`, `error?` |
+| 形状 | 工具 | 行为 | 返回关键字段 |
+|------|------|------|----------------|
+| Spike | `slow_open` | **立即返回**；后台加载 | `jobId`, `phase` (`queued`/`loading`), `suggestedAction` |
+| Spike | `slow_status` | 按 `jobId` 轮询 | `phase`, `completedUnits`/`totalUnits`, `estimatedRemainingMs`, `suggestedAction`, `error?` |
+| 产品 | `workspace_open` | **立即返回**；后台加载 | `phase`, `completedUnits`, `totalUnits`, `elapsedMs`, `estimatedRemainingMs`, `suggestedAction`, `warnings?`, `error?`。不含 `jobId`。 |
+| 产品 | `workspace_status` | 轮询唯一活动工作区 | `phase`, `completedUnits`, `totalUnits`, `elapsedMs`, `estimatedRemainingMs`, `suggestedAction`, `watcher`, `error?`, `errorCode?`。不含 `jobId`。 |
 
-**SuggestedAction 文案（供产品采用；模型是否遵守未经本 spike 会话验证）**：
+**SuggestedAction 文案（spike 实测；不要当成产品字段）**：
 
-- loading：`Call slow_status with this jobId; do not retry slow_open.`
-- ready：`Proceed with query tools.`
-- not_found：`Unknown jobId. Call slow_open to start a new job.`
+- spike loading：`Call slow_status with this jobId; do not retry slow_open.`
+- spike ready：`Proceed with query tools.`
+- spike not_found：`Unknown jobId. Call slow_open to start a new job.`
+- 产品：轮询 `workspace_status`。不要向产品工具传 `jobId`。
 
 实测：`slow_open(1–3s)` 墙钟 ≪ 100ms 返回；轮询至 `ready` 成功（in-process + stdio）。
 
