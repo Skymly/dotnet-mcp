@@ -26,6 +26,16 @@ public class ReadmeInstallSeamTests
     }
 
     [Fact]
+    public void batch_diagnostics_budget_is_not_marked_reserved()
+    {
+        var readme = File.ReadAllText(Path.Combine(FindRepoRoot(), "README.md"));
+        var line = readme.Split('\n').First(l => l.Contains("DOTNET_MCP_BUDGET_BATCH_DIAGNOSTICS_MS", StringComparison.Ordinal));
+        Assert.DoesNotContain("Reserved", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("projectId", line, StringComparison.Ordinal);
+        Assert.Contains("omit", line, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void server_json_does_not_advertise_unpublished_nuget_dnx_package()
     {
         var path = Path.Combine(FindRepoRoot(), "src", "DotNetMcp.Server", ".mcp", "server.json");
