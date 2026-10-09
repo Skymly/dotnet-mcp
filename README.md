@@ -108,7 +108,7 @@ List/scan tools honor a soft time budget ([ADR-0003](docs/adr/0003-long-running-
 | `DOTNET_MCP_BUDGET_SINGLE_PROJECT_MS` | 5000 | Single-project compile (e.g. `project_diagnostics`) |
 | `DOTNET_MCP_BUDGET_FIND_REFS_SCOPED_MS` | 5000 | Scoped find-references |
 | `DOTNET_MCP_BUDGET_FIND_REFS_ENTIRE_MS` | 20000 | Entire-solution find-references |
-| `DOTNET_MCP_BUDGET_BATCH_DIAGNOSTICS_MS` | 15000 | Reserved batch diagnostics |
+| `DOTNET_MCP_BUDGET_BATCH_DIAGNOSTICS_MS` | 15000 | project_diagnostics when projectId is omitted |
 | `DOTNET_MCP_BUDGET_FIXALL_PROJECT_MS` | 15000 | Project Fix all; over budget fails the preview |
 
 Invalid values fall back to the defaults.
