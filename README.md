@@ -86,6 +86,8 @@ Typical agent loop: `workspace_open` (returns immediately) → poll `workspace_s
 
 `diagnostics_list_fixes` and `symbol_list_refactorings` return `epoch`. `fixIndex` and `refactoringIndex` are valid only for that epoch. After it advances, preview fails with `FixListEpochMismatch` or `RefactoringListEpochMismatch` instead of selecting another action.
 
+`project_diagnostics` without `projectId` reports a failed project as `error` plus `suggestedAction`, not as a `Severity=Error` diagnostic. Do not pass that row to `diagnostics_list_fixes`.
+
 ## Security
 
 1. **Trusted roots** — every path is canonicalized (including parent reparse points). Unresolvable links fail closed. Loaded project graphs and apply-paths are re-checked. Configure `--roots` or `DOTNET_MCP_TRUSTED_ROOTS`.

@@ -98,15 +98,17 @@ public sealed class DiagnosticQueryService
                 if (error is not null)
                 {
                     collected.Add(new DiagnosticItem(
-                        error.Code,
-                        "Error",
-                        $"Project '{project.Name}' diagnostics failed: {error.Message}",
-                        project.FilePath,
+                        Id: string.Empty,
+                        Severity: string.Empty,
+                        Message: $"Project '{project.Name}' diagnostics failed: {error.Message}",
+                        FilePath: project.FilePath,
                         StartLine: null,
                         StartCharacter: null,
                         EndLine: null,
                         EndCharacter: null,
-                        projectId));
+                        ProjectId: projectId,
+                        Error: error.Code,
+                        SuggestedAction: error.SuggestedAction));
                     projectFailures.Add(project.Name);
                     break;
                 }
@@ -150,7 +152,7 @@ public sealed class DiagnosticQueryService
             paged = paged with
             {
                 Message = paged.Message +
-                    $" One or more projects failed to produce diagnostics ({failed}); those rows are not a clean project."
+                    $" One or more projects failed ({failed}). Those rows set error and suggestedAction and are not compile diagnostics."
             };
         }
 

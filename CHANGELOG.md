@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- project_diagnostics batch mode reports a failed project as error and suggestedAction, not as a Severity=Error diagnostic (`#408`)
 - diagnostics_preview_fix and symbol_preview_refactoring reject a fixIndex or refactoringIndex listed at an older epoch instead of selecting another action (`#404`)
 - diagnostics_list_fixes says the list is built-in Features providers only, and the response sets IncludesProjectAnalyzers to false (`#401`)
 - XAML diagnostic ranges cover the element or attribute name instead of a zero-width point (`#399`)
