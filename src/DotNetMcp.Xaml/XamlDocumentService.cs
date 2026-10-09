@@ -955,64 +955,32 @@ public sealed class XamlDocumentService
 
                 var prefix = reader.Prefix;
                 var local = reader.LocalName;
-                if (!string.Equals(local, "Window", StringComparison.Ordinal) || prefix.Length > 0)
+                var unprefixedWindow = prefix.Length == 0 &&
+                    string.Equals(local, "Window", StringComparison.Ordinal);
+                var elementType = IsPropertyElementName(local)
+                    ? null
+                    : await ResolveElementTypeAsync(
+                            session, prefix, local, xmlns, projectId, cancellationToken)
+                        .ConfigureAwait(false);
+                if (elementType is null &&
+                    !IsLanguageElement(prefix, local) &&
+                    !IsPropertyElementName(local) &&
+                    !unprefixedWindow)
                 {
-                    var elementType = IsPropertyElementName(local)
-                        ? null
-                        : await ResolveElementTypeAsync(
-                                session, prefix, local, xmlns, projectId, cancellationToken)
-                            .ConfigureAwait(false);
-                    if (elementType is null &&
-                        !IsLanguageElement(prefix, local) &&
-                        !IsPropertyElementName(local))
-                    {
-                        items.Add(Diag("XAML0001", "Error",
-                            $"Unknown element '{FormatName(prefix, local)}' given xmlns.",
-                            path, lineInfo, projectId));
-                    }
-
-                    if (reader.HasAttributes && reader.MoveToFirstAttribute())
-                    {
-                        do
-                        {
-                            if (IsSkippableAttribute(reader.Prefix, reader.LocalName, reader.Name))
-                            {
-                                continue;
-                            }
-
-                            if (LooksLikeBinding(reader.Value) && !string.IsNullOrWhiteSpace(effectiveDataType))
-                            {
-                                var bindingPath = ExtractBindingPath(reader.Value);
-                                if (!string.IsNullOrWhiteSpace(bindingPath))
-                                {
-                                    var (_, bindError, _) = await ResolveBindingWithXmlnsAsync(
-                                            session, root, path, bindingPath, effectiveDataType, xmlns, cancellationToken)
-                                        .ConfigureAwait(false);
-                                    if (bindError is BindingPropertyNotFoundError or BindingTypeMismatchError)
-                                    {
-                                        items.Add(Diag("XAML0003", "Error",
-                                            $"Binding path '{bindingPath}' is invalid: {bindError.Message}",
-                                            path, lineInfo, projectId));
-                                    }
-                                }
-                            }
-
-                            if (elementType is not null &&
-                                !IsAttachedPropertyName(reader.LocalName, reader.Name) &&
-                                !HasPublicMember(elementType, reader.LocalName))
-                            {
-                                items.Add(Diag("XAML0002", "Error",
-                                    $"Unknown property '{reader.LocalName}' on '{elementType.ToDisplayString()}'.",
-                                    path, lineInfo, projectId));
-                            }
-                        } while (reader.MoveToNextAttribute());
-                        reader.MoveToElement();
-                    }
+                    items.Add(Diag("XAML0001", "Error",
+                        $"Unknown element '{FormatName(prefix, local)}' given xmlns.",
+                        path, lineInfo, projectId));
                 }
-                else if (reader.HasAttributes && reader.MoveToFirstAttribute())
+
+                if (reader.HasAttributes && reader.MoveToFirstAttribute())
                 {
                     do
                     {
+                        if (IsSkippableAttribute(reader.Prefix, reader.LocalName, reader.Name))
+                        {
+                            continue;
+                        }
+
                         if (LooksLikeBinding(reader.Value) && !string.IsNullOrWhiteSpace(effectiveDataType))
                         {
                             var bindingPath = ExtractBindingPath(reader.Value);
@@ -1028,6 +996,15 @@ public sealed class XamlDocumentService
                                         path, lineInfo, projectId));
                                 }
                             }
+                        }
+
+                        if (elementType is not null &&
+                            !IsAttachedPropertyName(reader.LocalName, reader.Name) &&
+                            !HasPublicMember(elementType, reader.LocalName))
+                        {
+                            items.Add(Diag("XAML0002", "Error",
+                                $"Unknown property '{reader.LocalName}' on '{elementType.ToDisplayString()}'.",
+                                path, lineInfo, projectId));
                         }
                     } while (reader.MoveToNextAttribute());
                     reader.MoveToElement();

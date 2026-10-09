@@ -358,6 +358,47 @@ public class XamlDocumentServiceTests
     }
 
     [Fact]
+    public async Task resolvable_root_window_unknown_property_is_xaml0002()
+    {
+        const string axaml = """
+            <Window xmlns="clr-namespace:SampleControls"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:Class="SampleApp.MainWindow"
+                    Title="ok"
+                    NotAPropRoot="1">
+                <TextBlock Text="hi" />
+            </Window>
+            """;
+        using var workspace = AvaloniaControlsWorkspace(axaml);
+        using var session = new FakeSession(workspace);
+        var (page, xamlError, symbolError) = await Service().GetDiagnosticsAsync(session, AxamlPath);
+        Assert.Null(xamlError);
+        Assert.Null(symbolError);
+        Assert.NotNull(page);
+        Assert.Contains(page!.Items, i => i.Id == "XAML0002" && i.Message.Contains("NotAPropRoot", StringComparison.Ordinal));
+        Assert.DoesNotContain(page.Items, i => i.Id == "XAML0001" && i.Message.Contains("Window", StringComparison.Ordinal));
+        Assert.DoesNotContain(page.Items, i => i.Id == "XAML0002" && i.Message.Contains("Title", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task unresolved_root_window_is_not_reported_as_unknown_element()
+    {
+        const string axaml = """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:Class="SampleApp.MainWindow"
+                    NotAPropRoot="1" />
+            """;
+        using var workspace = AvaloniaWorkspace(axaml);
+        using var session = new FakeSession(workspace);
+        var (page, xamlError, symbolError) = await Service().GetDiagnosticsAsync(session, AxamlPath);
+        Assert.Null(xamlError);
+        Assert.Null(symbolError);
+        Assert.NotNull(page);
+        Assert.DoesNotContain(page!.Items, i => i.Id == "XAML0001" && i.Message.Contains("Window", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task get_diagnostics_does_not_flag_property_elements_or_attached_properties()
     {
         const string axaml = """
@@ -451,6 +492,11 @@ public class XamlDocumentServiceTests
 
             namespace SampleControls
             {
+                public class Window
+                {
+                    public string Title { get; set; } = "";
+                }
+
                 public class Grid
                 {
                     public RowDefinitions RowDefinitions { get; } = new();
