@@ -77,9 +77,67 @@ public class PathPolicySeamTests
 
             Assert.True(result.IsError is true);
             var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(result);
-            Assert.True(
-                body.Error is PolicyErrorCodes.PathOutsideTrustedRoots or PolicyErrorCodes.InvalidWorkspacePath,
-                body.Error);
+            Assert.Equal(PolicyErrorCodes.InvalidWorkspacePath, body.Error);
+            Assert.Contains("empty", body.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("--roots", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Add the directory", body.SuggestedAction, StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task xaml_tools_reject_blank_path_without_suggesting_a_new_root(string path)
+    {
+        var root = CreateTempDir("root");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+            foreach (var tool in new[]
+            {
+                "xaml_resolve_class",
+                "xaml_list_xmlns",
+                "xaml_resolve_name",
+                "xaml_resolve_binding",
+                "xaml_diagnostics",
+            })
+            {
+                var args = new Dictionary<string, object?> { ["path"] = path, ["name"] = "Title", ["bindingPath"] = "Name" };
+                var result = await fx.Client.CallToolAsync(tool, args);
+                Assert.True(result.IsError is true, tool);
+                var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(result);
+                Assert.Equal(PolicyErrorCodes.XamlDocumentNotFound, body.Error);
+                Assert.Contains("empty", body.Message, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("--roots", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+                Assert.NotEqual(PolicyErrorCodes.PathOutsideTrustedRoots, body.Error);
+            }
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task workspace_open_whitespace_path_is_empty_path_error()
+    {
+        var root = CreateTempDir("root");
+        try
+        {
+            await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+            var result = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = "   " });
+
+            Assert.True(result.IsError is true);
+            var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(result);
+            Assert.Equal(PolicyErrorCodes.InvalidWorkspacePath, body.Error);
+            Assert.Contains("empty", body.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("--roots", body.SuggestedAction, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

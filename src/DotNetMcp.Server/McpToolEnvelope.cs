@@ -65,6 +65,34 @@ public static class McpToolEnvelope
         SuggestedAction = error.SuggestedAction
     };
 
+    public static bool TryRejectBlankPath(
+        string? path,
+        string toolName,
+        bool xaml,
+        [NotNullWhen(true)] out CallToolResult? errorResult)
+    {
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            errorResult = null;
+            return false;
+        }
+
+        errorResult = ErrorResult(xaml
+            ? new PolicyErrorDto
+            {
+                Error = PolicyErrorCodes.XamlDocumentNotFound,
+                Message = "XAML document path is empty.",
+                SuggestedAction = "Pass the path of an Avalonia .axaml or MAUI .xaml document, then retry " + toolName + "."
+            }
+            : new PolicyErrorDto
+            {
+                Error = PolicyErrorCodes.InvalidWorkspacePath,
+                Message = "The workspace path is empty.",
+                SuggestedAction = "Pass a non-empty path to an existing .sln, .slnx, .slnf, or project file, then retry " + toolName + "."
+            });
+        return true;
+    }
+
     public static CallToolResult OkResult<T>(T payload) => new()
     {
         Content =

@@ -38,6 +38,11 @@ public sealed class XamlTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("xaml_resolve_class", path);
 
+        if (McpToolEnvelope.TryRejectBlankPath(path, "xaml_resolve_class", xaml: true, out var blankPath))
+        {
+            return blankPath;
+        }
+
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_resolve_class", path);
@@ -91,6 +96,11 @@ public sealed class XamlTools
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("xaml_list_xmlns", path);
 
+        if (McpToolEnvelope.TryRejectBlankPath(path, "xaml_list_xmlns", xaml: true, out var blankPath))
+        {
+            return blankPath;
+        }
+
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_list_xmlns", path);
@@ -142,6 +152,11 @@ public sealed class XamlTools
     {
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("xaml_resolve_name", path);
+
+        if (McpToolEnvelope.TryRejectBlankPath(path, "xaml_resolve_name", xaml: true, out var blankPath))
+        {
+            return blankPath;
+        }
 
         if (!_trustedRoots.Contains(path))
         {
@@ -196,6 +211,11 @@ public sealed class XamlTools
     {
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("xaml_resolve_binding", path);
+
+        if (McpToolEnvelope.TryRejectBlankPath(path, "xaml_resolve_binding", xaml: true, out var blankPath))
+        {
+            return blankPath;
+        }
 
         if (!_trustedRoots.Contains(path))
         {
@@ -253,6 +273,11 @@ public sealed class XamlTools
     {
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("xaml_diagnostics", path);
+
+        if (McpToolEnvelope.TryRejectBlankPath(path, "xaml_diagnostics", xaml: true, out var blankPath))
+        {
+            return blankPath;
+        }
 
         if (!_trustedRoots.Contains(path))
         {
