@@ -113,7 +113,7 @@ List/scan tools honor a soft time budget ([ADR-0003](docs/adr/0003-long-running-
 
 Invalid values fall back to the defaults.
 
-`workspace_open` never blocks the MCP request. Clients that do not opt into MCP Tasks should poll `workspace_status`. `workspace_status.watcher` is `ok`, `lost`, or `off`; `lost` means file watching failed and a restart was attempted. Details: `spikes/s3-mcp-long-running/CONCLUSIONS.md`.
+`workspace_open` never blocks the MCP request. Clients that do not opt into MCP Tasks should poll `workspace_status`. `workspace_status.watcher` is `ok`, `lost`, or `off`; `lost` means file watching failed and a restart was attempted. Details: `spikes/s3-mcp-long-running/CONCLUSIONS.md`. That note separates the spike `jobId` shape from the product DTO, which has no `jobId`.
 
 ## Development / CI
 
