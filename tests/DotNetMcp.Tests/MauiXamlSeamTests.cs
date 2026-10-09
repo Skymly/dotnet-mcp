@@ -19,6 +19,7 @@ public class MauiXamlSeamTests
                          x:Class="MauiPage.MainPage"
                          x:DataType="local:MainViewModel">
                 <Label x:Name="TitleLabel" Text="{Binding Title}" />
+                <Label x:Name="MissingName" Text="{Binding NotAProp}" />
             </ContentPage>
             """);
 
@@ -67,6 +68,11 @@ public class MauiXamlSeamTests
                 "xaml_diagnostics",
                 new Dictionary<string, object?> { ["path"] = xaml });
             Assert.True(diagnostics.IsError is not true, InProcessMcpFixture.TextOf(diagnostics));
+            var diagBody = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(diagnostics);
+            Assert.DoesNotContain(diagBody.Items, i => i.Id == "XAML0001" && i.Message.Contains("ContentPage", StringComparison.Ordinal));
+            Assert.DoesNotContain(diagBody.Items, i => i.Id == "XAML0001" && i.Message.Contains("Label", StringComparison.Ordinal));
+            Assert.Contains(diagBody.Items, i => i.Id == "XAML0003" && i.Message.Contains("NotAProp", StringComparison.Ordinal));
+            Assert.Contains(diagBody.Items, i => i.Id == "XAML0004" && i.Message.Contains("MissingName", StringComparison.Ordinal));
         }
         finally
         {

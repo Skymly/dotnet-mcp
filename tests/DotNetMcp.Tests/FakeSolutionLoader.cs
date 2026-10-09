@@ -1040,21 +1040,52 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             LanguageNames.CSharp,
             filePath: projectFilePath));
         const string source = """
-            namespace MauiPage;
+            using System;
+            using Microsoft.Maui.Controls;
 
-            public partial class MainPage
+            [assembly: XmlnsDefinition("http://schemas.microsoft.com/dotnet/2021/maui", "Microsoft.Maui.Controls")]
+
+            namespace Microsoft.Maui.Controls
             {
-                public MainPage()
+                [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+                public sealed class XmlnsDefinitionAttribute : Attribute
+                {
+                    public XmlnsDefinitionAttribute(string xmlNamespace, string clrNamespace)
+                    {
+                        XmlNamespace = xmlNamespace;
+                        ClrNamespace = clrNamespace;
+                    }
+
+                    public string XmlNamespace { get; }
+                    public string ClrNamespace { get; }
+                }
+
+                public class ContentPage
                 {
                 }
 
-                // Stands in for Microsoft.Maui.Controls.SourceGen x:Name field (Spike S5).
-                private object TitleLabel = new();
+                public class Label
+                {
+                    public string Text { get; set; } = "";
+                }
             }
 
-            public sealed class MainViewModel
+            namespace MauiPage
             {
-                public string Title { get; set; } = "hello";
+                public partial class MainPage
+                {
+                    public MainPage()
+                    {
+                    }
+
+                    // Stands in for Microsoft.Maui.Controls.SourceGen x:Name field (Spike S5).
+                    private object TitleLabel = new();
+                }
+
+                public sealed class MainViewModel
+                {
+                    public string Title { get; set; } = "hello";
+                }
             }
             """;
         solution = solution.AddDocument(
