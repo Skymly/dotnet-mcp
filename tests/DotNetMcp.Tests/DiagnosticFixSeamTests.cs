@@ -239,7 +239,9 @@ public class DiagnosticFixSeamTests
             "diagnostics_list_fixes",
             Locator(occurrence));
         Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
-        return InProcessMcpFixture.Deserialize<DiagnosticsListFixesResultDto>(result);
+        var listed = InProcessMcpFixture.Deserialize<DiagnosticsListFixesResultDto>(result);
+        Assert.False(listed.IncludesProjectAnalyzers);
+        return listed;
     }
 
     internal static async Task<DiagnosticsPreviewFixResultDto> PreviewWorkingFixAsync(

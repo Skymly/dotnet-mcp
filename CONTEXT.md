@@ -94,7 +94,7 @@ _Avoid_: MetadataGenerated, COM-in-Origin
 _Avoid_: treating dynamic as SymbolAttribution
 
 **Diagnostic fix**:
-针对一条 `project_diagnostics` 出现的、由 first-party 或项目已加载 CodeFixProvider 提供的修复动作。
+针对一条 `project_diagnostics` 出现的、由 Microsoft.CodeAnalysis C# / VB Features 内置 CodeFixProvider 提供的修复动作，不含项目分析器程序集。
 _Avoid_: invented patch, generic apply_edit, analyzer downloaded just-in-time
 
 **Fix preview**:

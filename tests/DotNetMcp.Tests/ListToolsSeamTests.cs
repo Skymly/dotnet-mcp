@@ -44,6 +44,11 @@ public class ListToolsSeamTests
         Assert.Contains("C#", attribution.Description, StringComparison.Ordinal);
         Assert.Contains("VB", attribution.Description, StringComparison.Ordinal);
 
+        var listFixes = Assert.Single(tools, t => t.Name == "diagnostics_list_fixes");
+        Assert.Contains("built-in", listFixes.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("project-loaded", listFixes.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("empty list", listFixes.Description, StringComparison.OrdinalIgnoreCase);
+
         var references = Assert.Single(tools, t => t.Name == "symbol_find_references");
         Assert.Contains("CompilationUnavailable", references.Description, StringComparison.Ordinal);
         Assert.Contains("Handwritten", references.Description, StringComparison.Ordinal);
