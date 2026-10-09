@@ -941,13 +941,28 @@ public sealed class XamlDocumentService
                 {
                     items.Add(Diag("XAML0001", "Error",
                         $"Unknown element '{FormatName(prefix, local)}' given xmlns.",
-                        path, lineInfo, projectId));
+                        path, lineInfo, reader.Name.Length, projectId));
                 }
 
                 if (reader.HasAttributes && reader.MoveToFirstAttribute())
                 {
                     do
                     {
+                        if (string.Equals(reader.Prefix, "x", StringComparison.Ordinal) &&
+                            string.Equals(reader.LocalName, "Name", StringComparison.Ordinal) &&
+                            classType is not null &&
+                            !string.IsNullOrWhiteSpace(reader.Value))
+                        {
+                            var named = reader.Value.Trim();
+                            var field = classType.GetMembers(named).OfType<IFieldSymbol>().FirstOrDefault();
+                            if (field is null)
+                            {
+                                items.Add(Diag("XAML0004", "Error",
+                                    $"x:Name '{named}' has no matching NameGenerator field on '{classType.ToDisplayString()}'.",
+                                    path, lineInfo, reader.Name.Length, projectId));
+                            }
+                        }
+
                         if (IsSkippableAttribute(reader.Prefix, reader.LocalName, reader.Name))
                         {
                             continue;
@@ -965,13 +980,13 @@ public sealed class XamlDocumentService
                                 {
                                     items.Add(Diag("XAML0003", "Error",
                                         $"Binding path '{bindingPath}' is invalid: {bindError.Message}",
-                                        path, lineInfo, projectId));
+                                        path, lineInfo, reader.Name.Length, projectId));
                                 }
                                 else if (symbolError is not null)
                                 {
                                     items.Add(Diag("XAML0005", "Error",
                                         $"x:DataType '{effectiveDataType}' could not be resolved: {symbolError.Message}",
-                                        path, lineInfo, projectId));
+                                        path, lineInfo, reader.Name.Length, projectId));
                                 }
                             }
                         }
@@ -982,25 +997,13 @@ public sealed class XamlDocumentService
                         {
                             items.Add(Diag("XAML0002", "Error",
                                 $"Unknown property '{reader.LocalName}' on '{elementType.ToDisplayString()}'.",
-                                path, lineInfo, projectId));
+                                path, lineInfo, reader.Name.Length, projectId));
                         }
                     } while (reader.MoveToNextAttribute());
                     reader.MoveToElement();
                 }
 
-                var xName = reader.GetAttribute("Name", XamlXmlns.Xaml);
-                if (!string.IsNullOrWhiteSpace(xName) && classType is not null)
-                {
-                    var field = classType.GetMembers(xName.Trim())
-                        .OfType<IFieldSymbol>()
-                        .FirstOrDefault();
-                    if (field is null)
-                    {
-                        items.Add(Diag("XAML0004", "Error",
-                            $"x:Name '{xName}' has no matching NameGenerator field on '{classType.ToDisplayString()}'.",
-                            path, lineInfo, projectId));
-                    }
-                }
+
             }
         }
         catch (XmlException)
@@ -1134,17 +1137,23 @@ public sealed class XamlDocumentService
         string message,
         string path,
         IXmlLineInfo? lineInfo,
-        string projectId) =>
-        new(
+        int spanLength,
+        string projectId)
+    {
+        int? startLine = lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LineNumber : null;
+        int? startCharacter = lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LinePosition : null;
+        var width = Math.Max(spanLength, 1);
+        return new DiagnosticItem(
             id,
             severity,
             message,
             path,
-            lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LineNumber : null,
-            lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LinePosition : null,
-            lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LineNumber : null,
-            lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LinePosition : null,
+            startLine,
+            startCharacter,
+            startLine,
+            startCharacter is int start ? start + width : null,
             projectId);
+    }
 
 
     private static bool IsRoslynProject(Project project) =>

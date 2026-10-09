@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- XAML diagnostic ranges cover the element or attribute name instead of a zero-width point (`#399`)
 - Tests: MAUI diagnostics no longer treat ContentPage and Label as unknown elements, and the seam test checks that content (`#397`)
 - xaml_diagnostics reports XAML0005 when x:DataType does not resolve, instead of dropping the binding check (`#395`)
 - Binding type lookup no longer treats a constructor comment or assignment as DataContext (`#393`)
