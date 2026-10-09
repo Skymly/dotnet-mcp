@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁）**
+Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-08-20 Amendment 2 Diagnostic fix；2026-08-20 Amendment 3 Code Refactoring；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁；2026-10-09 Amendment 7 现行写面）**
 
 ## 上下文
 
@@ -106,3 +106,15 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
   - **dotnet 根**：`MsBuildBootstrap.TryFindNewestSdkDirectory` 选中的 `sdk/<ver>` 上溯一级；再从 `RuntimeEnvironment.GetRuntimeDirectory()` 往上找到同时含 `sdk` 与 `shared` 的那一级（Linux CI 上前者可能为 null）。
   - **NuGet 包目录**：`NUGET_PACKAGES`，否则 `<UserProfile>/.nuget/packages`；再加 `NUGET_FALLBACK_PACKAGES` 与 `<dotnet>/sdk/NuGetFallbackFolder`（存在才加）。
 - **MetadataReferences 有意不查**：Roslyn 读它们只解析 PE 元数据，不执行代码。纳入会把 `packs/` 和 NuGet 全部拦下，换不来安全收益。
+
+## Amendment 7（2026-10-09）：状态行补列 Amendment 2/3，现行写面
+
+证据：2026-09-22 全仓审核发现 ARCH1-2。状态行此前漏列已存在的 Amendment 2 与 Amendment 3。§3 原文「允许名单只增加 rename 两步（本票只加 preview）」是 2026-08-02 当时的注记，本 Amendment 不改该句。
+
+现行 Workspace Edit 允许名单以 Amendment 1–3 为准，共 8 个工具：
+
+- rename：`symbol_preview_rename`、`symbol_apply_rename`
+- Diagnostic fix：`diagnostics_list_fixes`、`diagnostics_preview_fix`、`diagnostics_apply_fix`
+- Code Refactoring：`symbol_list_refactorings`、`symbol_preview_refactoring`、`symbol_apply_refactoring`
+
+另有 `workspace_check_drift` 会修复源文件漂移并推进 epoch。它不是 Workspace Edit 的 preview/apply，但是第九个会改工作区或落盘的工具。仍禁止通用写 / 补丁 / shell / 网络。只读状态行和 §3、不读 Amendment 1–3 与本 Amendment，会漏掉真实落盘入口。
