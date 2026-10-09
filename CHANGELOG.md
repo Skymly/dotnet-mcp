@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Binding type lookup no longer treats a constructor comment or assignment as DataContext (`#393`)
 - xaml_diagnostics reports unknown properties on a resolvable unprefixed Window instead of skipping the root element (`#391`)
 - xaml_diagnostics collects xmlns definitions once per call, inside the soft-budget clock, instead of once per binding (`#389`)
 - XAML binding segments and x:Name resolution reuse the symbol already in hand instead of scanning the compilation again for each segment (`#387`)
