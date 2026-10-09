@@ -394,6 +394,29 @@ public class XamlDocumentServiceTests
     }
 
     [Fact]
+    public async Task unresolved_x_datatype_is_reported_instead_of_an_empty_page()
+    {
+        const string axaml = """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:SampleApp"
+                    x:Class="SampleApp.MainWindow"
+                    x:DataType="local:NoSuchViewModel">
+                <TextBlock Text="{Binding Anything}" />
+            </Window>
+            """;
+        using var workspace = AvaloniaWorkspace(axaml);
+        using var session = new FakeSession(workspace);
+        var (page, xamlError, symbolError) = await Service().GetDiagnosticsAsync(session, AxamlPath);
+        Assert.Null(xamlError);
+        Assert.Null(symbolError);
+        Assert.NotNull(page);
+        Assert.Contains(page!.Items, i =>
+            i.Id == "XAML0005" &&
+            i.Message.Contains("NoSuchViewModel", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task get_diagnostics_returns_a_page()
     {
         using var workspace = AvaloniaWorkspace(AvaloniaWindowWithBinding());

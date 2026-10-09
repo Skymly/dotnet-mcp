@@ -958,13 +958,19 @@ public sealed class XamlDocumentService
                             var bindingPath = ExtractBindingPath(reader.Value);
                             if (!string.IsNullOrWhiteSpace(bindingPath))
                             {
-                                var (_, bindError, _) = await ResolveBindingWithXmlnsAsync(
+                                var (_, bindError, symbolError) = await ResolveBindingWithXmlnsAsync(
                                         session, root, path, bindingPath, effectiveDataType, xmlns, cancellationToken)
                                     .ConfigureAwait(false);
                                 if (bindError is BindingPropertyNotFoundError or BindingTypeMismatchError)
                                 {
                                     items.Add(Diag("XAML0003", "Error",
                                         $"Binding path '{bindingPath}' is invalid: {bindError.Message}",
+                                        path, lineInfo, projectId));
+                                }
+                                else if (symbolError is not null)
+                                {
+                                    items.Add(Diag("XAML0005", "Error",
+                                        $"x:DataType '{effectiveDataType}' could not be resolved: {symbolError.Message}",
                                         path, lineInfo, projectId));
                                 }
                             }
