@@ -430,6 +430,7 @@ public sealed record DiagnosticFixItemDto
 
 public sealed record DiagnosticsListFixesResultDto
 {
+    public required bool IncludesProjectAnalyzers { get; init; }
     public required IReadOnlyList<DiagnosticFixItemDto> Items { get; init; }
 }
 

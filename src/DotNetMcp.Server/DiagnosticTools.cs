@@ -26,10 +26,11 @@ public sealed class DiagnosticTools
     }
 
     [McpServerTool(Name = "diagnostics_list_fixes", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
-        "List first-party / project-loaded CodeFixes for one project_diagnostics occurrence. " +
+        "List built-in CodeFixes from Microsoft.CodeAnalysis C# / VB Features for one project_diagnostics occurrence. " +
+        "Does not include CodeFixes from project analyzer assemblies. " +
         "Locator is projectId + diagnosticId + optional filePath/span (1-based lines, 0-based characters). " +
-        "Zero fixes is success with an empty list. F# projects return FixLanguageNotSupported. " +
-        "Does not write disk.")]
+        "Zero fixes is success with an empty list and means no built-in fix, not that project analyzers have none. " +
+        "F# projects return FixLanguageNotSupported. Does not write disk.")]
     public async Task<CallToolResult> DiagnosticsListFixes(
         [Description("Roslyn projectId from workspace_list_projects / project_diagnostics.")]
         string projectId,
@@ -74,6 +75,7 @@ public sealed class DiagnosticTools
 
         return McpToolEnvelope.OkResult(new DiagnosticsListFixesResultDto
         {
+            IncludesProjectAnalyzers = false,
             Items = success!.Items.Select(i => new DiagnosticFixItemDto
             {
                 FixIndex = i.FixIndex,

@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- diagnostics_list_fixes says the list is built-in Features providers only, and the response sets IncludesProjectAnalyzers to false (`#401`)
 - XAML diagnostic ranges cover the element or attribute name instead of a zero-width point (`#399`)
 - Tests: MAUI diagnostics no longer treat ContentPage and Label as unknown elements, and the seam test checks that content (`#397`)
 - xaml_diagnostics reports XAML0005 when x:DataType does not resolve, instead of dropping the binding check (`#395`)
