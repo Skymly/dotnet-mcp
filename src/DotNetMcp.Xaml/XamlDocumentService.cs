@@ -17,6 +17,8 @@ public sealed class XamlDocumentService
     private readonly RoslynLanguageAdapter _roslyn;
     private readonly SoftBudgetOptions _softBudgets;
 
+    internal int XmlnsDefinitionCollections { get; private set; }
+
     public XamlDocumentService(
         LanguageAdapters languages,
         RoslynLanguageAdapter roslyn,
@@ -140,16 +142,31 @@ public sealed class XamlDocumentService
             return (null, xmlnsError, null);
         }
 
+        return await ResolveBindingWithXmlnsAsync(
+                session, root!, path, bindingPath, dataType, xmlns!, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<(IReadOnlyList<XamlBindingSegment>? Success, XamlQueryError? XamlError, SymbolQueryError? SymbolError)>
+        ResolveBindingWithXmlnsAsync(
+            IWorkspaceSession session,
+            XamlDocumentRoot root,
+            string path,
+            string bindingPath,
+            string? dataType,
+            IReadOnlyList<XamlXmlnsMapping> xmlns,
+            CancellationToken cancellationToken)
+    {
         var typeName = dataType;
         if (string.IsNullOrWhiteSpace(typeName))
         {
-            typeName = FindFirstDataType(root!.Text);
+            typeName = FindFirstDataType(root.Text);
         }
 
         if (string.IsNullOrWhiteSpace(typeName))
         {
             var (fromContext, contextError) = await TryResolveStaticDataContextTypeAsync(
-                session, root!, cancellationToken).ConfigureAwait(false);
+                session, root, cancellationToken).ConfigureAwait(false);
             if (contextError is not null)
             {
                 return (null, null, contextError);
@@ -167,7 +184,7 @@ public sealed class XamlDocumentService
 
         var resolvedTypeName = ResolveTypeName(typeName.Trim(), xmlns!);
         var (resolved, symbolError) = await ResolveNameInDocumentProjectAsync(
-                session, root!, resolvedTypeName, cancellationToken)
+                session, root, resolvedTypeName, cancellationToken)
             .ConfigureAwait(false);
         if (symbolError is not null)
         {
@@ -247,15 +264,29 @@ public sealed class XamlDocumentService
             return (null, null, cursorError);
         }
 
-        var (xmlns, xmlnsError) = await ListXmlnsAsync(session, path, prefix: null, cancellationToken)
+        var budget = softBudget ?? _softBudgets.SingleProjectCompile;
+        var clock = Stopwatch.StartNew();
+        if (!ShouldStartXmlnsCollection(budget, clock.Elapsed))
+        {
+            return BudgetStopped(epoch, path, pageLimit, cursor);
+        }
+
+        var (xmlns, xmlnsError, xmlnsStopped) = await MapXmlnsAsync(
+                session,
+                root!,
+                () => !ShouldStartXmlnsCollection(budget, clock.Elapsed),
+                cancellationToken)
             .ConfigureAwait(false);
         if (xmlnsError is not null)
         {
             return (null, xmlnsError, null);
         }
 
-        var budget = softBudget ?? _softBudgets.SingleProjectCompile;
-        var clock = Stopwatch.StartNew();
+        if (xmlnsStopped)
+        {
+            return BudgetStopped(epoch, path, pageLimit, cursor);
+        }
+
         var (all, stoppedEarly) = await CollectSemanticDiagnosticsAsync(
                 session, path, root!, xmlns!, clock, budget, cancellationToken)
             .ConfigureAwait(false);
@@ -301,10 +332,40 @@ public sealed class XamlDocumentService
             }
         }
 
+        var (mappings, mapError, _) = await MapDeclaredXmlnsAsync(
+                session, root, declarations, stopCollection: null, cancellationToken)
+            .ConfigureAwait(false);
+        return (mappings, mapError);
+    }
+
+    private async Task<(IReadOnlyList<XamlXmlnsMapping>? Success, XamlQueryError? Error, bool Stopped)> MapXmlnsAsync(
+        IWorkspaceSession session,
+        XamlDocumentRoot root,
+        Func<bool> stopCollection,
+        CancellationToken cancellationToken)
+    {
+        return await MapDeclaredXmlnsAsync(
+                session, root, root.XmlnsDeclarations, stopCollection, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<(IReadOnlyList<XamlXmlnsMapping>? Success, XamlQueryError? Error, bool Stopped)> MapDeclaredXmlnsAsync(
+        IWorkspaceSession session,
+        XamlDocumentRoot root,
+        IReadOnlyList<(string Prefix, string XmlNamespace)> declarations,
+        Func<bool>? stopCollection,
+        CancellationToken cancellationToken)
+    {
         var defaultAssembly = await ResolveDefaultAssemblyNameAsync(
                 session, root.ClassName, root.ProjectId, cancellationToken)
             .ConfigureAwait(false);
-        var definitions = await CollectXmlnsDefinitionsAsync(session, cancellationToken).ConfigureAwait(false);
+        var (definitions, stopped) = await CollectXmlnsDefinitionsAsync(
+                session, cancellationToken, stopCollection)
+            .ConfigureAwait(false);
+        if (stopped && definitions.Count == 0)
+        {
+            return (null, null, true);
+        }
 
         var mappings = new List<XamlXmlnsMapping>();
         foreach (var declaration in declarations)
@@ -312,8 +373,32 @@ public sealed class XamlDocumentService
             mappings.AddRange(ResolveDeclaration(declaration.Prefix, declaration.XmlNamespace, defaultAssembly, definitions));
         }
 
-        return (mappings, null);
+        return (mappings, null, stopped);
     }
+
+    private static (PagedResult<DiagnosticItem>? Success, XamlQueryError? Error, SymbolQueryError? SymbolError) BudgetStopped(
+        long epoch,
+        string path,
+        int pageLimit,
+        string? cursor)
+    {
+        var (page, pageError) = SoftBudgetPage.Page(
+            Array.Empty<DiagnosticItem>(),
+            epoch,
+            budgetHit: true,
+            cursor,
+            pageLimit,
+            "xaml_diagnostics",
+            path,
+            "No semantic XAML diagnostics.",
+            "XAML diagnostic page complete.",
+            "the diagnostic list",
+            scanIncomplete: true);
+        return (page, null, pageError);
+    }
+
+    internal static bool ShouldStartXmlnsCollection(TimeSpan budget, TimeSpan elapsed) =>
+        budget <= TimeSpan.Zero || elapsed < budget;
 
     public async Task<(string? ClassName, XamlQueryError? Error)> ReadClassName(
         IWorkspaceSession session,
@@ -636,16 +721,29 @@ public sealed class XamlDocumentService
         return first?.AssemblyName ?? first?.Name;
     }
 
-    private static async Task<IReadOnlyList<XmlnsDefinition>> CollectXmlnsDefinitionsAsync(
+    private async Task<(IReadOnlyList<XmlnsDefinition> Definitions, bool Stopped)> CollectXmlnsDefinitionsAsync(
         IWorkspaceSession session,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<bool>? stopCollection = null)
     {
+        if (stopCollection?.Invoke() == true)
+        {
+            return ([], true);
+        }
+
+        XmlnsDefinitionCollections++;
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var definitions = new List<XmlnsDefinition>();
+        var stopped = false;
 
         foreach (var project in session.Solution.Projects.Where(IsRoslynProject))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (stopCollection?.Invoke() == true)
+            {
+                stopped = true;
+                break;
+            }
             Compilation compilation;
             try
             {
@@ -666,7 +764,7 @@ public sealed class XamlDocumentService
             }
         }
 
-        return definitions;
+        return (definitions, stopped);
     }
 
     private static void AddDefinitions(
@@ -887,8 +985,8 @@ public sealed class XamlDocumentService
                                 var bindingPath = ExtractBindingPath(reader.Value);
                                 if (!string.IsNullOrWhiteSpace(bindingPath))
                                 {
-                                    var (_, bindError, _) = await ResolveBindingAsync(
-                                            session, path, bindingPath, effectiveDataType, cancellationToken)
+                                    var (_, bindError, _) = await ResolveBindingWithXmlnsAsync(
+                                            session, root, path, bindingPath, effectiveDataType, xmlns, cancellationToken)
                                         .ConfigureAwait(false);
                                     if (bindError is BindingPropertyNotFoundError or BindingTypeMismatchError)
                                     {
@@ -920,8 +1018,8 @@ public sealed class XamlDocumentService
                             var bindingPath = ExtractBindingPath(reader.Value);
                             if (!string.IsNullOrWhiteSpace(bindingPath))
                             {
-                                var (_, bindError, _) = await ResolveBindingAsync(
-                                        session, path, bindingPath, effectiveDataType, cancellationToken)
+                                var (_, bindError, _) = await ResolveBindingWithXmlnsAsync(
+                                        session, root, path, bindingPath, effectiveDataType, xmlns, cancellationToken)
                                     .ConfigureAwait(false);
                                 if (bindError is BindingPropertyNotFoundError or BindingTypeMismatchError)
                                 {

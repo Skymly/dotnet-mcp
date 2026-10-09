@@ -277,6 +277,76 @@ public class XamlDocumentServiceTests
     }
 
     [Fact]
+    public async Task diagnostics_two_bindings_collect_xmlns_definitions_once()
+    {
+        const string axaml = """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:SampleApp"
+                    x:Class="SampleApp.MainWindow"
+                    x:DataType="local:Customer">
+                <TextBlock Text="{Binding Home.City}" Tag="{Binding Name}" />
+            </Window>
+            """;
+        using var workspace = AvaloniaWorkspace(axaml);
+        using var session = new FakeSession(workspace);
+        var service = Service();
+
+        var (page, xamlError, symbolError) = await service.GetDiagnosticsAsync(
+            session, AxamlPath, softBudget: TimeSpan.FromSeconds(30));
+
+        Assert.Null(xamlError);
+        Assert.Null(symbolError);
+        Assert.NotNull(page);
+        Assert.Equal(1, service.XmlnsDefinitionCollections);
+    }
+
+    [Fact]
+    public async Task diagnostics_do_not_start_another_xmlns_collection_after_the_budget_expires()
+    {
+        const string axaml = """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:SampleApp"
+                    x:Class="SampleApp.MainWindow"
+                    x:DataType="local:Customer">
+                <TextBlock Text="{Binding Home.City}" Tag="{Binding Name}" />
+            </Window>
+            """;
+        using var workspace = AvaloniaWorkspace(axaml);
+        var extra = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            extra,
+            VersionStamp.Create(),
+            "Extra",
+            "Extra",
+            LanguageNames.CSharp,
+            filePath: @"C:\fake-xaml-unit\Extra.csproj"));
+        Assert.True(workspace.TryApplyChanges(solution));
+        using var session = new FakeSession(workspace) { CompilationDelay = TimeSpan.FromMilliseconds(40) };
+        var service = Service();
+
+        var (page, xamlError, symbolError) = await service.GetDiagnosticsAsync(
+            session, AxamlPath, softBudget: TimeSpan.FromMilliseconds(10));
+
+        Assert.Null(xamlError);
+        Assert.Null(symbolError);
+        Assert.NotNull(page);
+        Assert.True(page!.Truncated, page.Message);
+        Assert.InRange(service.XmlnsDefinitionCollections, 0, 1);
+        Assert.True(session.CompilationFetches < 4, "fetches=" + session.CompilationFetches);
+    }
+
+    [Fact]
+    public void xmlns_collection_does_not_start_when_the_soft_budget_is_already_spent()
+    {
+        Assert.False(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(10)));
+        Assert.False(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.FromTicks(1), TimeSpan.FromMilliseconds(1)));
+        Assert.True(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.FromSeconds(5), TimeSpan.Zero));
+        Assert.True(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.Zero, TimeSpan.FromSeconds(1)));
+    }
+
+    [Fact]
     public async Task get_diagnostics_returns_a_page()
     {
         using var workspace = AvaloniaWorkspace(AvaloniaWindowWithBinding());
@@ -703,11 +773,17 @@ public class XamlDocumentServiceTests
 
         public int CompilationFetches { get; private set; }
 
+        public TimeSpan CompilationDelay { get; init; }
+
         public async Task<Compilation> GetCompilationAsync(
             ProjectId projectId,
             CancellationToken cancellationToken = default)
         {
             CompilationFetches++;
+            if (CompilationDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(CompilationDelay, cancellationToken).ConfigureAwait(false);
+            }
             var project = Solution.GetProject(projectId)
                 ?? throw new InvalidOperationException($"Project '{projectId.Id}' is not in the session solution.");
             return await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false)
