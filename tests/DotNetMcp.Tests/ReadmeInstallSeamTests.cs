@@ -36,6 +36,14 @@ public class ReadmeInstallSeamTests
     }
 
     [Fact]
+    public void readme_does_not_call_the_working_directory_a_sandbox()
+    {
+        var readme = File.ReadAllText(Path.Combine(FindRepoRoot(), "README.md"));
+        Assert.DoesNotContain("implicit sandbox", readme, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("never an implicit trusted root", readme, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void server_json_does_not_advertise_unpublished_nuget_dnx_package()
     {
         var path = Path.Combine(FindRepoRoot(), "src", "DotNetMcp.Server", ".mcp", "server.json");

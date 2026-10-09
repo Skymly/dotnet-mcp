@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- README no longer calls the process working directory an implicit sandbox; it is not an implicit trusted root (`#420`)
 - ADR-0004 status line lists Amendments 2 and 3, and an appended amendment names the current write surface (`#418`)
 - Audit logs escape control characters in a caller-supplied path and truncate long paths (`#416`)
 - The batch diagnostics budget is documented as the limit for project_diagnostics when projectId is omitted, not as Reserved (`#414`)

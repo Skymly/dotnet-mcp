@@ -29,7 +29,7 @@ Tool names are locked by a snapshot test. Domain vocabulary: [`CONTEXT.md`](CONT
 
 ## Quick Start
 
-Trusted roots are **required**. The process working directory is never an implicit sandbox.
+Trusted roots are **required**. The process working directory is never an implicit trusted root.
 On Windows, separate multiple roots with `;`. You can also set `DOTNET_MCP_TRUSTED_ROOTS`.
 
 The NuGet package **`Skymly.DotNetMcp` is not published yet**. Use a source build or a local pack until it is.
