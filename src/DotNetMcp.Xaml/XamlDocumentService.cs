@@ -176,7 +176,7 @@ public sealed class XamlDocumentService
             {
                 return (null, new MissingDataTypeError(
                     "No x:DataType was found, and code-behind has no static DataContext type.",
-                    "Set x:DataType, or declare DataContext as a typed field/property / `DataContext = new Foo()` in the constructor."), null);
+                    "Set x:DataType, or declare DataContext as a typed field or property. Constructor assignments are not used."), null);
             }
 
             typeName = fromContext;
@@ -638,34 +638,6 @@ public sealed class XamlDocumentService
             }
 
             return (declared.ToDisplayString(), null);
-        }
-
-        foreach (var ctor in type.InstanceConstructors)
-        {
-            foreach (var syntaxRef in ctor.DeclaringSyntaxReferences)
-            {
-                var text = (await syntaxRef.GetSyntaxAsync(cancellationToken).ConfigureAwait(false)).ToString();
-                foreach (var marker in new[] { "DataContext = new ", "DataContext=new ", "DataContext = New ", "Me.DataContext = New " })
-                {
-                    var idx = text.IndexOf(marker, StringComparison.Ordinal);
-                    if (idx < 0)
-                    {
-                        continue;
-                    }
-
-                    var start = idx + marker.Length;
-                    var end = start;
-                    while (end < text.Length && (char.IsLetterOrDigit(text[end]) || text[end] is '.' or '_'))
-                    {
-                        end++;
-                    }
-
-                    if (end > start)
-                    {
-                        return (text[start..end], null);
-                    }
-                }
-            }
         }
 
         return (null, null);

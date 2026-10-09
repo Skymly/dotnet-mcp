@@ -158,6 +158,53 @@ public class XamlDocumentServiceTests
     }
 
     [Fact]
+    public async Task constructor_comment_does_not_hijack_binding_type()
+    {
+        const string axaml = """
+            <Window xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:Class="SampleApp.MainWindow">
+                <TextBlock Text="{Binding OldName}" />
+            </Window>
+            """;
+        const string source = """
+            namespace SampleApp;
+
+            public class OldVm
+            {
+                public string OldName { get; set; } = "";
+            }
+
+            public class NewVm
+            {
+                public string NewName { get; set; } = "";
+            }
+
+            public class MainWindow
+            {
+                public MainWindow()
+                {
+                    // DataContext = new OldVm();
+                    DataContext = new NewVm();
+                }
+
+                public object DataContext { get; set; } = new();
+            }
+            """;
+        using var workspace = AvaloniaWorkspace(axaml, source);
+        using var session = new FakeSession(workspace);
+        var (oldSegments, oldXaml, oldSymbol) = await Service().ResolveBindingAsync(session, AxamlPath, "OldName");
+        Assert.Null(oldSymbol);
+        Assert.Null(oldSegments);
+        Assert.IsType<MissingDataTypeError>(oldXaml);
+
+        var (newSegments, newXaml, newSymbol) = await Service().ResolveBindingAsync(session, AxamlPath, "NewName");
+        Assert.Null(newSymbol);
+        Assert.Null(newSegments);
+        Assert.IsType<MissingDataTypeError>(newXaml);
+    }
+
+    [Fact]
     public async Task resolve_binding_missing_datatype()
     {
         using var workspace = AvaloniaWorkspace(AvaloniaWindow("SampleApp.MainWindow"));
@@ -531,7 +578,7 @@ public class XamlDocumentServiceTests
         return workspace;
     }
 
-    private static AdhocWorkspace AvaloniaWorkspace(string axaml, bool includeNameField = true)
+    private static AdhocWorkspace AvaloniaWorkspace(string axaml, string? source = null, bool includeNameField = true)
     {
         var workspace = new AdhocWorkspace();
         var projectId = ProjectId.CreateNewId();
@@ -540,7 +587,7 @@ public class XamlDocumentServiceTests
         var field = includeNameField
             ? "        private object TitleText = new();\n"
             : "";
-        var source = $$"""
+        source ??= $$"""
             namespace SampleApp;
 
             public partial class MainWindow
