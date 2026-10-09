@@ -265,8 +265,11 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         return (new TypeMemberLookup(found, memberType, project), null);
     }
 
+    internal SymbolResolveSuccess DescribeSymbol(Project project, ISymbol symbol) =>
+        ToSuccess(project, symbol);
+
     internal string FormatHandle(Project project, ISymbol symbol) =>
-        ToSuccess(project, symbol).Handle;
+        DescribeSymbol(project, symbol).Handle;
 
     internal Task<(Project? Project, ISymbol? Symbol, SymbolQueryError? Error)> ResolveHandleSymbolAsync(
         IWorkspaceSession session,

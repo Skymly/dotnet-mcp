@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- XAML binding segments and x:Name resolution reuse the symbol already in hand instead of scanning the compilation again for each segment (`#387`)
 - symbol_find_references and symbol_find_callers return CompilationUnavailable when a generated location cannot be reconciled, instead of labeling it Handwritten (`#385`)
 - symbol_attribution on an F# handle returns GeneratorLanguageNotSupported instead of a synthetic Handwritten success (`#381`)
 - F# snapshot capture prefers handwritten expanded documents over a raw Compile Include list (`#379`)
