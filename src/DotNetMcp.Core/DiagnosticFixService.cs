@@ -12,6 +12,7 @@ public sealed class DiagnosticFixService
 {
     private readonly LanguageAdapters _languages;
     private readonly SoftBudgetOptions _budgets;
+    private readonly ActionIndexLedger _listedEpochs = new();
 
     public DiagnosticFixService(LanguageAdapters? languages = null, SoftBudgetOptions? budgets = null)
     {
@@ -42,6 +43,9 @@ public sealed class DiagnosticFixService
         var items = actions
             .Select((action, index) => new DiagnosticFixItem(index, action.Title, action.EquivalenceKey))
             .ToArray();
+        _listedEpochs.Remember(
+            FixLocator(projectId, diagnosticId, filePath, startLine, startCharacter, endLine, endCharacter),
+            session.Epoch);
         return (new DiagnosticFixListSuccess(items), null);
     }
 
@@ -70,6 +74,15 @@ public sealed class DiagnosticFixService
         if (error is not null)
         {
             return (null, error);
+        }
+
+        if (_listedEpochs.SnapshotMoved(
+                FixLocator(projectId, diagnosticId, filePath, startLine, startCharacter, endLine, endCharacter),
+                session.Epoch))
+        {
+            return (null, new FixListEpochMismatchError(
+                $"fixIndex {fixIndex} was listed at a different workspace epoch than {session.Epoch}.",
+                "Call diagnostics_list_fixes again and pass a fixIndex from that list."));
         }
 
         var actions = await CollectActionsAsync(document!, diagnostic!, cancellationToken).ConfigureAwait(false);
@@ -144,6 +157,24 @@ public sealed class DiagnosticFixService
             slices!,
             InvalidatedHandles: []), null);
     }
+
+    private static string FixLocator(
+        string projectId,
+        string diagnosticId,
+        string? filePath,
+        int? startLine,
+        int? startCharacter,
+        int? endLine,
+        int? endCharacter) =>
+        string.Join(
+            '\u001f',
+            projectId,
+            diagnosticId,
+            filePath ?? string.Empty,
+            startLine?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            startCharacter?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            endLine?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            endCharacter?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
 
     private async Task<(Document? Document, Diagnostic? Diagnostic, SymbolQueryError? Error)> ResolveOccurrenceAsync(
         IWorkspaceSession session,

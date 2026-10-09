@@ -21,6 +21,7 @@ public class DiagnosticFixSeamTests
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var occurrence = await FirstCs0246Async(fx);
             var listed = await ListFixesAsync(fx, occurrence);
+            Assert.Equal(fx.WorkspaceHost.CurrentEpoch, listed.Epoch);
             Assert.NotEmpty(listed.Items);
             Assert.Contains(listed.Items, i =>
                 i.Title.Contains("System.Collections.Generic", StringComparison.Ordinal) ||

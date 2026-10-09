@@ -87,6 +87,33 @@ public class CodeRefactoringServiceTests
     }
 
     [Fact]
+    public async Task build_preview_after_epoch_advances_is_refactoring_list_epoch_mismatch()
+    {
+        using var workspace = CreateFieldWorkspace();
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var (service, handle) = await ServiceAndFieldHandleAsync(session);
+        var (listed, listError) = await service.ListAsync(session, handle);
+        Assert.Null(listError);
+        var index = listed!.Items[0].RefactoringIndex;
+
+        session.Epoch++;
+
+        var (_, stale) = await service.BuildPreviewAsync(session, handle, index);
+        var mismatch = Assert.IsType<RefactoringListEpochMismatchError>(stale);
+        Assert.Equal(SymbolQueryErrorCodes.RefactoringListEpochMismatch, mismatch.Code);
+        Assert.Contains("symbol_list_refactorings", mismatch.SuggestedAction, StringComparison.Ordinal);
+
+        var (_, outOfRange) = await service.BuildPreviewAsync(session, handle, 99);
+        Assert.IsType<RefactoringListEpochMismatchError>(outOfRange);
+
+        var (relisted, relistError) = await service.ListAsync(session, handle);
+        Assert.Null(relistError);
+        var (draft, error) = await service.BuildPreviewAsync(session, handle, relisted!.Items[0].RefactoringIndex);
+        Assert.Null(error);
+        Assert.NotNull(draft);
+    }
+
+    [Fact]
     public async Task build_preview_out_of_range_index_is_refactoring_index_out_of_range()
     {
         using var workspace = CreateFieldWorkspace();
@@ -226,7 +253,7 @@ public class CodeRefactoringServiceTests
             FSharpSnapshot = new FSharpWorkspaceSnapshot(1, []);
         }
 
-        public long Epoch { get; }
+        public long Epoch { get; set; }
 
         public Solution Solution { get; }
 

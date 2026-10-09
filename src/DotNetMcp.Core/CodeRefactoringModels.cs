@@ -20,6 +20,9 @@ public sealed record RefactoringLanguageNotSupportedError(string Message, string
 public sealed record RefactoringIndexOutOfRangeError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.RefactoringIndexOutOfRange, Message, SuggestedAction);
 
+public sealed record RefactoringListEpochMismatchError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.RefactoringListEpochMismatch, Message, SuggestedAction);
+
 public sealed record GeneratedSymbolRefactoringRefusedError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.GeneratedSymbolRefactoringRefused, Message, SuggestedAction);
 

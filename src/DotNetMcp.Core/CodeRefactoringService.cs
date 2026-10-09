@@ -12,6 +12,7 @@ public sealed class CodeRefactoringService
 {
     private readonly LanguageAdapters _languages;
     private readonly RoslynLanguageAdapter _roslyn;
+    private readonly ActionIndexLedger _listedEpochs = new();
 
     public CodeRefactoringService(LanguageAdapters languages, RoslynLanguageAdapter roslyn)
     {
@@ -34,6 +35,7 @@ public sealed class CodeRefactoringService
         var items = actions
             .Select((action, index) => new CodeRefactoringItem(index, action.Title, action.EquivalenceKey))
             .ToArray();
+        _listedEpochs.Remember(handle, session.Epoch);
         return (new CodeRefactoringListSuccess(items), null);
     }
 
@@ -47,6 +49,13 @@ public sealed class CodeRefactoringService
         if (error is not null)
         {
             return (null, error);
+        }
+
+        if (_listedEpochs.SnapshotMoved(handle, session.Epoch))
+        {
+            return (null, new RefactoringListEpochMismatchError(
+                $"refactoringIndex {refactoringIndex} was listed at a different workspace epoch than {session.Epoch}.",
+                "Call symbol_list_refactorings again and pass a refactoringIndex from that list."));
         }
 
         var actions = await CollectActionsAsync(document!, span, cancellationToken).ConfigureAwait(false);

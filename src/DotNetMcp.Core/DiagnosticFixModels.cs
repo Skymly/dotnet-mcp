@@ -26,6 +26,9 @@ public sealed record FixLanguageNotSupportedError(string Message, string Suggest
 public sealed record FixIndexOutOfRangeError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.FixIndexOutOfRange, Message, SuggestedAction);
 
+public sealed record FixListEpochMismatchError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.FixListEpochMismatch, Message, SuggestedAction);
+
 public sealed record GeneratedDocumentFixRefusedError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.GeneratedDocumentFixRefused, Message, SuggestedAction);
 
