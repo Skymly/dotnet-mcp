@@ -108,9 +108,8 @@ public sealed class XamlDocumentService
                 "Ensure the XAML name generator has run (build the project), then retry xaml_resolve_name."), null);
         }
 
-        var handle = _roslyn.FormatHandle(lookup.Project, lookup.Member);
-        var success = await _languages.GetSummaryAsync(session, handle, cancellationToken).ConfigureAwait(false);
-        return (success.Success, null, success.Error);
+        var described = _roslyn.DescribeSymbol(lookup.Project, lookup.Member);
+        return (described, null, null);
     }
 
     public async Task<(IReadOnlyList<XamlBindingSegment>? Success, XamlQueryError? XamlError, SymbolQueryError? SymbolError)>
@@ -217,15 +216,8 @@ public sealed class XamlDocumentService
                     "Bind to a public instance property or field."), null);
             }
 
-            var handle = _roslyn.FormatHandle(lookup.Project, lookup.Member);
-            var (summary, summaryError) = await _languages.GetSummaryAsync(session, handle, cancellationToken)
-                .ConfigureAwait(false);
-            if (summaryError is not null)
-            {
-                return (null, null, summaryError);
-            }
-
-            segments.Add(new XamlBindingSegment(segment, handle, summary!.Summary));
+            var described = _roslyn.DescribeSymbol(lookup.Project, lookup.Member);
+            segments.Add(new XamlBindingSegment(segment, described.Handle, described.Summary));
             walkType = lookup.MemberType;
             walkProject = lookup.Project;
         }

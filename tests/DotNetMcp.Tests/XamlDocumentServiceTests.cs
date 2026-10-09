@@ -135,6 +135,29 @@ public class XamlDocumentServiceTests
     }
 
     [Fact]
+    public async Task resolve_binding_deeper_path_does_not_refetch_compilation_per_segment()
+    {
+        using var workspace = AvaloniaWorkspace(AvaloniaWindowWithBinding());
+        var service = Service();
+
+        using var one = new FakeSession(workspace);
+        var (oneSegments, oneXaml, oneSymbol) = await service.ResolveBindingAsync(one, AxamlPath, "Home");
+        Assert.Null(oneXaml);
+        Assert.Null(oneSymbol);
+        var home = Assert.Single(oneSegments!);
+        Assert.Equal("Home", home.Summary.DisplayName);
+
+        using var two = new FakeSession(workspace);
+        var (twoSegments, twoXaml, twoSymbol) = await service.ResolveBindingAsync(two, AxamlPath, "Home.City");
+        Assert.Null(twoXaml);
+        Assert.Null(twoSymbol);
+        Assert.Equal(2, twoSegments!.Count);
+        Assert.Equal("City", twoSegments[1].Summary.DisplayName);
+
+        Assert.Equal(one.CompilationFetches, two.CompilationFetches);
+    }
+
+    [Fact]
     public async Task resolve_binding_missing_datatype()
     {
         using var workspace = AvaloniaWorkspace(AvaloniaWindow("SampleApp.MainWindow"));
@@ -678,10 +701,13 @@ public class XamlDocumentServiceTests
 
         public FSharpWorkspaceSnapshot FSharpSnapshot { get; }
 
+        public int CompilationFetches { get; private set; }
+
         public async Task<Compilation> GetCompilationAsync(
             ProjectId projectId,
             CancellationToken cancellationToken = default)
         {
+            CompilationFetches++;
             var project = Solution.GetProject(projectId)
                 ?? throw new InvalidOperationException($"Project '{projectId.Id}' is not in the session solution.");
             return await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false)
