@@ -21,6 +21,7 @@ public class CodeRefactoringSeamTests
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveAsync(fx, "RefactorApp.Widget.count");
             var listed = await ListAsync(fx, handle);
+            Assert.Equal(fx.WorkspaceHost.CurrentEpoch, listed.Epoch);
             Assert.NotEmpty(listed.Items);
         }
         finally

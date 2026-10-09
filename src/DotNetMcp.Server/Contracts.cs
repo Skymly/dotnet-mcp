@@ -58,12 +58,14 @@ public static class PolicyErrorCodes
     public const string DiagnosticAmbiguous = "DiagnosticAmbiguous";
     public const string FixLanguageNotSupported = "FixLanguageNotSupported";
     public const string FixIndexOutOfRange = "FixIndexOutOfRange";
+    public const string FixListEpochMismatch = "FixListEpochMismatch";
     public const string GeneratedDocumentFixRefused = "GeneratedDocumentFixRefused";
     public const string FixApplyFailed = "FixApplyFailed";
     public const string FixAllUnavailable = "FixAllUnavailable";
     public const string FixAllBudgetExceeded = "FixAllBudgetExceeded";
     public const string RefactoringLanguageNotSupported = "RefactoringLanguageNotSupported";
     public const string RefactoringIndexOutOfRange = "RefactoringIndexOutOfRange";
+    public const string RefactoringListEpochMismatch = "RefactoringListEpochMismatch";
     public const string GeneratedSymbolRefactoringRefused = "GeneratedSymbolRefactoringRefused";
     public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
     public const string RefactoringApplyFailed = "RefactoringApplyFailed";
@@ -431,6 +433,7 @@ public sealed record DiagnosticFixItemDto
 public sealed record DiagnosticsListFixesResultDto
 {
     public required bool IncludesProjectAnalyzers { get; init; }
+    public required long Epoch { get; init; }
     public required IReadOnlyList<DiagnosticFixItemDto> Items { get; init; }
 }
 
@@ -463,6 +466,7 @@ public sealed record CodeRefactoringItemDto
 
 public sealed record SymbolListRefactoringsResultDto
 {
+    public required long Epoch { get; init; }
     public required IReadOnlyList<CodeRefactoringItemDto> Items { get; init; }
 }
 

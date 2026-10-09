@@ -124,12 +124,14 @@ public static class SymbolQueryErrorCodes
     public const string DiagnosticAmbiguous = "DiagnosticAmbiguous";
     public const string FixLanguageNotSupported = "FixLanguageNotSupported";
     public const string FixIndexOutOfRange = "FixIndexOutOfRange";
+    public const string FixListEpochMismatch = "FixListEpochMismatch";
     public const string GeneratedDocumentFixRefused = "GeneratedDocumentFixRefused";
     public const string FixApplyFailed = "FixApplyFailed";
     public const string FixAllUnavailable = "FixAllUnavailable";
     public const string FixAllBudgetExceeded = "FixAllBudgetExceeded";
     public const string RefactoringLanguageNotSupported = "RefactoringLanguageNotSupported";
     public const string RefactoringIndexOutOfRange = "RefactoringIndexOutOfRange";
+    public const string RefactoringListEpochMismatch = "RefactoringListEpochMismatch";
     public const string GeneratedSymbolRefactoringRefused = "GeneratedSymbolRefactoringRefused";
     public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
     public const string RefactoringApplyFailed = "RefactoringApplyFailed";

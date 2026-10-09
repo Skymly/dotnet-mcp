@@ -94,6 +94,39 @@ public class DiagnosticFixServiceTests
     }
 
     [Fact]
+    public async Task build_preview_after_epoch_advances_is_fix_list_epoch_mismatch()
+    {
+        using var workspace = CreateMissingUsingWorkspace();
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var service = new DiagnosticFixService();
+        var projectId = ProjectIdOf(workspace);
+        var (listed, listError) = await service.ListFixesAsync(
+            session, projectId, "CS0246", @"C:\fake\Broken.cs", null, null, null, null);
+        Assert.Null(listError);
+        var index = listed!.Items[0].FixIndex;
+
+        session.Epoch++;
+
+        var (_, stale) = await service.BuildPreviewAsync(
+            session, projectId, "CS0246", @"C:\fake\Broken.cs", null, null, null, null, index);
+        var mismatch = Assert.IsType<FixListEpochMismatchError>(stale);
+        Assert.Equal(SymbolQueryErrorCodes.FixListEpochMismatch, mismatch.Code);
+        Assert.Contains("diagnostics_list_fixes", mismatch.SuggestedAction, StringComparison.Ordinal);
+
+        var (_, outOfRange) = await service.BuildPreviewAsync(
+            session, projectId, "CS0246", @"C:\fake\Broken.cs", null, null, null, null, fixIndex: 99);
+        Assert.IsType<FixListEpochMismatchError>(outOfRange);
+
+        var (relisted, relistError) = await service.ListFixesAsync(
+            session, projectId, "CS0246", @"C:\fake\Broken.cs", null, null, null, null);
+        Assert.Null(relistError);
+        var (draft, error) = await service.BuildPreviewAsync(
+            session, projectId, "CS0246", @"C:\fake\Broken.cs", null, null, null, null, relisted!.Items[0].FixIndex);
+        Assert.Null(error);
+        Assert.NotNull(draft);
+    }
+
+    [Fact]
     public async Task build_preview_out_of_range_index_is_fix_index_out_of_range()
     {
         using var workspace = CreateMissingUsingWorkspace();
@@ -337,7 +370,7 @@ public class DiagnosticFixServiceTests
             _compilationUnavailable = compilationUnavailable;
         }
 
-        public long Epoch { get; }
+        public long Epoch { get; set; }
 
         public Solution Solution { get; }
 

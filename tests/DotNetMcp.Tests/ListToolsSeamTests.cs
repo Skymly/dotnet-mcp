@@ -48,6 +48,13 @@ public class ListToolsSeamTests
         Assert.Contains("built-in", listFixes.Description, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("project-loaded", listFixes.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("empty list", listFixes.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FixListEpochMismatch", listFixes.Description, StringComparison.Ordinal);
+        var previewFix = Assert.Single(tools, t => t.Name == "diagnostics_preview_fix");
+        Assert.Contains("FixListEpochMismatch", previewFix.Description, StringComparison.Ordinal);
+        var listRefactorings = Assert.Single(tools, t => t.Name == "symbol_list_refactorings");
+        Assert.Contains("RefactoringListEpochMismatch", listRefactorings.Description, StringComparison.Ordinal);
+        var previewRefactoring = Assert.Single(tools, t => t.Name == "symbol_preview_refactoring");
+        Assert.Contains("RefactoringListEpochMismatch", previewRefactoring.Description, StringComparison.Ordinal);
 
         var references = Assert.Single(tools, t => t.Name == "symbol_find_references");
         Assert.Contains("CompilationUnavailable", references.Description, StringComparison.Ordinal);

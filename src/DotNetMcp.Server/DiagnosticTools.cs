@@ -29,6 +29,7 @@ public sealed class DiagnosticTools
         "List built-in CodeFixes from Microsoft.CodeAnalysis C# / VB Features for one project_diagnostics occurrence. " +
         "Does not include CodeFixes from project analyzer assemblies. " +
         "Locator is projectId + diagnosticId + optional filePath/span (1-based lines, 0-based characters). " +
+        "Returns Epoch. Each fixIndex is valid only for that Epoch; if the workspace Epoch advances, diagnostics_preview_fix fails with FixListEpochMismatch instead of selecting another action. " +
         "Zero fixes is success with an empty list and means no built-in fix, not that project analyzers have none. " +
         "F# projects return FixLanguageNotSupported. Does not write disk.")]
     public async Task<CallToolResult> DiagnosticsListFixes(
@@ -76,6 +77,7 @@ public sealed class DiagnosticTools
         return McpToolEnvelope.OkResult(new DiagnosticsListFixesResultDto
         {
             IncludesProjectAnalyzers = false,
+            Epoch = session!.Epoch,
             Items = success!.Items.Select(i => new DiagnosticFixItemDto
             {
                 FixIndex = i.FixIndex,
@@ -87,6 +89,8 @@ public sealed class DiagnosticTools
 
     [McpServerTool(Name = "diagnostics_preview_fix", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Preview applying one Diagnostic fix as a Workspace Edit. " +
+        "fixIndex must come from diagnostics_list_fixes for this locator on the current Epoch. " +
+        "If that Epoch has advanced, fails with FixListEpochMismatch and does not select another action. " +
         "Returns previewId bound to the current Epoch + TTL. Does not write disk. " +
         "scope=occurrence (default), scope=document, or scope=project for Fix all with the same EquivalenceKey. " +
         "Generated documents are refused. Not a generic apply_edit / write / shell.")]
@@ -95,7 +99,7 @@ public sealed class DiagnosticTools
         string projectId,
         [Description("Diagnostic Id from project_diagnostics.")]
         string diagnosticId,
-        [Description("fixIndex from diagnostics_list_fixes on the current snapshot.")]
+        [Description("fixIndex from diagnostics_list_fixes on this Epoch. Stale indexes fail with FixListEpochMismatch.")]
         int fixIndex,
         [Description("Optional source file path from project_diagnostics.")]
         string? filePath = null,
