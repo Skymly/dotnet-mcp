@@ -23,7 +23,8 @@ public sealed class WorkspaceTools
         "For large repos prefer a .slnf or a single project file over a 150+ project solution; load does not compile all projects. Poll workspace_status until phase is ready (do not retry this tool while loading). " +
         "SECURITY: loading runs MSBuild evaluation and project-referenced analyzers/source generators — " +
         "equivalent to executing that repository's build logic. Do not open untrusted codebases. " +
-        "All paths must fall under a configured trusted root.")]
+        "All paths must fall under a configured trusted root. " +
+        "An empty or whitespace path returns InvalidWorkspacePath, not PathOutsideTrustedRoots.")]
     public CallToolResult WorkspaceOpen(
         [Description("Absolute or relative path to a .sln / .slnx / .slnf / project file under a trusted root.")]
         string path,
@@ -31,6 +32,11 @@ public sealed class WorkspaceTools
     {
         cancellationToken.ThrowIfCancellationRequested();
         _audit.ToolInvoked("workspace_open", path);
+
+        if (McpToolEnvelope.TryRejectBlankPath(path, "workspace_open", xaml: false, out var blankPath))
+        {
+            return blankPath;
+        }
 
         if (!_trustedRoots.Contains(path))
         {
