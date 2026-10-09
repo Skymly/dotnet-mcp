@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Audit logs escape control characters in a caller-supplied path and truncate long paths (`#416`)
 - The batch diagnostics budget is documented as the limit for project_diagnostics when projectId is omitted, not as Reserved (`#414`)
 - The long-running details note no longer says product workspace_open returns jobId (`#412`)
 - workspace_open and XAML path tools return an empty-path error for a blank path instead of PathOutsideTrustedRoots (`#410`)

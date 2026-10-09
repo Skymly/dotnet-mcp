@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Microsoft.Extensions.Logging;
 
 namespace DotNetMcp.Server;
@@ -8,6 +10,7 @@ namespace DotNetMcp.Server;
 public sealed class LoggerAuditLogger : IAuditLogger
 {
     public const string CategoryName = "DotNetMcp.Audit";
+    public const int MaxPathLength = 512;
 
     private readonly ILogger _logger;
     private readonly AuditOptions _options;
@@ -41,7 +44,40 @@ public sealed class LoggerAuditLogger : IAuditLogger
         }
         else
         {
-            _logger.LogInformation("audit {Kind} tool={ToolName} path={Path}", kind, toolName, path);
+            _logger.LogInformation(
+                "audit {Kind} tool={ToolName} path={Path}",
+                kind,
+                toolName,
+                SanitizePath(path));
         }
     }
+
+    private static string SanitizePath(string path)
+    {
+        var builder = new StringBuilder(Math.Min(path.Length, MaxPathLength + 3));
+        var truncated = false;
+        foreach (var ch in path)
+        {
+            var piece = NeedsEscape(ch)
+                ? "\\u" + ((int)ch).ToString("X4", CultureInfo.InvariantCulture)
+                : ch.ToString();
+            if (builder.Length + piece.Length > MaxPathLength)
+            {
+                truncated = true;
+                break;
+            }
+
+            builder.Append(piece);
+        }
+
+        if (truncated)
+        {
+            builder.Append("...");
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool NeedsEscape(char ch) =>
+        char.IsControl(ch) || ch is '\u2028' or '\u2029';
 }
