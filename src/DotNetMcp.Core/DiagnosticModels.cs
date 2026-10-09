@@ -9,7 +9,9 @@ public sealed record DiagnosticItem(
     int? StartCharacter,
     int? EndLine,
     int? EndCharacter,
-    string ProjectId);
+    string ProjectId,
+    string? Error = null,
+    string? SuggestedAction = null);
 
 public sealed record ProjectNotFoundError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.ProjectNotFound, Message, SuggestedAction);

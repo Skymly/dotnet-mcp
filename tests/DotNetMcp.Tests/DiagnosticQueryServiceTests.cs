@@ -81,10 +81,45 @@ public class DiagnosticQueryServiceTests
 
         Assert.NotNull(last);
         Assert.Contains(all, i => i.Id == "CS0000");
-        Assert.Contains(all, i => i.Id == SymbolQueryErrorCodes.CompilationUnavailable);
+        Assert.Contains(all, i => i.Error == SymbolQueryErrorCodes.CompilationUnavailable && i.Severity != "Error");
+        Assert.DoesNotContain(all, i => i.Id == SymbolQueryErrorCodes.CompilationUnavailable);
         Assert.True(all.Count >= 131, $"count={all.Count}");
         Assert.Contains("failed", last!.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(fake.Cursors, c => c is not null);
+    }
+
+    [Fact]
+    public async Task batch_project_failure_is_not_a_diagnostic_row()
+    {
+        using var workspace = CreateTwoProjectWorkspace();
+        var projects = workspace.CurrentSolution.Projects.OrderBy(p => p.Name).ToArray();
+        var okId = projects[0].Id.Id.ToString("D");
+        var failedId = projects[1].Id.Id.ToString("D");
+        var fake = new FakeAdapter
+        {
+            PagesByProject =
+            {
+                [okId] = [new DiagnosticItem("CS0001", "Error", "real", @"C:\a.cs", 1, 0, 1, 1, okId)],
+            },
+            ErrorsByProject =
+            {
+                [failedId] = new CompilationUnavailableError("compile missing", "Rebuild the project, then retry project_diagnostics."),
+            }
+        };
+        var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
+        using var session = new FakeSession(workspace.CurrentSolution);
+
+        var (page, error) = await service.GetProjectDiagnosticsAsync(session, projectId: string.Empty);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        var failure = Assert.Single(page!.Items, i => i.ProjectId == failedId);
+        Assert.Equal(SymbolQueryErrorCodes.CompilationUnavailable, failure.Error);
+        Assert.Equal("Rebuild the project, then retry project_diagnostics.", failure.SuggestedAction);
+        Assert.NotEqual("Error", failure.Severity);
+        Assert.NotEqual(SymbolQueryErrorCodes.CompilationUnavailable, failure.Id);
+        Assert.Contains(page.Items, i => i.Id == "CS0001" && i.Severity == "Error" && i.Error is null);
+        Assert.Contains("failed", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("not a clean project", page.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

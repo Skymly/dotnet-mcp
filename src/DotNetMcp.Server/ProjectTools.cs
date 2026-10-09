@@ -34,10 +34,11 @@ public sealed class ProjectTools
     [McpServerTool(Name = "project_diagnostics", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List compile errors and warnings for a projectId with forced pagination. " +
         "Soft time budget may truncate with nextCursor (do not restart from scratch). " +
+        "Omit projectId to page across projects. A project that fails is a row with error and suggestedAction set, not a Severity=Error diagnostic; do not pass that row to diagnostics_list_fixes. " +
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
         "Cursors bind to the workspace epoch. An unbuilt F# project reference adds DependencyOutputNotBuilt and missingDependencyOutputs instead of only FS0039.")]
     public async Task<CallToolResult> ProjectDiagnostics(
-        [Description("Optional Roslyn projectId. Omit to page diagnostics across projects using the batch soft budget.")]
+        [Description("Optional Roslyn projectId. Omit to page diagnostics across projects. A failed project is a row with error and suggestedAction, not a compile diagnostic.")]
         string? projectId = null,
         [Description("Page size (default 50, max 100).")]
         int? limit = null,
@@ -302,7 +303,9 @@ public sealed class ProjectTools
             StartCharacter = d.StartCharacter,
             EndLine = d.EndLine,
             EndCharacter = d.EndCharacter,
-            ProjectId = d.ProjectId
+            ProjectId = d.ProjectId,
+            Error = d.Error,
+            SuggestedAction = d.SuggestedAction
         }).ToArray(),
         Truncated = page.Truncated,
         NextCursor = page.NextCursor,

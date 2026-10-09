@@ -263,6 +263,8 @@ public sealed record DiagnosticItemDto
     public int? EndLine { get; init; }
     public int? EndCharacter { get; init; }
     public required string ProjectId { get; init; }
+    public string? Error { get; init; }
+    public string? SuggestedAction { get; init; }
 }
 
 public sealed record ProjectDiagnosticsResultDto
