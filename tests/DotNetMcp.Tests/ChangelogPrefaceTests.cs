@@ -12,6 +12,17 @@ public class ChangelogPrefaceTests
         Assert.Contains("DotNetMcp.Server.csproj", preface, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void unreleased_records_csharp_vb_illegal_rename_rejection()
+    {
+        var changelog = File.ReadAllText(Path.Combine(FindRepoRoot(), "CHANGELOG.md"));
+        var unreleased = System.Text.RegularExpressions.Regex.Match(
+            changelog,
+            "(?ms)^## Unreleased\\b(.*?)(?=^## |\\z)").Groups[1].Value;
+        Assert.Contains("(`#292`)", unreleased, StringComparison.Ordinal);
+        Assert.Contains("InvalidRenameName", unreleased, StringComparison.Ordinal);
+    }
+
     private static string FindRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
