@@ -506,8 +506,8 @@ public sealed class DiagnosticFixService
         if (leftover)
         {
             return (null, new FixAllBudgetExceededError(
-                "Document-scope Fix all stopped before every matching occurrence could be applied.",
-                "Retry with scope=occurrence for the remaining diagnostics, or raise the document Fix all cap."));
+                $"Document-scope Fix all stopped after its fixed cap of {cap} applications.",
+                "That cap is not configurable. Retry with scope=occurrence for the remaining diagnostics."));
         }
 
         return (applied ? currentSolution : null, null);
@@ -634,8 +634,8 @@ public sealed class DiagnosticFixService
             if (applied >= cap)
             {
                 return (null, new FixAllBudgetExceededError(
-                    $"Project-scope Fix all hit the application cap ({cap}) before every occurrence could be applied.",
-                    "Apply scope=document per file, or raise the host FixAllProjectMaxApplications cap."));
+                    $"Project-scope Fix all hit its fixed application cap ({cap}) before every occurrence could be applied.",
+                    "That cap is not an environment variable. Apply scope=document per file for the remainder."));
             }
 
             return (null, new FixAllBudgetExceededError(
