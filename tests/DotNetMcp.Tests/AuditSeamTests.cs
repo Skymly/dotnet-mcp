@@ -8,7 +8,7 @@ public class AuditSeamTests
     public async Task workspace_status_emits_tool_invoked_without_path()
     {
         var audit = new RecordingAuditLogger();
-        await using var fx = new InProcessMcpFixture(auditLogger: audit);
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]), auditLogger: audit);
 
         var result = await fx.Client.CallToolAsync(
             "workspace_status",
@@ -83,7 +83,7 @@ public class AuditSeamTests
     {
         var options = new AuditOptions { Enabled = false };
         var audit = new RecordingAuditLogger(options);
-        await using var fx = new InProcessMcpFixture(auditOptions: options, auditLogger: audit);
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]), auditOptions: options, auditLogger: audit);
 
         await fx.Client.CallToolAsync("workspace_status", new Dictionary<string, object?>());
 

@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: the in-process fixture requires an explicit trusted root and no longer treats the process working directory as one (`#463`)
 - Tests: workspace status keeps loader warnings, reports load units and remaining time, and rejects an unsupported workspace extension (`#461`)
 - Docs: --roots and DOTNET_MCP_TRUSTED_ROOTS form a union when both are set (`#459`)
 - Tests: the production audit logger omits file contents, honors a disabled audit switch, and is what startup registers from DOTNET_MCP_AUDIT (`#457`)

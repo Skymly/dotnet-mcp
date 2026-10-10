@@ -1,3 +1,5 @@
+using DotNetMcp.Server;
+
 namespace DotNetMcp.Tests;
 
 public class ListToolsSeamTests
@@ -5,7 +7,7 @@ public class ListToolsSeamTests
     [Fact]
     public async Task mcp_client_can_list_workspace_open_tool()
     {
-        await using var fx = new InProcessMcpFixture();
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var tools = await fx.Client.ListToolsAsync();
         var names = tools.Select(t => t.Name).ToArray();
 
@@ -15,7 +17,7 @@ public class ListToolsSeamTests
     [Fact]
     public async Task workspace_open_description_mentions_open_means_execute()
     {
-        await using var fx = new InProcessMcpFixture();
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var tools = await fx.Client.ListToolsAsync();
         var open = Assert.Single(tools, t => t.Name == "workspace_open");
 
@@ -28,7 +30,7 @@ public class ListToolsSeamTests
     [Fact]
     public async Task symbol_resolve_description_covers_csharp_vb_and_fsharp()
     {
-        await using var fx = new InProcessMcpFixture();
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var tools = await fx.Client.ListToolsAsync();
         var resolve = Assert.Single(tools, t => t.Name == "symbol_resolve");
 
@@ -107,7 +109,7 @@ public class ListToolsSeamTests
     [Fact]
     public async Task listed_tools_expose_all_four_annotations()
     {
-        await using var fx = new InProcessMcpFixture();
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var tools = await fx.Client.ListToolsAsync();
         Assert.Equal(31, tools.Count);
 

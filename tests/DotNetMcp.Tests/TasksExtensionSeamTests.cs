@@ -51,7 +51,7 @@ public class TasksExtensionSeamTests
     [Fact]
     public async Task tasks_call_workspace_status_completes_via_tasks_get()
     {
-        await using var fx = new InProcessMcpFixture();
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var raw = await fx.Client.CallToolAsTaskAsync(new CallToolRequestParams
         {
             Name = "workspace_status",

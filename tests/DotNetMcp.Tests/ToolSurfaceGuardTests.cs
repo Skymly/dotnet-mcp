@@ -1,3 +1,5 @@
+using DotNetMcp.Server;
+
 namespace DotNetMcp.Tests;
 
 /// <summary>
@@ -66,7 +68,7 @@ public class ToolSurfaceGuardTests
     [Fact]
     public async Task tool_surface_matches_allowlist_exactly()
     {
-        await using var fx = new InProcessMcpFixture();
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var tools = await fx.Client.ListToolsAsync();
         var names = tools.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
 
@@ -76,7 +78,7 @@ public class ToolSurfaceGuardTests
     [Fact]
     public async Task tool_surface_substring_denylist_is_auxiliary()
     {
-        await using var fx = new InProcessMcpFixture();
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var tools = await fx.Client.ListToolsAsync();
 
         foreach (var tool in tools)
