@@ -6,6 +6,12 @@ using Microsoft.CodeAnalysis.CodeActions;
 namespace DotNetMcp.Core;
 
 /// <summary>
+/// Changed solution from a code action, or the exception type when the provider threw.
+/// A null solution with a null exception type means the action produced no document change.
+/// </summary>
+public readonly record struct CodeActionApplyResult(Solution? Solution, string? ProviderExceptionType);
+
+/// <summary>
 /// CodeAction → changed documents. First-party / parameterless provider load,
 /// nested-action flatten, ApplyChangesOperation, and handwritten slices. Shared by Diagnostic fix
 /// and Code Refactoring. Diff stays in HandwrittenDocumentDiff.
@@ -28,16 +34,22 @@ public static class CodeActionDocuments
         return nested.Length == 0 ? [action] : nested.SelectMany(Flatten);
     }
 
-    public static async Task<Solution?> ApplyActionAsync(CodeAction action, CancellationToken cancellationToken)
+    public static async Task<CodeActionApplyResult> ApplyActionAsync(CodeAction action, CancellationToken cancellationToken)
     {
         try
         {
             var operations = await action.GetOperationsAsync(cancellationToken).ConfigureAwait(false);
-            return operations.OfType<ApplyChangesOperation>().FirstOrDefault()?.ChangedSolution;
+            return new CodeActionApplyResult(
+                operations.OfType<ApplyChangesOperation>().FirstOrDefault()?.ChangedSolution,
+                ProviderExceptionType: null);
         }
-        catch (Exception)
+        catch (OperationCanceledException)
         {
-            return null;
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new CodeActionApplyResult(null, ex.GetType().Name);
         }
     }
 

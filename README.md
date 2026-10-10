@@ -86,6 +86,8 @@ Typical agent loop: `workspace_open` (returns immediately) → poll `workspace_s
 
 `diagnostics_list_fixes` and `symbol_list_refactorings` return `epoch`. `fixIndex` and `refactoringIndex` are valid only for that epoch. After it advances, preview fails with `FixListEpochMismatch` or `RefactoringListEpochMismatch` instead of selecting another action.
 
+If a code-action provider throws, `diagnostics_preview_fix` and `symbol_preview_refactoring` still return `FixApplyFailed` or `RefactoringApplyFailed`, but the message says the provider threw. That is not the same as a fix that produced no handwritten change. Fix all stops with `FixApplyFailed` instead of skipping that occurrence.
+
 `project_diagnostics` without `projectId` reports a failed project as `error` plus `suggestedAction`, not as a `Severity=Error` diagnostic. Do not pass that row to `diagnostics_list_fixes`.
 
 An empty or whitespace `path` to `workspace_open` or an XAML tool is an empty-path error (`InvalidWorkspacePath` or `XamlDocumentNotFound`), not `PathOutsideTrustedRoots`.

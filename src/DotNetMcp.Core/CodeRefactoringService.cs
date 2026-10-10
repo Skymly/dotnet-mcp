@@ -67,7 +67,15 @@ public sealed class CodeRefactoringService
         }
 
         var chosen = actions[refactoringIndex];
-        var changed = await CodeActionDocuments.ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
+        var applied = await CodeActionDocuments.ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
+        if (applied.ProviderExceptionType is not null)
+        {
+            return (null, new RefactoringApplyFailedError(
+                $"Code Refactoring '{chosen.Title}' failed because the provider threw {applied.ProviderExceptionType}.",
+                "Pick another refactoringIndex from symbol_list_refactorings, or change the code without this tool."));
+        }
+
+        var changed = applied.Solution;
         var (slices, sliceError) = await CodeActionDocuments.ToHandwrittenSlicesAsync(
                 session.Solution,
                 changed,
