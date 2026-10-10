@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- symbol_preview_rename on an F# handle reports an F# identifier error instead of telling the caller to pass a C# identifier (`#449`)
 - Tests: a MAUI .xaml disk edit advances the workspace epoch, and xaml_diagnostics reads the new text (`#447`)
 - XAML diagnostics classify language elements and x:Name by the XAML namespace, not the literal prefix x (`#445`)
 - workspace_open keeps errorCode from the status payload instead of dropping it (`#441`)

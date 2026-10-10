@@ -244,28 +244,14 @@ public sealed class LanguageAdapters
             adapter => adapter.FindReferencesAsync(
                 session, handle, entireSolution, limit, cursor, softBudget, cancellationToken));
 
-    public async Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
+    public Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
         IWorkspaceSession session,
         string handle,
         string newName,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(newName) || newName.IndexOfAny(['.', ' ', '\t']) >= 0)
-        {
-            return (null, new InvalidRenameNameError(
-                "New name must be a single identifier.",
-                "Pass a C# identifier (no qualification) as newName."));
-        }
-
-        if (!TryGetForHandle(handle, out var adapter, out var error))
-        {
-            return (null, error);
-        }
-
-        return await adapter
-            .BuildRenamePreviewAsync(session, handle, newName, cancellationToken)
-            .ConfigureAwait(false);
-    }
+        CancellationToken cancellationToken = default) =>
+        Dispatch(
+            handle,
+            adapter => adapter.BuildRenamePreviewAsync(session, handle, newName, cancellationToken));
 
     private Task<(T? Success, SymbolQueryError? Error)> Dispatch<T>(
         string handle,
