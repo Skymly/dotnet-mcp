@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- diagnostics_list_fixes keeps same-title fixes from different providers when the equivalence key is empty, in an order that does not depend on assembly type enumeration (`#435`)
 - diagnostics_preview_fix, symbol_preview_refactoring, and Fix all report a provider exception separately from a fix that produced no handwritten change (`#433`)
 - Startup accepts `--roots=path` the same way as `--roots path`, rejects an empty roots value, and exits 1 with one JSON error line instead of a stack trace (`#431`)
 - Dispose waits for an in-flight drift check or declared-path write before disposing the write lock, so shutdown does not surface ObjectDisposedException (`#429`)

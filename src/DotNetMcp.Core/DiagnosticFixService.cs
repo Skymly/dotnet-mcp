@@ -381,13 +381,23 @@ public sealed class DiagnosticFixService
         return DiagnosticFixScopes.Occurrence;
     }
 
-    private static async Task<IReadOnlyList<CodeAction>> CollectActionsAsync(
+    private static Task<IReadOnlyList<CodeAction>> CollectActionsAsync(
         Document document,
         Diagnostic diagnostic,
+        CancellationToken cancellationToken) =>
+        CollectActionsAsync(
+            document,
+            diagnostic,
+            CodeActionDocuments.GetProviders<CodeFixProvider>(document.Project.Language),
+            cancellationToken);
+
+    internal static async Task<IReadOnlyList<CodeAction>> CollectActionsAsync(
+        Document document,
+        Diagnostic diagnostic,
+        IReadOnlyList<CodeFixProvider> providers,
         CancellationToken cancellationToken)
     {
-        var providers = CodeActionDocuments.GetProviders<CodeFixProvider>(document.Project.Language);
-        var actions = new List<CodeAction>();
+        var tagged = new List<(string ProviderId, CodeAction Action)>();
         foreach (var provider in providers)
         {
             if (!provider.FixableDiagnosticIds.Contains(diagnostic.Id))
@@ -395,12 +405,19 @@ public sealed class DiagnosticFixService
                 continue;
             }
 
+            var providerId = provider.GetType().FullName ?? provider.GetType().Name;
             try
             {
                 var context = new CodeFixContext(
                     document,
                     diagnostic,
-                    (action, _) => actions.AddRange(CodeActionDocuments.Flatten(action)),
+                    (action, _) =>
+                    {
+                        foreach (var flat in CodeActionDocuments.Flatten(action))
+                        {
+                            tagged.Add((providerId, flat));
+                        }
+                    },
                     cancellationToken);
                 await provider.RegisterCodeFixesAsync(context).ConfigureAwait(false);
             }
@@ -410,10 +427,12 @@ public sealed class DiagnosticFixService
             }
         }
 
-        return actions
-            .DistinctBy(a => (a.Title, a.EquivalenceKey))
-            .OrderBy(a => a.Title, StringComparer.Ordinal)
-            .ThenBy(a => a.EquivalenceKey ?? string.Empty, StringComparer.Ordinal)
+        return tagged
+            .DistinctBy(item => (item.ProviderId, item.Action.Title, item.Action.EquivalenceKey))
+            .OrderBy(item => item.Action.Title, StringComparer.Ordinal)
+            .ThenBy(item => item.Action.EquivalenceKey ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(item => item.ProviderId, StringComparer.Ordinal)
+            .Select(item => item.Action)
             .ToArray();
     }
 
