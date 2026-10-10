@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Bench symbol guess no longer calls workspace_list_projects and discards the result (`#475`)
 - Tests: tool annotations come from tools/list, and the CI version gate matches the C# package identity gate (`#473`)
 - Tests: README tables, install paths, and the SDK feature band are parsed instead of matched as loose text (`#471`)
 - Tests: success payloads deserialize by field, and a resolved XAML binding is absent from a complete diagnostics page (`#469`)
