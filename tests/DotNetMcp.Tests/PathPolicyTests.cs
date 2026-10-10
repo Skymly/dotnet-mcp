@@ -83,14 +83,9 @@ public class PathPolicyTests
         }
     }
 
-    [Fact]
+    [WindowsFact]
     public void extended_prefix_path_matches_same_local_root_on_windows()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var root = CreateTempDir("ext");
         var inside = Path.Combine(root, "a.txt");
         File.WriteAllText(inside, "x");
@@ -127,14 +122,9 @@ public class PathPolicyTests
         }
     }
 
-    [Fact]
+    [WindowsFact]
     public void windows_dot_dot_space_segment_does_not_escape_trusted_root()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var root = CreateTempDir("ddspace");
         var parent = Path.GetDirectoryName(root)!;
         var outside = Path.Combine(parent, $"evil-{Guid.NewGuid():N}.sln");
@@ -182,14 +172,9 @@ public class PathPolicyTests
         }
     }
 
-    [Fact]
+    [WindowsFact]
     public void windows_trailing_dot_or_space_contains_does_not_escape_root()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var root = CreateTempDir("trail");
         var inside = Path.Combine(root, "a.txt");
         File.WriteAllText(inside, "x");
@@ -212,6 +197,135 @@ public class PathPolicyTests
         }
     }
 
+    [UnixFact]
+    public void unix_root_normalize_does_not_become_empty()
+    {
+        var normalized = PathPolicy.Normalize("/");
+        Assert.False(string.IsNullOrEmpty(normalized));
+        Assert.Equal("/", normalized);
+        Assert.True(PathPolicy.IsUnderRoot("/tmp", normalized));
+        Assert.True(PathPolicy.IsUnderRoot(normalized, normalized));
+    }
+
+    [Fact]
+    public void volume_root_normalize_keeps_the_root_separator()
+    {
+        var root = Path.GetPathRoot(Path.GetFullPath(Path.GetTempPath()));
+        Assert.False(string.IsNullOrEmpty(root));
+        var normalized = PathPolicy.Normalize(root!);
+        Assert.False(string.IsNullOrEmpty(normalized));
+        Assert.EndsWith(Path.DirectorySeparatorChar.ToString(), normalized);
+        Assert.True(PathPolicy.IsUnderRoot(normalized, normalized));
+    }
+
+    [WindowsFact]
+    public void junction_to_outside_directory_is_not_inside_the_trusted_root()
+    {
+        var root = CreateTempDir("jroot");
+        var outside = CreateTempDir("jout");
+        var secret = Path.Combine(outside, "secret.txt");
+        File.WriteAllText(secret, "OUTSIDE");
+        var link = Path.Combine(root, "link");
+        CreateJunction(link, outside);
+
+        try
+        {
+            var through = Path.Combine(link, "secret.txt");
+            Assert.True(File.Exists(through));
+            Assert.Equal(PathPolicy.Normalize(secret), PathPolicy.Normalize(through));
+            Assert.False(TrustedRoots.Create([root]).Contains(through));
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(link))
+                {
+                    Directory.Delete(link, recursive: false);
+                }
+            }
+            catch
+            {
+            }
+
+            TryDelete(root);
+            TryDelete(outside);
+        }
+    }
+
+    [WindowsFact]
+    public void windows_case_difference_stays_inside_trusted_root()
+    {
+        var root = CreateTempDir("case");
+        var file = Path.Combine(root, "Widget.cs");
+        File.WriteAllText(file, "x");
+
+        try
+        {
+            var flipped = FlipLetterCase(file);
+            Assert.NotEqual(file, flipped);
+            var trusted = TrustedRoots.Create([root]);
+            Assert.True(trusted.Contains(flipped));
+            Assert.True(trusted.Contains(FlipLetterCase(root)));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [WindowsFact]
+    public void extended_unc_prefix_normalizes_like_plain_unc()
+    {
+        const string plain = @"\\localhost\c$\Windows";
+        const string extended = @"\\?\UNC\localhost\c$\Windows";
+        Assert.True(Directory.Exists(plain), "Windows CI must expose \\\\localhost\\c$\\Windows.");
+
+        var fromPlain = PathPolicy.Normalize(plain);
+        var fromExtended = PathPolicy.Normalize(extended);
+        Assert.False(string.IsNullOrEmpty(fromExtended));
+        Assert.Equal(fromPlain, fromExtended);
+        Assert.False(fromExtended.StartsWith(@"\\?\", StringComparison.Ordinal));
+        Assert.True(TrustedRoots.Create([plain]).Contains(extended));
+    }
+
+    private static void CreateJunction(string link, string target)
+    {
+        using var process = new System.Diagnostics.Process();
+        process.StartInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            ArgumentList = { "/c", "mklink", "/J", link, target },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        process.Start();
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException("mklink /J failed: " + stdout + stderr);
+        }
+    }
+
+    private static string FlipLetterCase(string path)
+    {
+        var chars = path.ToCharArray();
+        var flipped = false;
+        for (var i = 0; i < chars.Length; i++)
+        {
+            if (char.IsLetter(chars[i]))
+            {
+                chars[i] = char.IsUpper(chars[i]) ? char.ToLowerInvariant(chars[i]) : char.ToUpperInvariant(chars[i]);
+                flipped = true;
+            }
+        }
+
+        Assert.True(flipped);
+        return new string(chars);
+    }
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-pp-{label}-{Guid.NewGuid():N}");
