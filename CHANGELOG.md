@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- workspace and XAML path tools share one PathOutsideTrustedRoots message and suggested action (`#439`)
 - Fix all says the document cap of 32 and the project application cap are fixed, instead of telling callers to raise a knob they cannot set (`#437`)
 - diagnostics_list_fixes keeps same-title fixes from different providers when the equivalence key is empty, in an order that does not depend on assembly type enumeration (`#435`)
 - diagnostics_preview_fix, symbol_preview_refactoring, and Fix all report a provider exception separately from a fix that produced no handwritten change (`#433`)

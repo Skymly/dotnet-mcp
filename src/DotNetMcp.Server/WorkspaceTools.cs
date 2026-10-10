@@ -41,15 +41,7 @@ public sealed class WorkspaceTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("workspace_open", path);
-            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
-                Message = "The requested path is outside the configured trusted roots and was rejected. " +
-                          "No target content is returned.",
-                SuggestedAction =
-                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
-                    "environment variable, then retry workspace_open with a path under that root."
-            });
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
         }
 
         string fullPath;
@@ -71,15 +63,7 @@ public sealed class WorkspaceTools
         if (!_trustedRoots.ContainsNormalized(fullPath))
         {
             _audit.PathPolicyDenied("workspace_open", path);
-            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
-                Message = "The requested path is outside the configured trusted roots and was rejected. " +
-                          "No target content is returned.",
-                SuggestedAction =
-                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
-                    "environment variable, then retry workspace_open with a path under that root."
-            });
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
         }
 
         if (!File.Exists(fullPath))
