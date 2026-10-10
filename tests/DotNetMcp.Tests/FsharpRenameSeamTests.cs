@@ -88,6 +88,64 @@ public class FsharpRenameSeamTests
         return ping.Handle;
     }
 
+    [Fact]
+    public async Task fsharp_rename_illegal_name_uses_fsharp_guidance_not_csharp()
+    {
+        var root = CreateTempDir("bad-name");
+        var solution = Path.Combine(root, "Mixed.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithFsharpSymbols(root));
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var handle = await ResolveFsharpPingAsync(fx);
+
+            var preview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?> { ["handle"] = handle, ["newName"] = "A.B" });
+            Assert.True(preview.IsError is true, InProcessMcpFixture.TextOf(preview));
+            var error = InProcessMcpFixture.Deserialize<PolicyErrorDto>(preview);
+            Assert.Equal(PolicyErrorCodes.InvalidRenameName, error.Error);
+            Assert.Contains("F#", error.SuggestedAction, StringComparison.Ordinal);
+            Assert.DoesNotContain("C#", error.SuggestedAction, StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task fsharp_rename_accepts_primed_identifier()
+    {
+        var root = CreateTempDir("primed");
+        var solution = Path.Combine(root, "Mixed.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithFsharpSymbols(root));
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var handle = await ResolveFsharpPingAsync(fx);
+
+            var preview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?> { ["handle"] = handle, ["newName"] = "ping'" });
+            Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
+            var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.Contains(body.Documents, d => d.NewText.Contains("ping'", StringComparison.Ordinal));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static string CreateTempDir(string prefix)
     {
         var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-fsr-" + prefix + "-" + Guid.NewGuid().ToString("N"));

@@ -125,20 +125,22 @@ public class LanguageAdaptersTests
     }
 
     [Fact]
-    public async Task build_rename_preview_rejects_illegal_name_before_selecting_adapter()
+    public async Task build_rename_preview_forwards_name_checks_to_the_owning_adapter()
     {
-        var csharpFake = new FakeAdapter(LanguageAdapters.CSharpLanguage, LanguageNames.CSharp);
-        var adapters = new LanguageAdapters([csharpFake]);
+        var fsharpFake = new FakeAdapter(LanguageAdapters.FSharpLanguage, LanguageNames.FSharp);
+        var adapters = new LanguageAdapters([fsharpFake]);
         using var workspace = CreateWorkspace(out _, out _);
         using var session = new FakeSession(workspace.CurrentSolution);
-        var handle = SymbolHandle.Create(LanguageAdapters.CSharpLanguage, "proj", "Ns.Type").Format();
+        var handle = SymbolHandle.Create(LanguageAdapters.FSharpLanguage, "proj", "Ns.Type").Format();
 
-        var (_, dotted) = await adapters.BuildRenamePreviewAsync(session, handle, "A.B");
-        var (_, blank) = await adapters.BuildRenamePreviewAsync(session, handle, " ");
+        var (dotted, dottedError) = await adapters.BuildRenamePreviewAsync(session, handle, "A.B");
+        var (primed, primedError) = await adapters.BuildRenamePreviewAsync(session, handle, "ping'");
 
-        Assert.IsType<InvalidRenameNameError>(dotted);
-        Assert.IsType<InvalidRenameNameError>(blank);
-        Assert.Equal(0, csharpFake.RenameCalls);
+        Assert.Null(dottedError);
+        Assert.Null(primedError);
+        Assert.Equal("A.B", dotted!.NewName);
+        Assert.Equal("ping'", primed!.NewName);
+        Assert.Equal(2, fsharpFake.RenameCalls);
     }
 
     [Fact]
