@@ -128,6 +128,67 @@ public class XamlWorkspaceSnapshotSeamTests
         }
     }
 
+    [Fact]
+    public async Task maui_xaml_disk_edit_advances_epoch_and_xaml_tools_see_new_text()
+    {
+        var root = CreateTempDir("maui-watch");
+        var solution = Path.Combine(root, "App.slnx");
+        var xaml = Path.Combine(root, "MainPage.xaml");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        await File.WriteAllTextAsync(xaml, """
+            <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                         xmlns:local="clr-namespace:MauiPage"
+                         x:Class="MauiPage.MainPage">
+                <Label Text="old" />
+            </ContentPage>
+            """);
+        var watcher = new ManualWorkspaceFileWatcher();
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TestTrustedRoots.Create(root),
+                FakeSolutionLoader.ImmediateWithMaui(),
+                new WorkspaceHostOptions
+                {
+                    Debounce = TimeSpan.Zero,
+                    FileWatcher = watcher
+                });
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var epochBefore = fx.WorkspaceHost.CurrentEpoch;
+
+            var before = await fx.Client.CallToolAsync(
+                "xaml_diagnostics",
+                new Dictionary<string, object?> { ["path"] = xaml });
+            Assert.True(before.IsError is not true, InProcessMcpFixture.TextOf(before));
+            var beforeBody = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(before);
+            Assert.DoesNotContain(beforeBody.Items, i => i.Message.Contains("DiskOnlyControl", StringComparison.Ordinal));
+
+            await File.WriteAllTextAsync(xaml, """
+                <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                             xmlns:local="clr-namespace:MauiPage"
+                             x:Class="MauiPage.MainPage">
+                    <local:DiskOnlyControl />
+                </ContentPage>
+                """);
+            watcher.Raise(xaml);
+            Assert.True(fx.WorkspaceHost.CurrentEpoch > epochBefore);
+
+            var after = await fx.Client.CallToolAsync(
+                "xaml_diagnostics",
+                new Dictionary<string, object?> { ["path"] = xaml });
+            Assert.True(after.IsError is not true, InProcessMcpFixture.TextOf(after));
+            var afterBody = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(after);
+            Assert.Contains(afterBody.Items, i => i.Id == "XAML0001" && i.Message.Contains("DiskOnlyControl", StringComparison.Ordinal));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-xaml-snap-{label}-{Guid.NewGuid():N}");

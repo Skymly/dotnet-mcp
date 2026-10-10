@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: a MAUI .xaml disk edit advances the workspace epoch, and xaml_diagnostics reads the new text (`#447`)
 - XAML diagnostics classify language elements and x:Name by the XAML namespace, not the literal prefix x (`#445`)
 - workspace_open keeps errorCode from the status payload instead of dropping it (`#441`)
 - workspace and XAML path tools share one PathOutsideTrustedRoots message and suggested action (`#439`)
