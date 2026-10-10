@@ -131,7 +131,13 @@ public sealed class DiagnosticFixService
         }
         else
         {
-            changed = await CodeActionDocuments.ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
+            var applied = await CodeActionDocuments.ApplyActionAsync(chosen, cancellationToken).ConfigureAwait(false);
+            if (applied.ProviderExceptionType is not null)
+            {
+                return (null, ProviderThrew(chosen.Title, applied.ProviderExceptionType));
+            }
+
+            changed = applied.Solution;
         }
 
         var (slices, sliceError) = await CodeActionDocuments.ToHandwrittenSlicesAsync(
@@ -458,7 +464,13 @@ public sealed class DiagnosticFixService
                 continue;
             }
 
-            var next = await CodeActionDocuments.ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
+            var actionResult = await CodeActionDocuments.ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
+            if (actionResult.ProviderExceptionType is not null)
+            {
+                return (null, ProviderThrew(match.Title, actionResult.ProviderExceptionType));
+            }
+
+            var next = actionResult.Solution;
             if (next is null)
             {
                 skipped.Add((nextOccurrence.Location.SourceSpan.Start, nextOccurrence.Location.SourceSpan.Length));
@@ -578,7 +590,13 @@ public sealed class DiagnosticFixService
                 continue;
             }
 
-            var next = await CodeActionDocuments.ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
+            var actionResult = await CodeActionDocuments.ApplyActionAsync(match, cancellationToken).ConfigureAwait(false);
+            if (actionResult.ProviderExceptionType is not null)
+            {
+                return (null, ProviderThrew(match.Title, actionResult.ProviderExceptionType));
+            }
+
+            var next = actionResult.Solution;
             if (next is null)
             {
                 skipped.Add((nextDoc.Id, nextOccurrence.Location.SourceSpan.Start, nextOccurrence.Location.SourceSpan.Length));
@@ -643,4 +661,9 @@ public sealed class DiagnosticFixService
 
         return false;
     }
+
+    private static FixApplyFailedError ProviderThrew(string title, string exceptionType) =>
+        new(
+            $"CodeFix '{title}' failed because the provider threw {exceptionType}.",
+            "Pick another fixIndex from diagnostics_list_fixes, or fix the code without this tool.");
 }
