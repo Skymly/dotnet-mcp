@@ -27,7 +27,7 @@ directly. Isolated microbenchmarks (handle parse, path policy) may be added late
 | Suite | Workspace | CI |
 |-------|-----------|----|
 | `smoke` | 2-project synthetic | Optional local; not in GitHub Actions |
-| `fixtures` | `tests/fixtures` SampleFilter + MixedWithFs + AvaloniaApp | Local default |
+| `fixtures` | `tests/fixtures` SampleFilter + MixedWithFs, plus a temporary XamlApp | Local default |
 | `synthetic` | Generated N×M C# graph | Local scaling curve |
 | `scale` | `DOTNET_MCP_BENCH_SOLUTION` or `--solution` (S2 used Observables.slnx) | Manual |
 
@@ -42,11 +42,13 @@ directly. Isolated microbenchmarks (handle parse, path policy) may be added late
 - Error code if the tool returned a policy error
 - Assigned Soft budget vs 60 s client hard top (ADR-0003)
 
-Cold vs warm: first post-load call is `*.cold`; repeats are `*.warm`.
+Warmup iterations are discarded and are not recorded as scenario ids. `--cold` deletes bin/obj before open; it is not a scenario id. Symbol resolve is recorded as `{workspace}.symbol.resolve.warm`.
 `workspace_open` is always measured as **return latency** (must stay non-blocking) and **ready latency**
 (status poll to `ready`).
 
 ## Scenario catalog
+
+Recorded ids are `{workspace}.` plus the suffix below. There is no `.cold` scenario id.
 
 ### Workspace
 
@@ -57,7 +59,7 @@ Cold vs warm: first post-load call is `*.cold`; repeats are `*.warm`.
 
 ### Symbol (C# / VB / F#)
 
-- `symbol.resolve.{cold,warm}`
+- `symbol.resolve.warm` (warmup calls are discarded; there is no separate cold id)
 - `symbol.summary` · `symbol.goto_definition` · `symbol.members` · `symbol.attribution`
 - `symbol.find_references.scoped` · `symbol.find_references.entire`
 - `symbol.find_callers` · `symbol.find_implementations` · `symbol.type_hierarchy`
