@@ -159,17 +159,22 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
                 $"Unsupported workspace path extension '{ext}'. Use .sln, .slnx, .slnf, or a project file.");
         }
 
+        await EnsureGraphOrDisposeAsync(loaded, _trustedRoots).ConfigureAwait(false);
+
+        return loaded;
+    }
+
+    internal static async Task EnsureGraphOrDisposeAsync(LoadedSolution loaded, TrustedRoots trustedRoots)
+    {
         try
         {
-            TrustedGraphGate.EnsureLoadedSolutionUnderRoots(loaded, _trustedRoots);
+            TrustedGraphGate.EnsureLoadedSolutionUnderRoots(loaded, trustedRoots);
         }
         catch
         {
             await loaded.DisposeAsync().ConfigureAwait(false);
             throw;
         }
-
-        return loaded;
     }
 
     private static MSBuildWorkspace CreateWorkspace(List<string> warnings)

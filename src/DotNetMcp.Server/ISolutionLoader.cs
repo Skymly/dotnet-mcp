@@ -233,8 +233,11 @@ public sealed class LoadedSolution : IAsyncDisposable
 
     public IReadOnlyCollection<string> TrackedProjectFilePaths => _projectFileMtimes.Keys;
 
+    internal bool IsDisposed { get; private set; }
+
     public ValueTask DisposeAsync()
     {
+        IsDisposed = true;
         if (_workspace is IDisposable disposable)
         {
             disposable.Dispose();
