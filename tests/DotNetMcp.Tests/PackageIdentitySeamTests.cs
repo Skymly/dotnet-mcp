@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 namespace DotNetMcp.Tests;
@@ -100,6 +101,29 @@ public class PackageIdentitySeamTests
             Assert.NotEqual(0, exit);
             Assert.Contains(csharp, output, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void readme_embed_and_mcp_name_match_package_identity()
+    {
+        var root = FindRepoRoot();
+        var readme = File.ReadAllText(Path.Combine(root, "README.md"));
+        var comment = Regex.Match(readme, @"<!--\s*mcp-name:\s*(\S+)\s*-->");
+        Assert.True(comment.Success, "README is missing the mcp-name comment.");
+
+        using var server = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "src", "DotNetMcp.Server", ".mcp", "server.json")));
+        Assert.Equal(server.RootElement.GetProperty("name").GetString(), comment.Groups[1].Value);
+
+        var csproj = File.ReadAllText(Path.Combine(root, "src", "DotNetMcp.Server", "DotNetMcp.Server.csproj"));
+        Assert.Contains("<PackageReadmeFile>README.md</PackageReadmeFile>", csproj, StringComparison.Ordinal);
+        Assert.Contains("<PackageId>Skymly.DotNetMcp</PackageId>", csproj, StringComparison.Ordinal);
+        Assert.Contains("<PackageType>McpServer</PackageType>", csproj, StringComparison.Ordinal);
+        Assert.Matches(
+            @"<None Include=""\.\.\\.\.\\README\.md"" Pack=""true"" PackagePath=""\\"" />",
+            csproj);
+        Assert.Matches(
+            @"<None Include=""\.mcp\\server\.json"" Pack=""true"" PackagePath=""\.mcp\\"" />",
+            csproj);
     }
 
     private static (int ExitCode, string Output) RunExtractedCiGate(string csproj, string serverJson, string changelog)
