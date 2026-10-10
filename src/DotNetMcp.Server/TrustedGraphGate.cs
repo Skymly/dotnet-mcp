@@ -28,7 +28,8 @@ public static class TrustedGraphGate
             if (!trustedRoots.Contains(projectPath))
             {
                 throw new LoadedGraphOutsideTrustedRootsException(
-                    $"{context}: a project path resolves outside the configured trusted roots and was rejected.");
+                    $"{context}: a project path resolves outside the configured trusted roots and was rejected.",
+                    projectPath);
             }
         }
     }
@@ -59,7 +60,8 @@ public static class TrustedGraphGate
                 if (!trustedRoots.Contains(document.FilePath!))
                 {
                     throw new LoadedGraphOutsideTrustedRootsException(
-                        "workspace_open: a document path resolves outside the configured trusted roots and was rejected.");
+                        "workspace_open: a document path resolves outside the configured trusted roots and was rejected.",
+                        document.FilePath!);
                 }
             }
         }
@@ -81,7 +83,8 @@ public static class TrustedGraphGate
                 }
 
                 throw new LoadedGraphOutsideTrustedRootsException(
-                    "workspace_open: an analyzer reference resolves outside the configured trusted roots and toolchain roots and was rejected.");
+                    "workspace_open: an analyzer reference resolves outside the configured trusted roots and toolchain roots and was rejected.",
+                    fullPath);
             }
         }
     }
@@ -120,7 +123,11 @@ public static class TrustedGraphGate
 
 public sealed class LoadedGraphOutsideTrustedRootsException : InvalidOperationException
 {
-    public LoadedGraphOutsideTrustedRootsException(string message) : base(message)
+    public LoadedGraphOutsideTrustedRootsException(string message, string path) : base(message)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        Path = path;
     }
+
+    public string Path { get; }
 }

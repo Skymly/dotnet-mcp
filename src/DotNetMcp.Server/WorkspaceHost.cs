@@ -63,6 +63,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private CompilationLru _compilationLru;
     private readonly TrustedRoots _trustedRoots;
     private readonly GeneratorQueryService? _generators;
+    private readonly IAuditLogger? _audit;
     private FSharpWorkspaceSnapshot? _fsharpSnapshot;
     private Solution? _publishedSolution;
     private volatile bool _disposed;
@@ -71,12 +72,14 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         ISolutionLoader loader,
         WorkspaceHostOptions options,
         TrustedRoots trustedRoots,
-        GeneratorQueryService? generators = null)
+        GeneratorQueryService? generators = null,
+        IAuditLogger? auditLogger = null)
     {
         _loader = loader;
         _options = options;
         _trustedRoots = trustedRoots ?? throw new ArgumentNullException(nameof(trustedRoots));
         _generators = generators;
+        _audit = auditLogger;
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
         if (_options.FileWatcher is not null)
         {
@@ -307,7 +310,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 return FailWrite(
                     PolicyErrorCodes.PathOutsideTrustedRoots,
                     "A preview document is outside trusted roots; nothing was written.",
-                    "Re-open the workspace under a trusted root that contains every preview path.");
+                    "Re-open the workspace under a trusted root that contains every preview path.",
+                    document.Path);
             }
 
             if (!TryReadSnapshotText(loaded, fsharp, document.Path, out var snapshotText)
@@ -361,7 +365,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 return FailWrite(
                     PolicyErrorCodes.PathOutsideTrustedRoots,
                     "A preview document path could not be canonicalized; nothing was written.",
-                    "Call the matching preview tool again on the current snapshot under a trusted root.");
+                    "Call the matching preview tool again on the current snapshot under a trusted root.",
+                    document.Path);
             }
 
             if (!_trustedRoots.ContainsNormalized(finalPath))
@@ -369,7 +374,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 return FailWrite(
                     PolicyErrorCodes.PathOutsideTrustedRoots,
                     "A preview document resolves outside trusted roots; nothing was written.",
-                    "Re-open the workspace under a trusted root that contains every preview path.");
+                    "Re-open the workspace under a trusted root that contains every preview path.",
+                    finalPath);
             }
 
             prepared.Add((document, finalPath, encoding));
@@ -436,8 +442,13 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
     }
 
-    private static WorkspaceEditOutcome<long> FailWrite(string error, string message, string suggested) =>
-        new(
+    private static WorkspaceEditOutcome<long> FailWrite(
+        string error,
+        string message,
+        string suggested,
+        string? deniedPath = null)
+    {
+        var outcome = new WorkspaceEditOutcome<long>(
             0,
             new PolicyErrorDto
             {
@@ -445,6 +456,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 Message = message,
                 SuggestedAction = suggested
             });
+        return deniedPath is null ? outcome : outcome with { DeniedPath = deniedPath };
+    }
 
     private static bool TryReadSnapshotText(
         LoadedSolution loaded,
@@ -1016,6 +1029,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
         catch (Exception ex)
         {
+            string? deniedPath = null;
             lock (_gate)
             {
                 if (generation == _generation)
@@ -1027,7 +1041,16 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                         : null;
                     _elapsed.Stop();
                     _estimatedRemainingMs = 0;
+                    if (ex is LoadedGraphOutsideTrustedRootsException graph)
+                    {
+                        deniedPath = graph.Path;
+                    }
                 }
+            }
+
+            if (deniedPath is not null)
+            {
+                _audit?.PathPolicyDenied("workspace_open", deniedPath);
             }
         }
         finally
