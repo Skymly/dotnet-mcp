@@ -935,7 +935,7 @@ public sealed class XamlDocumentService
                             session, prefix, local, xmlns, projectId, cancellationToken)
                         .ConfigureAwait(false);
                 if (elementType is null &&
-                    !IsLanguageElement(prefix, local) &&
+                    !IsXamlNamespace(reader.NamespaceURI) &&
                     !IsPropertyElementName(local) &&
                     !unprefixedWindow)
                 {
@@ -948,7 +948,7 @@ public sealed class XamlDocumentService
                 {
                     do
                     {
-                        if (string.Equals(reader.Prefix, "x", StringComparison.Ordinal) &&
+                        if (IsXamlNamespace(reader.NamespaceURI) &&
                             string.Equals(reader.LocalName, "Name", StringComparison.Ordinal) &&
                             classType is not null &&
                             !string.IsNullOrWhiteSpace(reader.Value))
@@ -963,7 +963,7 @@ public sealed class XamlDocumentService
                             }
                         }
 
-                        if (IsSkippableAttribute(reader.Prefix, reader.LocalName, reader.Name))
+                        if (IsSkippableAttribute(reader.Prefix, reader.NamespaceURI, reader.Name))
                         {
                             continue;
                         }
@@ -1079,8 +1079,8 @@ public sealed class XamlDocumentService
         return false;
     }
 
-    private static bool IsLanguageElement(string prefix, string local) =>
-        string.Equals(prefix, "x", StringComparison.Ordinal);
+    private static bool IsXamlNamespace(string namespaceUri) =>
+        string.Equals(namespaceUri, XamlXmlns.Xaml, StringComparison.Ordinal);
 
     private static bool IsPropertyElementName(string localName) =>
         localName.Contains('.', StringComparison.Ordinal);
@@ -1089,9 +1089,9 @@ public sealed class XamlDocumentService
         localName.Contains('.', StringComparison.Ordinal) ||
         qualifiedName.Contains('.', StringComparison.Ordinal);
 
-    private static bool IsSkippableAttribute(string prefix, string local, string name) =>
+    private static bool IsSkippableAttribute(string prefix, string namespaceUri, string name) =>
         name.StartsWith("xmlns", StringComparison.Ordinal) ||
-        string.Equals(prefix, "x", StringComparison.Ordinal) ||
+        IsXamlNamespace(namespaceUri) ||
         string.Equals(prefix, "xml", StringComparison.Ordinal);
 
     private static bool LooksLikeBinding(string value) =>
