@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Docs: --roots and DOTNET_MCP_TRUSTED_ROOTS form a union when both are set (`#459`)
 - Tests: the production audit logger omits file contents, honors a disabled audit switch, and is what startup registers from DOTNET_MCP_AUDIT (`#457`)
 - A rejected loaded project graph disposes the workspace instead of leaving it open (`#455`)
 - Tests: path-policy guards cover the Unix root, Windows junctions, case differences, and the extended UNC prefix, and skip on the wrong OS instead of passing silently (`#453`)
