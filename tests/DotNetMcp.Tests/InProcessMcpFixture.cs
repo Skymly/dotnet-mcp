@@ -49,8 +49,14 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
         IAuditLogger? auditLogger,
         Action<IMcpServerBuilder>? configure)
     {
+        if (trustedRoots is null)
+        {
+            throw new InvalidOperationException(
+                "Trusted roots are required. Pass an explicit TrustedRoots; the process working directory is not an implicit root.");
+        }
+
         Pipe clientToServer = new(), serverToClient = new();
-        var roots = trustedRoots ?? TrustedRoots.Create([Directory.GetCurrentDirectory()]);
+        var roots = trustedRoots;
         var taskStore = new InMemoryMcpTaskStore { DefaultPollIntervalMs = 250 };
 
         var services = new ServiceCollection();
@@ -86,7 +92,7 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
     /// </summary>
     public static InProcessMcpFixture CreateWithCancelProbe() =>
         new(
-            trustedRoots: null,
+            trustedRoots: TrustedRoots.Create([Path.GetTempPath()]),
             solutionLoader: null,
             workspaceHostOptions: null,
             softBudgetOptions: null,

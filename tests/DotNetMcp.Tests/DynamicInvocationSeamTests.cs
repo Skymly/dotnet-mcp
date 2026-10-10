@@ -74,7 +74,7 @@ public class DynamicInvocationSeamTests
     [Fact]
     public async Task tool_surface_includes_dynamic_invocations()
     {
-        await using var fx = new InProcessMcpFixture();
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var tools = await fx.Client.ListToolsAsync();
         Assert.Contains(tools, t => t.Name == "project_list_dynamic_invocations");
     }
