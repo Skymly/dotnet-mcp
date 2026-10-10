@@ -351,7 +351,10 @@ public sealed record WorkspaceCheckDriftResultDto
     public required string SuggestedAction { get; init; }
 }
 
-/// <summary> Backward-compatible alias used by older tests / call sites. </summary>
+/// <summary>
+/// Production payload for workspace_open. Mapped from WorkspaceStatusDto,
+/// including ErrorCode when the open fails before the background load.
+/// </summary>
 public sealed record WorkspaceOpenResultDto
 {
     public required string Phase { get; init; }
@@ -363,6 +366,7 @@ public sealed record WorkspaceOpenResultDto
     public long EstimatedRemainingMs { get; init; }
     public IReadOnlyList<string>? Warnings { get; init; }
     public string? Error { get; init; }
+    public string? ErrorCode { get; init; }
 
     public static WorkspaceOpenResultDto FromStatus(WorkspaceStatusDto status) => new()
     {
@@ -374,7 +378,8 @@ public sealed record WorkspaceOpenResultDto
         ElapsedMs = status.ElapsedMs,
         EstimatedRemainingMs = status.EstimatedRemainingMs,
         Warnings = status.Warnings,
-        Error = status.Error
+        Error = status.Error,
+        ErrorCode = status.ErrorCode
     };
 }
 

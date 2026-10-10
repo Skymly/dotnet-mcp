@@ -1,12 +1,12 @@
 namespace DotNetMcp.Tests;
 
 /// <summary>
-/// Snapshot / guard for the tool surface (ADR-0004 §3): read tools + explicit rename + Diagnostic fix + Code Refactoring.
+/// Tool-surface guard (ADR-0004 §3). The allowlist equality assertion is the gate. The name-fragment checks are auxiliary and do not by themselves block a new tool.
 /// </summary>
 public class ToolSurfaceGuardTests
 {
     /// <summary>
-    /// Canonical allowlist. Update deliberately when adding tools.
+    /// Canonical allowlist. Full-set equality is the gate; update it deliberately when adding a tool.
     /// </summary>
     private static readonly string[] AllowedToolNames =
     [
@@ -43,6 +43,9 @@ public class ToolSurfaceGuardTests
         "xaml_resolve_name"
     ];
 
+    /// <summary>
+    /// Auxiliary denylist. A new tool whose name avoids these fragments still fails the allowlist equality.
+    /// </summary>
     private static readonly string[] ForbiddenNameFragments =
     [
         "write",
@@ -61,7 +64,7 @@ public class ToolSurfaceGuardTests
     ];
 
     [Fact]
-    public async Task tool_surface_matches_readonly_allowlist_snapshot()
+    public async Task tool_surface_matches_allowlist_exactly()
     {
         await using var fx = new InProcessMcpFixture();
         var tools = await fx.Client.ListToolsAsync();
@@ -71,7 +74,7 @@ public class ToolSurfaceGuardTests
     }
 
     [Fact]
-    public async Task tool_surface_has_no_write_command_or_network_tools()
+    public async Task tool_surface_substring_denylist_is_auxiliary()
     {
         await using var fx = new InProcessMcpFixture();
         var tools = await fx.Client.ListToolsAsync();

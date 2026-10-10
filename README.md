@@ -91,6 +91,7 @@ If a code-action provider throws, `diagnostics_preview_fix` and `symbol_preview_
 `project_diagnostics` without `projectId` reports a failed project as `error` plus `suggestedAction`, not as a `Severity=Error` diagnostic. Do not pass that row to `diagnostics_list_fixes`.
 
 An empty or whitespace `path` to `workspace_open` or an XAML tool is an empty-path error (`InvalidWorkspacePath` or `XamlDocumentNotFound`), not `PathOutsideTrustedRoots`.
+`workspace_open` returns the same progress fields as `workspace_status`, including `errorCode` when the open fails before the background load. A null `errorCode` is omitted.
 
 ## Security
 
