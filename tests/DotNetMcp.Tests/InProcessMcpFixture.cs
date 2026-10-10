@@ -60,7 +60,7 @@ public sealed class InProcessMcpFixture : IAsyncDisposable
             solutionLoader,
             workspaceHostOptions,
             softBudgetOptions ?? SoftBudgetOptions.Default,
-            auditOptions ?? AuditOptions.Default,
+            auditOptions,
             auditLogger);
 
         var mcp = services.AddMcpServer()
