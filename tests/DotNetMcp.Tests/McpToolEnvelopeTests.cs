@@ -9,13 +9,16 @@ namespace DotNetMcp.Tests;
 public class McpToolEnvelopeTests
 {
     [Fact]
-    public void ok_result_is_not_error_and_json_contains_payload()
+    public void ok_result_deserializes_payload_fields()
     {
-        var result = McpToolEnvelope.OkResult(new { handle = "S:Widget" });
+        var result = McpToolEnvelope.OkResult(new { handle = "S:Widget", epoch = 3 });
 
         Assert.True(result.IsError is not true);
         var block = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
-        Assert.Contains("S:Widget", block.Text, StringComparison.Ordinal);
+        var parsed = JsonSerializer.Deserialize<OkPayload>(block.Text, JsonOptions.Default);
+        Assert.NotNull(parsed);
+        Assert.Equal("S:Widget", parsed.Handle);
+        Assert.Equal(3, parsed.Epoch);
     }
 
     [Fact]
@@ -47,5 +50,11 @@ public class McpToolEnvelopeTests
 
         Assert.Equal(SymbolQueryErrorCodes.InvalidSymbolHandle, symbolDto.Error);
         Assert.Equal(XamlQueryErrorCodes.MissingXamlClass, xamlDto.Error);
+    }
+
+    private sealed class OkPayload
+    {
+        public string? Handle { get; set; }
+        public int Epoch { get; set; }
     }
 }

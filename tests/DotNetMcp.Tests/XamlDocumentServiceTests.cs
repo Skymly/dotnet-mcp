@@ -425,6 +425,11 @@ public class XamlDocumentServiceTests
         Assert.Null(xamlError);
         Assert.Null(symbolError);
         Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        Assert.Null(page.NextCursor);
+        Assert.DoesNotContain(page.Items, i =>
+            i.Message.Contains("Home.City", StringComparison.Ordinal) ||
+            i.Message.Contains("Customer", StringComparison.Ordinal));
     }
 
     [Fact]
