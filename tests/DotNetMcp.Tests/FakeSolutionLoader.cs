@@ -549,17 +549,35 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         IProgress<LoadProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        progress?.Report(new LoadProgress(0, 2));
+        EnsureWorkspaceExtension(path);
+        progress?.Report(new LoadProgress(0, 1));
         if (_delay > TimeSpan.Zero)
         {
             await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        progress?.Report(new LoadProgress(1, 2));
         var loaded = AttachWorkspaceXamlDocuments(_factory(), path);
-        progress?.Report(new LoadProgress(2, 2));
+        var count = Math.Max(1, loaded.Solution.ProjectIds.Count);
+        progress?.Report(new LoadProgress(count, count));
         return loaded;
+    }
+
+    private static void EnsureWorkspaceExtension(string path)
+    {
+        var ext = Path.GetExtension(path);
+        if (ext.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
+            ext.Equals(".slnx", StringComparison.OrdinalIgnoreCase) ||
+            ext.Equals(".slnf", StringComparison.OrdinalIgnoreCase) ||
+            ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
+            ext.Equals(".vbproj", StringComparison.OrdinalIgnoreCase) ||
+            ext.Equals(".fsproj", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        throw new InvalidDataException(
+            $"Unsupported workspace path extension '{ext}'. Use .sln, .slnx, .slnf, or a project file.");
     }
 
     public static LoadedSolution CreateMultiTfmLoaded(string projectFilePath)
