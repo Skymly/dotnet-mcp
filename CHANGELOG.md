@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: the stdio smoke calls workspace_status and reads a WorkspaceNotReady error envelope (`#467`)
 - Tests: single-TFM projects report TargetFramework, and temp-directory cleanup failures fail the test (`#465`)
 - Tests: the in-process fixture requires an explicit trusted root and no longer treats the process working directory as one (`#463`)
 - Tests: workspace status keeps loader warnings, reports load units and remaining time, and rejects an unsupported workspace extension (`#461`)
