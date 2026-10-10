@@ -22,6 +22,17 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
     internal bool ApplyChangedPathsWaitingForWriteLockForTests =>
         Volatile.Read(ref _applyChangedPathsWaiting) != 0;
+
+    private int _disposeWaitingForWriteLock;
+    private int _writeLockOrder;
+
+    internal bool DisposeWaitingForWriteLockForTests =>
+        Volatile.Read(ref _disposeWaitingForWriteLock) != 0;
+
+    internal int LastWriteReleaseOrderForTests { get; private set; }
+
+    internal int DisposeWriteAcquireOrderForTests { get; private set; }
+
     private readonly object _gate = new();
     private readonly object _debounceGate = new();
 
@@ -253,14 +264,18 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     public WorkspaceEditOutcome<long> WriteDeclaredPaths(IReadOnlyList<WorkspaceEditDocument> documents)
     {
         ArgumentNullException.ThrowIfNull(documents);
-        _writeMutex.Wait();
+        if (!TryEnterWriteLock())
+        {
+            return WriteNotReady();
+        }
+
         try
         {
             return WriteDeclaredPathsUnlocked(documents);
         }
         finally
         {
-            _writeMutex.Release();
+            ReleaseWriteLock();
         }
     }
 
@@ -527,14 +542,18 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     /// </summary>
     public WorkspaceCheckDriftResultDto CheckDrift()
     {
-        _writeMutex.Wait();
+        if (!TryEnterWriteLock())
+        {
+            return DriftNotReady();
+        }
+
         try
         {
             return CheckDriftWhileWriteLocked();
         }
         finally
         {
-            _writeMutex.Release();
+            ReleaseWriteLock();
         }
     }
 
@@ -686,22 +705,31 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
 
         Interlocked.Increment(ref _applyChangedPathsWaiting);
+        var acquired = false;
         try
         {
-            _writeMutex.Wait();
+            acquired = TryEnterWriteLock();
         }
         finally
         {
             Interlocked.Decrement(ref _applyChangedPathsWaiting);
         }
 
+        if (!acquired)
+        {
+            return;
+        }
+
         try
         {
-            ApplyChangedSourceTexts(filtered);
+            if (!_disposed)
+            {
+                ApplyChangedSourceTexts(filtered);
+            }
         }
         finally
         {
-            _writeMutex.Release();
+            ReleaseWriteLock();
         }
     }
 
@@ -1400,6 +1428,10 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
         }
 
+        // Join the in-flight write holder before tearing down the solution or the mutex.
+        // New callers already see _disposed and return a not-ready result instead of waiting.
+        await DrainWriteLockAsync().ConfigureAwait(false);
+
         LoadedSolution? loaded;
         lock (_gate)
         {
@@ -1423,6 +1455,80 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         _loadMutex.Dispose();
         _writeMutex.Dispose();
     }
+
+    private bool TryEnterWriteLock()
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        try
+        {
+            _writeMutex.Wait();
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+
+        if (_disposed)
+        {
+            ReleaseWriteLock();
+            return false;
+        }
+
+        return true;
+    }
+
+    private void ReleaseWriteLock()
+    {
+        try
+        {
+            _writeMutex.Release();
+            LastWriteReleaseOrderForTests = Interlocked.Increment(ref _writeLockOrder);
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private async ValueTask DrainWriteLockAsync()
+    {
+        Volatile.Write(ref _disposeWaitingForWriteLock, 1);
+        try
+        {
+            await _writeMutex.WaitAsync().ConfigureAwait(false);
+            DisposeWriteAcquireOrderForTests = Interlocked.Increment(ref _writeLockOrder);
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            Volatile.Write(ref _disposeWaitingForWriteLock, 0);
+        }
+    }
+
+    private WorkspaceCheckDriftResultDto DriftNotReady()
+    {
+        lock (_gate)
+        {
+            return new WorkspaceCheckDriftResultDto
+            {
+                Epoch = _epoch,
+                Drifted = [],
+                SuggestedAction =
+                    "Call workspace_status until phase is ready, then retry workspace_check_drift."
+            };
+        }
+    }
+
+    private static WorkspaceEditOutcome<long> WriteNotReady() =>
+        FailWrite(
+            PolicyErrorCodes.WorkspaceNotReady,
+            "Workspace is not ready; apply did not write.",
+            "Call workspace_status until ready, then preview and apply again.");
 }
 
 
