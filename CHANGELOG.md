@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- XAML diagnostics classify language elements and x:Name by the XAML namespace, not the literal prefix x (`#445`)
 - workspace_open keeps errorCode from the status payload instead of dropping it (`#441`)
 - workspace and XAML path tools share one PathOutsideTrustedRoots message and suggested action (`#439`)
 - Fix all says the document cap of 32 and the project application cap are fixed, instead of telling callers to raise a knob they cannot set (`#437`)
