@@ -474,9 +474,6 @@ internal static class Suites
     {
         foreach (var project in workspace.Projects.Where(p => p.Language == "csharp").Take(8))
         {
-            var members = await workspace.Host.CallAsync(
-                "workspace_list_projects").ConfigureAwait(false);
-            _ = members;
             var name = project.Name.Split('(')[0].Trim();
             if (string.IsNullOrWhiteSpace(name))
             {
