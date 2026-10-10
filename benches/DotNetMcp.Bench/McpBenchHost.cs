@@ -102,8 +102,6 @@ internal static class FixturePaths
 
     public static string SampleSlnx => Path.Combine(Root, "SampleFilter", "Sample.slnx");
     public static string MixedWithFsSlnx => Path.Combine(Root, "MixedCsharpVb", "MixedWithFs.slnx");
-    public static string AvaloniaProject => Path.Combine(Root, "AvaloniaApp", "AvaloniaApp.csproj");
-    public static string AvaloniaMainWindow => Path.Combine(Root, "AvaloniaApp", "MainWindow.axaml");
 }
 
 internal static class BudgetClass

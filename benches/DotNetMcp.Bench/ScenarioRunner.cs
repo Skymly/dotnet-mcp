@@ -297,8 +297,10 @@ internal sealed class ScenarioRunner
 
         AddGate(
             "under-client-timeout",
-            _report.Scenarios.All(s => s.ElapsedMs.P95 < 60_000),
-            "No scenario p95 may reach the common 60s tools/call hard top.");
+            _report.Scenarios
+                .Where(s => s.BudgetClass != BudgetClass.OpenReady)
+                .All(s => s.ElapsedMs.P95 < 60_000),
+            "No single tools/call p95 may reach 60s. open.ready is the cumulative status poll and is exempt.");
 
         var requiredErrors = _report.Scenarios
             .Where(s => s.Required && !string.IsNullOrWhiteSpace(s.Error))
