@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Startup accepts `--roots=path` the same way as `--roots path`, rejects an empty roots value, and exits 1 with one JSON error line instead of a stack trace (`#431`)
 - Dispose waits for an in-flight drift check or declared-path write before disposing the write lock, so shutdown does not surface ObjectDisposedException (`#429`)
 - C# and VB rename rejects an illegal identifier with InvalidRenameName instead of previewing invalid source (`#292`)
 - The changelog preface no longer claims every published heading has a matching vMAJOR.MINOR.PATCH tag (`#422`)

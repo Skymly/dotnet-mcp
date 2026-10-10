@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotNetMcp.Core;
 using DotNetMcp.FSharp;
 using DotNetMcp.Xaml;
@@ -69,7 +70,16 @@ public static class ServerHost
 
     public static async Task<int> RunAsync(string[] args)
     {
-        var trustedRoots = TrustedRoots.FromStartup(args);
+        TrustedRoots trustedRoots;
+        try
+        {
+            trustedRoots = TrustedRoots.FromStartup(args);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            WriteStartupConfigurationError(ex);
+            return 1;
+        }
         var builder = Host.CreateApplicationBuilder(args);
 
         builder.Logging.AddConsole(options =>
@@ -88,5 +98,17 @@ public static class ServerHost
 
         await builder.Build().RunAsync().ConfigureAwait(false);
         return 0;
+    }
+
+    private static void WriteStartupConfigurationError(Exception ex)
+    {
+        var error = new PolicyErrorDto
+        {
+            Error = PolicyErrorCodes.TrustedRootsConfigurationFailed,
+            Message = ex.Message,
+            SuggestedAction =
+                "Pass --roots <path> or --roots=<path>, or set DOTNET_MCP_TRUSTED_ROOTS to a non-empty path list, then start again."
+        };
+        Console.Error.WriteLine(JsonSerializer.Serialize(error, JsonOptions.Default));
     }
 }
