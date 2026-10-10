@@ -946,15 +946,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             var loaded = await _loader.OpenAsync(path, progress, ct).ConfigureAwait(false);
 
-            try
-            {
-                TrustedGraphGate.EnsureLoadedSolutionUnderRoots(loaded, _trustedRoots);
-            }
-            catch
-            {
-                await loaded.DisposeAsync().ConfigureAwait(false);
-                throw;
-            }
+            await MsBuildSolutionLoader.EnsureGraphOrDisposeAsync(loaded, _trustedRoots).ConfigureAwait(false);
 
             var committed = false;
             lock (_gate)
