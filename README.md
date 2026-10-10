@@ -30,7 +30,7 @@ Tool names are locked by a snapshot test. Domain vocabulary: [`CONTEXT.md`](CONT
 ## Quick Start
 
 Trusted roots are **required**. The process working directory is never an implicit trusted root.
-On Windows, separate multiple roots with `;`. You can also set `DOTNET_MCP_TRUSTED_ROOTS`. `--roots=path` is the same as `--roots path`; an empty value is rejected. A missing or empty roots configuration exits with code 1 and writes one JSON object to stderr (`error`, `message`, `suggestedAction`) instead of a stack trace.
+On Windows, separate multiple roots with `;`. You can also set `DOTNET_MCP_TRUSTED_ROOTS`. When both are set, startup uses their union; neither replaces the other. `--roots=path` is the same as `--roots path`; an empty value is rejected. A missing or empty roots configuration exits with code 1 and writes one JSON object to stderr (`error`, `message`, `suggestedAction`) instead of a stack trace.
 
 The NuGet package **`Skymly.DotNetMcp` is not published yet**. Use a source build or a local pack until it is.
 
@@ -95,7 +95,7 @@ An empty or whitespace `path` to `workspace_open` or an XAML tool is an empty-pa
 
 ## Security
 
-1. **Trusted roots** — every path is canonicalized (including parent reparse points). Unresolvable links fail closed. Loaded project graphs and apply-paths are re-checked. Configure `--roots` / `--roots=path` or `DOTNET_MCP_TRUSTED_ROOTS`. Startup failure uses `TrustedRootsConfigurationFailed` on stderr, not a stack trace.
+1. **Trusted roots** — every path is canonicalized (including parent reparse points). Unresolvable links fail closed. Loaded project graphs and apply-paths are re-checked. Configure `--roots` / `--roots=path` or `DOTNET_MCP_TRUSTED_ROOTS`. When both are set, the trusted set is their union. Startup failure uses `TrustedRootsConfigurationFailed` on stderr, not a stack trace.
 2. **Open means execute** — loading a solution runs MSBuild and referenced analyzers / source generators. Do not point this server at untrusted trees. `.slnf` project entries are checked before MSBuild opens them; `.sln` / `.slnx` / single-project graphs are checked after load, so an out-of-root `ProjectReference` is evaluated before it is rejected.
 3. **Default read + named writes** — only rename / diagnostic fix / refactoring preview-apply. No generic write, command, or network tools. Apply refuses, and does not write, a document that has no BOM and is not valid UTF-8 (`SourceEncodingRefused`).
 4. **Audit** — local process logs (stderr under stdio). Tool name and path metadata only; no source text; no telemetry. Disable with `DOTNET_MCP_AUDIT=0`.
@@ -147,7 +147,7 @@ This repo uses [mattpocock/skills](https://github.com/mattpocock/skills); see `A
 
 面向 Agent 的 .NET MCP 服务器：C# / VB / F# 符号导航、源生成器归因、Avalonia/MAUI XAML、以及受限 Workspace Edit（rename / Diagnostic fix / Code Refactoring）。**不是**通用写文件、shell 或 LSP 代理。
 
-NuGet 包 id 为 **`Skymly.DotNetMcp`**（命令名仍是 `dotnet-mcp`）。必须通过 `--roots`、`--roots=path` 或 `DOTNET_MCP_TRUSTED_ROOTS` 配置受信根，**不再默认使用进程工作目录**。配置缺失或空值时进程以退出码 1 结束，并在 stderr 写一行 JSON，而不是异常堆栈。`workspace_open` 会运行 MSBuild 与 analyzer/源生成器，不要对不受信任的仓库使用。
+NuGet 包 id 为 **`Skymly.DotNetMcp`**（命令名仍是 `dotnet-mcp`）。必须通过 `--roots`、`--roots=path` 或 `DOTNET_MCP_TRUSTED_ROOTS` 配置受信根，**不再默认使用进程工作目录**。两者同时设置时取并集，而不是互相覆盖。配置缺失或空值时进程以退出码 1 结束，并在 stderr 写一行 JSON，而不是异常堆栈。`workspace_open` 会运行 MSBuild 与 analyzer/源生成器，不要对不受信任的仓库使用。
 
 安装（包尚未上架，请先源码运行或本地 pack）：
 

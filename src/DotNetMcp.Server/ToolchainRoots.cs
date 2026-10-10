@@ -103,16 +103,30 @@ public sealed class ToolchainRoots
     /// </summary>
     private static string? WalkRuntimeDirectoryToDotNetInstall()
     {
+        try
+        {
+            return FindInstallRoot(RuntimeEnvironment.GetRuntimeDirectory());
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Walk up from <paramref name="start"/> until a folder contains both sdk and shared.
+    /// </summary>
+    internal static string? FindInstallRoot(string? start)
+    {
+        if (string.IsNullOrWhiteSpace(start))
+        {
+            return null;
+        }
+
         DirectoryInfo? dir;
         try
         {
-            var runtime = RuntimeEnvironment.GetRuntimeDirectory();
-            if (string.IsNullOrWhiteSpace(runtime))
-            {
-                return null;
-            }
-
-            dir = new DirectoryInfo(runtime);
+            dir = new DirectoryInfo(start);
         }
         catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
         {

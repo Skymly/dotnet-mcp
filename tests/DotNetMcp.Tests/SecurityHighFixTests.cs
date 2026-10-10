@@ -310,6 +310,9 @@ public class SecurityHighFixTests
 
             Assert.True(outcome.Failed);
             Assert.Equal(PolicyErrorCodes.PathOutsideTrustedRoots, outcome.Error!.Error);
+            Assert.Equal(
+                "Re-open the workspace under a trusted root that contains every preview path.",
+                outcome.Error.SuggestedAction);
             Assert.Equal("old", File.ReadAllText(outsideFile));
         }
         finally
@@ -369,6 +372,9 @@ public class SecurityHighFixTests
             Assert.Equal(
                 "A preview document resolves outside trusted roots; nothing was written.",
                 outcome.Error.Message);
+            Assert.Equal(
+                "Re-open the workspace under a trusted root that contains every preview path.",
+                outcome.Error.SuggestedAction);
             Assert.Equal("old", File.ReadAllText(outsideFile));
         }
         finally

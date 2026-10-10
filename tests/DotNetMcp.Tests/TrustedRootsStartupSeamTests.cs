@@ -38,6 +38,50 @@ public class TrustedRootsStartupSeamTests
     }
 
     [Fact]
+    public void env_roots_alone_are_accepted()
+    {
+        var root = CreateTempDir();
+        var outside = CreateTempDir();
+        var previous = Environment.GetEnvironmentVariable("DOTNET_MCP_TRUSTED_ROOTS");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_MCP_TRUSTED_ROOTS", root);
+            var trusted = TrustedRoots.FromStartup([]);
+            Assert.True(trusted.Contains(root));
+            Assert.False(trusted.Contains(outside));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_MCP_TRUSTED_ROOTS", previous);
+            TryDelete(root);
+            TryDelete(outside);
+        }
+    }
+
+    [Fact]
+    public void cli_roots_and_env_roots_are_a_union()
+    {
+        var cli = CreateTempDir();
+        var env = CreateTempDir();
+        var outside = CreateTempDir();
+        var previous = Environment.GetEnvironmentVariable("DOTNET_MCP_TRUSTED_ROOTS");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_MCP_TRUSTED_ROOTS", env);
+            var trusted = TrustedRoots.FromStartup(["--roots", cli]);
+            Assert.True(trusted.Contains(cli));
+            Assert.True(trusted.Contains(env));
+            Assert.False(trusted.Contains(outside));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_MCP_TRUSTED_ROOTS", previous);
+            TryDelete(cli);
+            TryDelete(env);
+            TryDelete(outside);
+        }
+    }
+    [Fact]
     public async Task missing_roots_exits_with_one_structured_line_and_no_stack()
     {
         var serverDll = Path.Combine(AppContext.BaseDirectory, "DotNetMcp.Server.dll");

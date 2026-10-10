@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-08-20 Amendment 2 Diagnostic fix；2026-08-20 Amendment 3 Code Refactoring；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁；2026-10-09 Amendment 7 现行写面）**
+Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-08-20 Amendment 2 Diagnostic fix；2026-08-20 Amendment 3 Code Refactoring；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁；2026-10-09 Amendment 7 现行写面；2026-10-11 Amendment 8 受信根并集）**
 
 ## 上下文
 
@@ -118,3 +118,9 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 - Code Refactoring：`symbol_list_refactorings`、`symbol_preview_refactoring`、`symbol_apply_refactoring`
 
 另有 `workspace_check_drift` 会修复源文件漂移并推进 epoch。它不是 Workspace Edit 的 preview/apply，但是第九个会改工作区或落盘的工具。仍禁止通用写 / 补丁 / shell / 网络。只读状态行和 §3、不读 Amendment 1–3 与本 Amendment，会漏掉真实落盘入口。
+
+## Amendment 8（2026-10-11）：`--roots` 与 `DOTNET_MCP_TRUSTED_ROOTS` 取并集
+
+证据：2026-09-22 全仓审核发现 SEC1-4。§1 原文「启动参数 `--roots` 或环境变量 `DOTNET_MCP_TRUSTED_ROOTS`」的「或」没有说明两者同时存在时的合并语义。本 Amendment 不改该句。
+
+`TrustedRoots.FromStartup` 在两者都非空时取并集：命令行根与环境变量根都进入受信集合，规范化后去重。任一侧为空则只用另一侧。两侧都空仍 fail-closed，不回落进程工作目录。
