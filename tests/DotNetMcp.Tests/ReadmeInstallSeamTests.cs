@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 namespace DotNetMcp.Tests;
 
 public class ReadmeInstallSeamTests
@@ -73,6 +74,136 @@ public class ReadmeInstallSeamTests
             "server.json must not advertise a NuGet/dnx package while Skymly.DotNetMcp is unpublished.");
     }
 
+    [Fact]
+    public void install_and_ci_commands_reference_existing_paths()
+    {
+        var root = FindRepoRoot();
+        var english = English(File.ReadAllText(Path.Combine(root, "README.md")));
+
+        var quick = Section(english, "## Quick Start", "## MCP tools");
+        var commands = BashCommands(quick).ToArray();
+        Assert.Contains(commands, c => c.StartsWith("dotnet run --project src/DotNetMcp.Server", StringComparison.Ordinal));
+        Assert.Contains(commands, c => c.StartsWith("dotnet pack src/DotNetMcp.Server", StringComparison.Ordinal));
+        Assert.True(Directory.Exists(Path.Combine(root, "src", "DotNetMcp.Server")));
+
+        var json = FenceBody(quick, IndexOfFence(quick, "```json"));
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var server = doc.RootElement.GetProperty("mcpServers").GetProperty("dotnet-mcp");
+        Assert.Equal("dotnet", server.GetProperty("command").GetString());
+        var args = server.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToArray();
+        Assert.Equal(new[] { "run", "--project", "src/DotNetMcp.Server", "--", "--roots", "/path/to/repo" }, args);
+
+        var ci = Section(english, "## Development / CI", null);
+        var ciCommands = BashCommands(ci).ToArray();
+        Assert.Contains(ciCommands, c => c.Contains("DotNetMcp.slnx", StringComparison.Ordinal));
+        Assert.Contains(ciCommands, c => c.Contains("benches/DotNetMcp.Bench", StringComparison.Ordinal));
+        Assert.True(File.Exists(Path.Combine(root, "DotNetMcp.slnx")));
+        Assert.True(Directory.Exists(Path.Combine(root, "benches", "DotNetMcp.Bench")));
+    }
+
+    [Fact]
+    public void readme_tables_and_agent_loop_are_structured()
+    {
+        var english = English(File.ReadAllText(Path.Combine(FindRepoRoot(), "README.md")));
+        var tables = MarkdownTables(english);
+        Assert.Equal(2, tables.Count);
+
+        var tools = tables[0];
+        Assert.Equal(new[] { "Group", "Tools" }, tools[0]);
+        Assert.Equal(
+            new[] { "Workspace", "Diagnostic fix", "Symbol", "Project", "XAML" },
+            tools.Skip(1).Select(row => row[0]).ToArray());
+        var toolNames = tools.Skip(1)
+            .SelectMany(row => Regex.Matches(row[1], "`([^`]+)`").Select(m => m.Groups[1].Value))
+            .ToArray();
+        Assert.Equal(31, toolNames.Length);
+        Assert.Contains("workspace_open", toolNames);
+        Assert.Contains("symbol_apply_refactoring", toolNames);
+        Assert.Contains("xaml_diagnostics", toolNames);
+
+        var budgets = tables[1];
+        Assert.Equal(new[] { "Environment variable", "Default", "Use" }, budgets[0]);
+        Assert.Equal(5, budgets.Length - 1);
+        foreach (var row in budgets.Skip(1))
+        {
+            Assert.Matches("^`DOTNET_MCP_BUDGET_[A-Z0-9_]+`$", row[0]);
+            Assert.True(int.TryParse(row[1], out var ms) && ms > 0, row[1]);
+        }
+
+        var loop = english.Split('\n').First(l => l.StartsWith("Typical agent loop:", StringComparison.Ordinal));
+        var names = Regex.Matches(loop, "`([a-z_]+)`").Select(m => m.Groups[1].Value).Where(n => n.Contains('_')).ToArray();
+        Assert.Equal(new[] { "workspace_open", "workspace_status", "symbol_resolve" }, names);
+    }
+    private static string English(string readme)
+    {
+        var zh = readme.IndexOf("## 中文", StringComparison.Ordinal);
+        return zh < 0 ? readme : readme[..zh];
+    }
+
+    private static string Section(string text, string startHeading, string? endHeading)
+    {
+        var start = text.IndexOf(startHeading, StringComparison.Ordinal);
+        Assert.True(start >= 0, startHeading);
+        if (endHeading is null)
+        {
+            return text[start..];
+        }
+
+        var end = text.IndexOf(endHeading, start + startHeading.Length, StringComparison.Ordinal);
+        Assert.True(end > start, endHeading);
+        return text[start..end];
+    }
+
+    private static IEnumerable<string> BashCommands(string text)
+    {
+        var search = 0;
+        while (search < text.Length)
+        {
+            var relative = IndexOfFence(text[search..], "```bash");
+            if (relative < 0)
+            {
+                yield break;
+            }
+
+            var fence = search + relative;
+            foreach (var line in FenceBody(text, fence).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!line.StartsWith('#'))
+                {
+                    yield return line;
+                }
+            }
+
+            search = fence + 7;
+        }
+    }
+
+    private static List<string[][]> MarkdownTables(string text)
+    {
+        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var tables = new List<string[][]>();
+        for (var i = 0; i < lines.Length - 1; i++)
+        {
+            if (!lines[i].StartsWith('|') || !lines[i + 1].StartsWith('|') || !lines[i + 1].Contains("---", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var rows = new List<string[]> { Cells(lines[i]) };
+            for (var j = i + 2; j < lines.Length && lines[j].StartsWith('|'); j++)
+            {
+                rows.Add(Cells(lines[j]));
+            }
+
+            tables.Add(rows.ToArray());
+            i += rows.Count;
+        }
+
+        return tables;
+    }
+
+    private static string[] Cells(string row) =>
+        row.Trim('|').Split('|').Select(c => c.Trim()).ToArray();
     private static int IndexOfFence(string text, string fence) =>
         text.IndexOf(fence + Environment.NewLine, StringComparison.Ordinal) >= 0
             ? text.IndexOf(fence + Environment.NewLine, StringComparison.Ordinal)
