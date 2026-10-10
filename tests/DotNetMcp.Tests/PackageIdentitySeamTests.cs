@@ -125,8 +125,9 @@ public class PackageIdentitySeamTests
             UseShellExecute = false,
         };
         process.StartInfo.ArgumentList.Add("-NoProfile");
-        process.StartInfo.ArgumentList.Add("-File");
-        process.StartInfo.ArgumentList.Add(scriptPath);
+        process.StartInfo.ArgumentList.Add("-Command");
+        process.StartInfo.ArgumentList.Add(
+            "& { $ErrorActionPreference = 'Stop'; try { . './gate.ps1' } catch { Write-Output $_.Exception.Message; exit 1 } }");
         Assert.True(process.Start());
         var stderr = process.StandardError.ReadToEndAsync();
         var stdout = process.StandardOutput.ReadToEndAsync();
