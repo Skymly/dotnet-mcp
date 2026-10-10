@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: success payloads deserialize by field, and a resolved XAML binding is absent from a complete diagnostics page (`#469`)
 - Tests: the stdio smoke calls workspace_status and reads a WorkspaceNotReady error envelope (`#467`)
 - Tests: single-TFM projects report TargetFramework, and temp-directory cleanup failures fail the test (`#465`)
 - Tests: the in-process fixture requires an explicit trusted root and no longer treats the process working directory as one (`#463`)
