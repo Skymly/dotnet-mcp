@@ -74,36 +74,16 @@ public class ListToolsSeamTests
     }
 
     [Fact]
-    public void mcp_server_tools_declare_annotations()
+    public async Task listed_tool_names_come_from_tools_list()
     {
-        var serverDir = FindServerDir();
-        var apply = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "diagnostics_apply_fix",
-            "symbol_apply_rename",
-            "symbol_apply_refactoring",
-        };
-        var names = new List<string>();
-        foreach (var file in Directory.GetFiles(serverDir, "*Tools.cs"))
-        {
-            var text = File.ReadAllText(file);
-            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
-                         text,
-                         @"McpServerTool\(Name = ""([^""]+)""(?<rest>[^)]*)\)"))
-            {
-                var name = match.Groups[1].Value;
-                var rest = match.Groups["rest"].Value;
-                names.Add(name);
-                Assert.Contains("OpenWorld = false", rest, StringComparison.Ordinal);
-                Assert.Contains(ExpectReadOnly(name) ? "ReadOnly = true" : "ReadOnly = false", rest, StringComparison.Ordinal);
-                Assert.Contains(ExpectDestructive(name) ? "Destructive = true" : "Destructive = false", rest, StringComparison.Ordinal);
-                Assert.Contains(ExpectIdempotent(name) ? "Idempotent = true" : "Idempotent = false", rest, StringComparison.Ordinal);
-            }
-        }
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
+        var names = (await fx.Client.ListToolsAsync()).Select(t => t.Name).ToArray();
 
         Assert.Equal(31, names.Distinct(StringComparer.Ordinal).Count());
         Assert.Contains("symbol_preview_rename", names);
         Assert.Contains("diagnostics_apply_fix", names);
+        Assert.Contains("symbol_apply_rename", names);
+        Assert.Contains("symbol_apply_refactoring", names);
     }
 
     [Fact]

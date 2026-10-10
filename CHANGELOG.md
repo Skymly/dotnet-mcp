@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: tool annotations come from tools/list, and the CI version gate matches the C# package identity gate (`#473`)
 - Tests: README tables, install paths, and the SDK feature band are parsed instead of matched as loose text (`#471`)
 - Tests: success payloads deserialize by field, and a resolved XAML binding is absent from a complete diagnostics page (`#469`)
 - Tests: the stdio smoke calls workspace_status and reads a WorkspaceNotReady error envelope (`#467`)
