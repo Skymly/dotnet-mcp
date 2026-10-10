@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Tests: path-policy guards cover the Unix root, Windows junctions, case differences, and the extended UNC prefix, and skip on the wrong OS instead of passing silently (`#453`)
 - Graph-gate and apply-time path denials are written as path_policy_denied, with the tool name and the rejected path (`#451`)
 - symbol_preview_rename on an F# handle reports an F# identifier error instead of telling the caller to pass a C# identifier (`#449`)
 - Tests: a MAUI .xaml disk edit advances the workspace epoch, and xaml_diagnostics reads the new text (`#447`)

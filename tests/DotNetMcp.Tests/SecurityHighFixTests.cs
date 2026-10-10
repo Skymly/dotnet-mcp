@@ -582,18 +582,12 @@ public class SecurityHighFixTests
         }
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task fsharp_capture_skips_symlink_file_without_following_outside_fifo()
     {
         var root = CreateTempDir("root");
         var outside = CreateTempDir("outside");
         var fifo = Path.Combine(outside, "Leak.fs");
-        if (!OperatingSystem.IsLinux())
-        {
-            TryDelete(root);
-            TryDelete(outside);
-            return;
-        }
 
         if (!TryCreateFifo(fifo))
         {
