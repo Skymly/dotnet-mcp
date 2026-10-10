@@ -46,6 +46,7 @@ public class MsBuildWorkspaceIntegrationTests
         Assert.Contains(body.Projects, p => p.Name.Contains("LibB", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(body.Projects, p => p.Name.Contains("App", StringComparison.OrdinalIgnoreCase));
         Assert.True(body.Projects.Count >= 3);
+        Assert.All(body.Projects, p => Assert.Equal("net8.0", p.TargetFramework));
     }
 
     [Fact]
@@ -102,12 +103,8 @@ public class MsBuildWorkspaceIntegrationTests
         var body = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
 
         Assert.True(body.Projects.Count >= 2, $"Expected >=2 TFM rows, got {body.Projects.Count}: {string.Join(", ", body.Projects.Select(p => p.Name))}");
-        Assert.Contains(body.Projects, p =>
-            (p.TargetFramework?.Contains("net8", StringComparison.OrdinalIgnoreCase) ?? false) ||
-            p.Name.Contains("net8", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(body.Projects, p =>
-            (p.TargetFramework?.Contains("net9", StringComparison.OrdinalIgnoreCase) ?? false) ||
-            p.Name.Contains("net9", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(body.Projects, p => p.TargetFramework == "net8.0");
+        Assert.Contains(body.Projects, p => p.TargetFramework == "net9.0");
     }
 
 

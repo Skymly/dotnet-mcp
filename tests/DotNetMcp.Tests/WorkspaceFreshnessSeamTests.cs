@@ -487,26 +487,113 @@ public class WorkspaceFreshnessSeamTests
         Assert.Fail($"epoch did not advance from {epochBefore}; still {host.CurrentEpoch}");
     }
 
-    private static string CreateTempDir(string prefix)
+    [Fact]
+    public void temp_directory_cleanup_failure_is_signaled_and_empty_parent_is_removed()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-freshness", prefix + "-" + Guid.NewGuid().ToString("N"));
+        var parentName = "dotnet-mcp-freshness-" + Guid.NewGuid().ToString("N");
+        var dir = CreateTempDir("clean", parentName);
+        var parent = Path.GetDirectoryName(dir)!;
+
+        TryDelete(dir);
+
+        Assert.False(Directory.Exists(dir));
+        Assert.False(Directory.Exists(parent));
+
+        var failed = CreateTempDir("fail", parentName);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            TryDelete(failed, _ => throw new IOException("denied")));
+        Assert.Contains("cleanup failed", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(Directory.Exists(failed));
+
+        TryDelete(failed);
+        Assert.False(Directory.Exists(failed));
+        Assert.False(Directory.Exists(parent));
+    }
+
+    private const string TempParentName = "dotnet-mcp-freshness";
+
+    private static string CreateTempDir(string prefix) =>
+        CreateTempDir(prefix, TempParentName);
+
+    private static string CreateTempDir(string prefix, string parentName)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), parentName, prefix + "-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         return dir;
     }
 
-    private static void TryDelete(string dir)
+    private static void TryDelete(string dir, Action<string>? delete = null)
     {
-        try
+        delete ??= DeleteDirectoryTree;
+        if (Directory.Exists(dir))
         {
-            if (Directory.Exists(dir))
+            Exception? last = null;
+            for (var attempt = 0; attempt < 5; attempt++)
             {
-                Directory.Delete(dir, recursive: true);
+                try
+                {
+                    delete(dir);
+                    last = null;
+                    break;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    last = ex;
+                    if (attempt == 4)
+                    {
+                        break;
+                    }
+
+                    Thread.Sleep(40);
+                }
+            }
+
+            if (last is not null || Directory.Exists(dir))
+            {
+                throw new InvalidOperationException(
+                    $"Temp directory cleanup failed ({last?.GetType().Name ?? "directory still exists"}).",
+                    last);
             }
         }
-        catch
+
+        var parent = Path.GetDirectoryName(dir);
+        if (parent is null || !Directory.Exists(parent))
         {
-            // best-effort cleanup
+            return;
         }
+
+        try
+        {
+            if (!Directory.EnumerateFileSystemEntries(parent).Any())
+            {
+                Directory.Delete(parent, recursive: false);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (Directory.Exists(parent) && Directory.EnumerateFileSystemEntries(parent).Any())
+            {
+                return;
+            }
+
+            throw new InvalidOperationException(
+                $"Temp directory cleanup failed ({ex.GetType().Name}).",
+                ex);
+        }
+    }
+
+    private static void DeleteDirectoryTree(string dir)
+    {
+        foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+        {
+            var attributes = File.GetAttributes(file);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+            {
+                File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+            }
+        }
+
+        Directory.Delete(dir, recursive: true);
     }
 }
 
