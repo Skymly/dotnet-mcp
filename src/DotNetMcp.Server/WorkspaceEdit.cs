@@ -30,6 +30,9 @@ public sealed record WorkspaceEditApplied(
 
 public readonly record struct WorkspaceEditOutcome<T>(T? Value, PolicyErrorDto? Error)
 {
+    /// <summary>Server-only path for audit. Not part of the MCP error payload.</summary>
+    public string? DeniedPath { get; init; }
+
     public bool Failed => Error is not null;
 }
 
@@ -46,18 +49,21 @@ public sealed class WorkspaceEdit
     private readonly TimeSpan _ttl;
     private readonly object _gate = new();
     private readonly Dictionary<string, Stored> _items = new(StringComparer.Ordinal);
+    private readonly IAuditLogger? _audit;
     private long _observedGeneration;
 
     public WorkspaceEdit(
         IWorkspaceEditWriter writer,
         TrustedRoots trustedRoots,
         TimeProvider timeProvider,
-        TimeSpan ttl)
+        TimeSpan ttl,
+        IAuditLogger? auditLogger = null)
     {
         _writer = writer;
         _trustedRoots = trustedRoots;
         _time = timeProvider;
         _ttl = ttl;
+        _audit = auditLogger;
         _observedGeneration = writer.Generation;
     }
 
@@ -156,6 +162,7 @@ public sealed class WorkspaceEdit
         {
             if (!_trustedRoots.Contains(document.Path))
             {
+                _audit?.PathPolicyDenied(tools.Apply, document.Path);
                 Restore(stored);
                 return Fail<WorkspaceEditApplied>(
                     PolicyErrorCodes.PathOutsideTrustedRoots,
@@ -176,6 +183,11 @@ public sealed class WorkspaceEdit
         var written = _writer.WriteDeclaredPaths(stored.Preview.Documents);
         if (written.Error is not null)
         {
+            if (written.Error.Error == PolicyErrorCodes.PathOutsideTrustedRoots)
+            {
+                _audit?.PathPolicyDenied(tools.Apply, written.DeniedPath);
+            }
+
             Restore(stored);
             var error = MapApplyError(written.Error, kind, tools);
             return new WorkspaceEditOutcome<WorkspaceEditApplied>(null, error);

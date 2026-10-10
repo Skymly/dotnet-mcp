@@ -45,7 +45,8 @@ public static class ServerHost
                 sp.GetRequiredService<IWorkspaceEditWriter>(),
                 sp.GetRequiredService<TrustedRoots>(),
                 options.TimeProvider,
-                options.WorkspaceEditPreviewTtl);
+                options.WorkspaceEditPreviewTtl,
+                sp.GetRequiredService<IAuditLogger>());
         });
         services.AddSingleton<RoslynLanguageAdapter>();
         services.AddSingleton<FSharpSymbolQueryService>();

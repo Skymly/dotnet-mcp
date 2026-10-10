@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Graph-gate and apply-time path denials are written as path_policy_denied, with the tool name and the rejected path (`#451`)
 - symbol_preview_rename on an F# handle reports an F# identifier error instead of telling the caller to pass a C# identifier (`#449`)
 - Tests: a MAUI .xaml disk edit advances the workspace epoch, and xaml_diagnostics reads the new text (`#447`)
 - XAML diagnostics classify language elements and x:Name by the XAML namespace, not the literal prefix x (`#445`)
