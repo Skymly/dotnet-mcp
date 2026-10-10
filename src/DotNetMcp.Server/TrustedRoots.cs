@@ -51,7 +51,14 @@ public sealed class TrustedRoots
 
         for (var i = 0; i < args.Length; i++)
         {
-            if (!string.Equals(args[i], "--roots", StringComparison.OrdinalIgnoreCase))
+            var arg = args[i];
+            if (TryReadEqualsRoots(arg, out var equalsValue))
+            {
+                collected.AddRange(RequireRootList(equalsValue));
+                continue;
+            }
+
+            if (!string.Equals(arg, "--roots", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -61,7 +68,7 @@ public sealed class TrustedRoots
                 throw new ArgumentException("--roots requires a path list argument.");
             }
 
-            collected.AddRange(SplitRootList(args[++i]));
+            collected.AddRange(RequireRootList(args[++i]));
         }
 
         var env = Environment.GetEnvironmentVariable("DOTNET_MCP_TRUSTED_ROOTS");
@@ -110,6 +117,30 @@ public sealed class TrustedRoots
         }
 
         return false;
+    }
+
+    private static bool TryReadEqualsRoots(string arg, out string value)
+    {
+        const string prefix = "--roots=";
+        if (!arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            value = "";
+            return false;
+        }
+
+        value = arg[prefix.Length..];
+        return true;
+    }
+
+    private static IEnumerable<string> RequireRootList(string value)
+    {
+        var parts = SplitRootList(value).ToArray();
+        if (parts.Length == 0)
+        {
+            throw new ArgumentException("--roots requires a non-empty path list.");
+        }
+
+        return parts;
     }
 
     private static IEnumerable<string> SplitRootList(string value) =>
