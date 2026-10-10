@@ -8,6 +8,18 @@ namespace DotNetMcp.Server;
 
 public static class McpToolEnvelope
 {
+    public static PolicyErrorDto PathOutsideTrustedRoots() =>
+        new()
+        {
+            Error = PolicyErrorCodes.PathOutsideTrustedRoots,
+            Message =
+                "The requested path is outside the configured trusted roots and was rejected. " +
+                "No target content is returned.",
+            SuggestedAction =
+                "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
+                "environment variable, then retry with a path under that root."
+        };
+
     public static bool TryGetReadySession(
         WorkspaceHost host,
         [NotNullWhen(true)] out IWorkspaceSession? session,

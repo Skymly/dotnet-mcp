@@ -46,14 +46,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_resolve_class", path);
-            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
-                Message = "The requested path is outside the configured trusted roots and was rejected.",
-                SuggestedAction =
-                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
-                    "environment variable, then retry xaml_resolve_class with a path under that root."
-            });
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
         }
 
         if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
@@ -104,14 +97,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_list_xmlns", path);
-            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
-                Message = "The requested path is outside the configured trusted roots and was rejected.",
-                SuggestedAction =
-                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
-                    "environment variable, then retry xaml_list_xmlns with a path under that root."
-            });
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
         }
 
         if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
@@ -161,14 +147,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_resolve_name", path);
-            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
-                Message = "The requested path is outside the configured trusted roots and was rejected.",
-                SuggestedAction =
-                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
-                    "environment variable, then retry xaml_resolve_name with a path under that root."
-            });
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
         }
 
         if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
@@ -220,14 +199,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_resolve_binding", path);
-            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
-                Message = "The requested path is outside the configured trusted roots and was rejected.",
-                SuggestedAction =
-                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
-                    "environment variable, then retry xaml_resolve_binding with a path under that root."
-            });
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
         }
 
         if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
@@ -282,14 +254,7 @@ public sealed class XamlTools
         if (!_trustedRoots.Contains(path))
         {
             _audit.PathPolicyDenied("xaml_diagnostics", path);
-            return McpToolEnvelope.ErrorResult(new PolicyErrorDto
-            {
-                Error = PolicyErrorCodes.PathOutsideTrustedRoots,
-                Message = "The requested path is outside the configured trusted roots and was rejected.",
-                SuggestedAction =
-                    "Add the directory as a trusted root via --roots or the DOTNET_MCP_TRUSTED_ROOTS " +
-                    "environment variable, then retry xaml_diagnostics with a path under that root."
-            });
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
         }
 
         if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
