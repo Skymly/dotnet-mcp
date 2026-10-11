@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- symbol_list_refactorings says the list is built-in Features providers only, and the response sets IncludesProjectAnalyzers to false (`#402`)
 - Docs: ADR-0002 Amendment 5 names the current session interface without rewriting the accepted body (`#483`)
 - Docs: README test command matches CI, states that transitive restore is not locked, and the Chinese section includes pack (`#481`)
 - Tests: the packed README and the mcp-name comment match the server package identity (`#479`)

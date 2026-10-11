@@ -106,7 +106,7 @@ Roslyn CodeAction.EquivalenceKey，用于把同一文档或同一项目内的等
 _Avoid_: fix-all-in-solution
 
 **Code Refactoring**:
-针对手写符号标识符处、由 first-party 或项目已加载 CodeRefactoringProvider 提供的命名写操作；与 Diagnostic fix 正交（无诊断定位）。`refactoringIndex` 只对列出时的 Epoch 有效。
+针对手写符号标识符处、由 Microsoft.CodeAnalysis C# / VB Features 内置 CodeRefactoringProvider 提供的命名写操作，不含项目分析器程序集；与 Diagnostic fix 正交（无诊断定位）。`refactoringIndex` 只对列出时的 Epoch 有效。
 _Avoid_: invented patch, extract method selection, change-signature UI, generic apply_edit, reusing refactoringIndex after Epoch advances
 
 **Refactoring preview**:
