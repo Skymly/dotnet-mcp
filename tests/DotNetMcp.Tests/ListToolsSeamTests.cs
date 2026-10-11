@@ -110,7 +110,9 @@ public class ListToolsSeamTests
     private static bool ExpectReadOnly(string name) =>
         !ExpectDestructive(name) && name is not ("workspace_open" or "workspace_check_drift");
 
-    private static bool ExpectIdempotent(string name) => ExpectReadOnly(name);
+    private static bool ExpectIdempotent(string name) =>
+        ExpectReadOnly(name)
+        && name is not ("symbol_preview_rename" or "diagnostics_preview_fix" or "symbol_preview_refactoring");
 
     private static string FindServerDir()
     {

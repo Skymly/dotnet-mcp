@@ -63,7 +63,7 @@ public sealed class SymbolRefactoringTools
         });
     }
 
-    [McpServerTool(Name = "symbol_preview_refactoring", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
+    [McpServerTool(Name = "symbol_preview_refactoring", ReadOnly = true, Destructive = false, Idempotent = false, OpenWorld = false), Description(
         "Preview applying one Code Refactoring as a Workspace Edit. " +
         "refactoringIndex must come from symbol_list_refactorings for this handle on the current Epoch. " +
         "If that Epoch has advanced, fails with RefactoringListEpochMismatch and does not select another action. " +

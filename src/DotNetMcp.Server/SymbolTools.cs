@@ -321,7 +321,7 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToCallersDto(success!));
     }
 
-    [McpServerTool(Name = "symbol_preview_rename", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
+    [McpServerTool(Name = "symbol_preview_rename", ReadOnly = true, Destructive = false, Idempotent = false, OpenWorld = false), Description(
         "Preview renaming a handwritten C# / VB / F# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
         "handles that will become invalid) and an opaque previewId bound to the current workspace Epoch + TTL. " +
         "Does not write disk. SourceGenerator Origin is refused. There is no generic apply_edit / write / shell.")]

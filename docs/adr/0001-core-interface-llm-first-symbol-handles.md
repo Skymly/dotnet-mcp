@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S1；2026-08-21 Amendment 3；2026-08-21 Amendment 4；2026-08-22 Amendment 5）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正；S1 实证细化了 FilePath 启发式与 Adhoc/反射取舍。Amendment 3 兑现 §5 的 ILanguageAdapter 接缝。Amendment 4 把 MCP tool envelope 收成一处。Amendment 5 把 F# 快照移出 Roslyn Solution。以「决策」小节的现行内容为准。
+Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S1；2026-08-21 Amendment 3；2026-08-21 Amendment 4；2026-08-22 Amendment 5；2026-10-11 Amendment 6）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正；S1 实证细化了 FilePath 启发式与 Adhoc/反射取舍。Amendment 3 兑现 §5 的 ILanguageAdapter 接缝。Amendment 4 把 MCP tool envelope 收成一处。Amendment 5 把 F# 快照移出 Roslyn Solution。Amendment 6 把模块分解对齐到磁盘上的四个产品项目。以「决策」小节的现行内容为准。
 
 ## 上下文
 
@@ -138,3 +138,23 @@ DotNetMcp.FSharp      — P3，FCS 栈（ILanguageAdapter 第二适配器）
 ## Amendment 5（2026-08-22）：F# 快照并列
 
 §5 两个 adapter 的决定不变。FCS adapter 读 `FSharpWorkspaceSnapshot`（与 Roslyn Solution 同一 Epoch），不再读 `IWorkspaceSession.Solution` / `GetCompilationAsync`。不重引入 `IFSharpSymbolQuery`。
+
+## Amendment 6（2026-10-11）：模块分解与磁盘对齐
+
+证据：`DotNetMcp.slnx` 与 `src/` 目录布局。
+
+「模块分解（修订）」代码块保持原文。该块仍列 `DotNetMcp.Workspace`（加载/缓存/FSW/生成器物化），但该项目从未创建。磁盘上 `DotNetMcp.slnx` 的产品项目恰好四个：
+
+- `src/DotNetMcp.Server/DotNetMcp.Server.csproj`
+- `src/DotNetMcp.Core/DotNetMcp.Core.csproj`
+- `src/DotNetMcp.Xaml/DotNetMcp.Xaml.csproj`
+- `src/DotNetMcp.FSharp/DotNetMcp.FSharp.csproj`
+
+Workspace 层职责全部由 `DotNetMcp.Server` 承载，故 Server 并非纯薄适配器：
+
+- **MSBuild 加载**：`MsBuildSolutionLoader`（`ISolutionLoader`）、`SlnfParser`、`FSharpProjectFile`、`TrustedGraphGate`。
+- **缓存 / 会话**：`WorkspaceHost`（Epoch、phase、写锁与 `_gate`）、`WorkspaceSession`（装载 `GeneratorRunCache`、`FindHitCache`、`CompilationLru`）。
+- **FSW**：`IWorkspaceFileWatcher` / `FileSystemWorkspaceWatcher`（`src/DotNetMcp.Server/IWorkspaceFileWatcher.cs`）与 `WriteSuppression`。
+- **生成器物化**：`WorkspaceSession.GetGeneratorRunResultAsync` 剔除生成树后驱动 Core 的 `GeneratorDriverRunner`，产出 `DriverRunSnapshot`；生成文档随 MSBuildWorkspace 的 Solution 一并物化。
+
+Workspace Edit module 不进 Workspace：按 ADR-0005，`WorkspaceEdit`（previewId + Epoch + TTL + kind + apply）与 `WorkspaceHost` 并排放在 `DotNetMcp.Server`；切片生产（`HandwrittenDocumentDiff`、`CodeActionDocuments`、`RenameDocumentSlice`）留在 `DotNetMcp.Core`。
