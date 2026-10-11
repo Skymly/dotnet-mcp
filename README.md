@@ -127,8 +127,10 @@ Product and tests target **net10.0**. Fixtures include net8.0 / net9.0 projects 
 ```bash
 dotnet restore DotNetMcp.slnx
 dotnet build DotNetMcp.slnx -c Release --no-restore
-dotnet test DotNetMcp.slnx -c Release --no-build
+dotnet test DotNetMcp.slnx -c Release --no-build --verbosity normal
 ```
+
+There is no `packages.lock.json`, and `RestorePackagesWithLockFile` is not set. Direct PackageReference versions are pinned in the project files. Transitive dependency resolution is not locked, so a later restore can select a different transitive version.
 
 CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Ubuntu **and** Windows; product SDK via [`global.json`](global.json) 10.0.x roll-forward, fixture SDKs 8.0.x/9.0.x, pack + `McpServer` metadata check).
 
@@ -153,6 +155,13 @@ NuGet 包 id 为 **`Skymly.DotNetMcp`**（命令名仍是 `dotnet-mcp`）。必�
 
 ```bash
 dotnet run --project src/DotNetMcp.Server -- --roots /path/to/repo
+```
+
+本地 pack：
+
+```bash
+dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts
+dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo
 ```
 
 NuGet 上架后可用：`dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo`。

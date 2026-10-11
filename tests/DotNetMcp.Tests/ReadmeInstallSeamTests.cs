@@ -134,6 +134,21 @@ public class ReadmeInstallSeamTests
         var names = Regex.Matches(loop, "`([a-z_]+)`").Select(m => m.Groups[1].Value).Where(n => n.Contains('_')).ToArray();
         Assert.Equal(new[] { "workspace_open", "workspace_status", "symbol_resolve" }, names);
     }
+    [Fact]
+    public void readme_test_command_lock_note_and_chinese_pack_match_english()
+    {
+        var readme = File.ReadAllText(Path.Combine(FindRepoRoot(), "README.md"));
+        var english = English(readme);
+        var ci = Section(english, "## Development / CI", null);
+        Assert.Contains("dotnet test DotNetMcp.slnx -c Release --no-build --verbosity normal", ci, StringComparison.Ordinal);
+        Assert.Contains("packages.lock.json", ci, StringComparison.Ordinal);
+        Assert.Contains("Transitive dependency resolution is not locked", ci, StringComparison.Ordinal);
+
+        var zh = readme[(readme.IndexOf("## 中文", StringComparison.Ordinal))..];
+        Assert.Contains("dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts", zh, StringComparison.Ordinal);
+        Assert.Contains("dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo", zh, StringComparison.Ordinal);
+    }
+
     private static string English(string readme)
     {
         var zh = readme.IndexOf("## 中文", StringComparison.Ordinal);

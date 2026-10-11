@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Docs: README test command matches CI, states that transitive restore is not locked, and the Chinese section includes pack (`#481`)
 - Tests: the packed README and the mcp-name comment match the server package identity (`#479`)
 - Bench catalog matches recorded scenario ids, and open.ready is exempt from the 60s client-timeout gate (`#477`)
 - Bench symbol guess no longer calls workspace_list_projects and discards the result (`#475`)
