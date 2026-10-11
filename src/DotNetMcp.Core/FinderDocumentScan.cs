@@ -8,7 +8,7 @@ namespace DotNetMcp.Core;
 internal static class FinderDocumentScan
 {
     public static TimeSpan ResolveBudget(TimeSpan requested, TimeSpan defaultBudget) =>
-        requested <= TimeSpan.Zero ? defaultBudget : requested;
+        requested < TimeSpan.Zero ? defaultBudget : requested;
 
     public static async Task<Result<THit>> ScanAsync<TDoc, THit>(
         IReadOnlyList<TDoc> documents,

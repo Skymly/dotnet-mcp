@@ -5,10 +5,10 @@ namespace DotNetMcp.Tests;
 public class FinderDocumentScanTests
 {
     [Fact]
-    public void ResolveBudget_non_positive_falls_back_to_default()
+    public void ResolveBudget_negative_falls_back_to_default_and_zero_passes_through()
     {
         var fallback = TimeSpan.FromSeconds(5);
-        Assert.Equal(fallback, FinderDocumentScan.ResolveBudget(TimeSpan.Zero, fallback));
+        Assert.Equal(TimeSpan.Zero, FinderDocumentScan.ResolveBudget(TimeSpan.Zero, fallback));
         Assert.Equal(fallback, FinderDocumentScan.ResolveBudget(TimeSpan.FromMilliseconds(-1), fallback));
         Assert.Equal(TimeSpan.FromSeconds(2), FinderDocumentScan.ResolveBudget(TimeSpan.FromSeconds(2), fallback));
     }

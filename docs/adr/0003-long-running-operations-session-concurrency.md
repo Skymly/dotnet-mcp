@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-07，Spike S2 回填 §3 软预算推荐值）**，**Amended（2026-08-08，Spike S3 回填客户端超时/Tasks/手工模式实测）**
+Accepted（2026-08-02），**Amended（2026-08-07，Spike S2 回填 §3 软预算推荐值）**，**Amended（2026-08-08，Spike S3 回填客户端超时/Tasks/手工模式实测）**，**Amended（2026-10-11，Amendment 3 收窄 §3 软预算工具清单）**
 
 ## 上下文
 
@@ -93,3 +93,25 @@ ADR-0001/0002 原稿均未处理一个产品级阻断问题：**加载 ~150 项�
 - ADR-0001：分页游标（部分结果的输出形状）
 - ADR-0002：`IWorkspaceSession` 快照、加载耗时来源
 - ADR-0004：安全与路径策略（`workspace_open` 接受哪些路径）
+
+## Amendment 3（2026-10-11）：软预算覆盖范围
+
+§3「所有工具遵守软性时间预算」与「后果」中「所有列表型工具必须实现部分结果 + 游标」按实现收窄为明确的工具清单；正文不改写，以本清单为准。
+
+**会在预算处截断并返回部分结果 + `nextCursor` 的工具：**
+
+- `project_diagnostics`（C#/VB：单项目编译与批量路径都受约束；F#：预算只在整项目 FCS 检查完成后才被检查，不能中断检查本身）
+- `xaml_diagnostics`
+- `project_list_dynamic_invocations`（F# 项目返回 DynamicInvocationLanguageNotSupported）
+- `symbol_find_references`、`symbol_find_callers`（C#/VB：文档扫描受预算约束；F#：预算时钟在整项目 FCS 检查之后才开始，只有 uses 遍历受约束）
+
+**不受软预算约束、跑到完成或客户端超时为止的工具：**
+
+- `project_list_generated_sources`（无 softBudget 入口）
+- `project_list_generator_diagnostics`（无 softBudget 入口）
+- `symbol_members`（无 softBudget 入口）
+- `symbol_type_hierarchy`（无 softBudget 入口）
+- `symbol_find_implementations`（无 softBudget 入口）
+- `symbol_resolve` 受同一预算约束，但超预算返回 `SoftBudgetExceeded` 错误而不是部分页 + `nextCursor`。
+
+为这些工具补上游标式预算是未来工作，不在本修订范围。

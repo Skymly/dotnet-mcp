@@ -104,7 +104,7 @@ See [ADR-0004](docs/adr/0004-security-and-path-policy.md).
 
 ## Soft budgets and long-running load
 
-List/scan tools honor a soft time budget ([ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)): they return partial results + `nextCursor` instead of hanging past the common ~60s client `tools/call` cap. Progress notifications are **not** a keepalive.
+These tools stop at the soft budget ([ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)) and return partial results + `nextCursor` instead of hanging past the common ~60s client `tools/call` cap: `project_diagnostics`, `xaml_diagnostics`, `project_list_dynamic_invocations`, `symbol_find_references`, `symbol_find_callers`. For F# projects the budget only bounds work after the full FCS project check. These run to completion (or to the client timeout) without a budget: `symbol_members`, `symbol_type_hierarchy`, `symbol_find_implementations`, `project_list_generated_sources`, `project_list_generator_diagnostics`. `symbol_resolve` is bounded by the same budget, but a budget hit fails with `SoftBudgetExceeded` rather than a partial page. Progress notifications are **not** a keepalive.
 
 | Environment variable | Default | Use |
 |----------------------|---------|-----|
@@ -116,7 +116,7 @@ List/scan tools honor a soft time budget ([ADR-0003](docs/adr/0003-long-running-
 
 Document-scope Fix all applies at most 32 fixes. Project-scope Fix all also stops at a fixed application cap (default 64). Neither application cap is an environment variable.
 
-Invalid values fall back to the defaults.
+`0` means the budget is already spent — list tools return a truncated page right away (possibly empty) with `nextCursor`, and project Fix all fails the preview; negative or unparseable values fall back to the defaults.
 
 `workspace_open` never blocks the MCP request. Clients that do not opt into MCP Tasks should poll `workspace_status`. `workspace_status.watcher` is `ok`, `lost`, or `off`; `lost` means file watching failed and a restart was attempted. Details: `spikes/s3-mcp-long-running/CONCLUSIONS.md`. That note separates the spike `jobId` shape from the product DTO, which has no `jobId`.
 

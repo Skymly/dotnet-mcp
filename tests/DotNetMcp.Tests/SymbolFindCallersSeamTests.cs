@@ -233,7 +233,7 @@ public class SymbolFindCallersSeamTests
     }
 
     [Fact]
-    public async Task FindCallersAsync_soft_budget_zero_falls_back_to_default_and_completes()
+    public async Task FindCallersAsync_soft_budget_zero_is_spent_and_truncates()
     {
         var loaded = FakeSolutionLoader.CreateCallersLoaded(@"C:\fake\CallerLib.csproj");
         var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
@@ -252,9 +252,8 @@ public class SymbolFindCallersSeamTests
 
         Assert.Null(error);
         Assert.NotNull(page);
-        Assert.False(page!.Truncated);
-        Assert.True(string.IsNullOrWhiteSpace(page.NextCursor));
-        Assert.NotEmpty(page.Items);
+        Assert.True(page!.Truncated);
+        Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
     }
 
     private static string KeyOf(CallerLocationItemDto item) =>

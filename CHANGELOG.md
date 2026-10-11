@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- A soft budget of 0 means the budget is already spent in every consumer: xaml_diagnostics, batch project_diagnostics, and C#/VB find references or callers truncate with nextCursor instead of running unbounded or falling back (`#322`)
 - Docs: ADR-0002 Amendment 5 names the current session interface without rewriting the accepted body (`#483`)
 - Docs: README test command matches CI, states that transitive restore is not locked, and the Chinese section includes pack (`#481`)
 - Tests: the packed README and the mcp-name comment match the server package identity (`#479`)
@@ -113,6 +114,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 ### Security
 
 - Graph gate checks AnalyzerReferences against trusted roots plus dotnet / NuGet toolchain roots; MetadataReferences stay unchecked (read-only metadata) (`#254`)
+
+### Docs
+
+- ADR-0003 Amendment 3 and the README soft-budget note name the tools that return partial results + nextCursor on budget and the ones that run without a budget (`#332`)
 
 ## 4.0.1 - 2026-09-12
 

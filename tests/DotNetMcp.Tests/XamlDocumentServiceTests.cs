@@ -390,7 +390,8 @@ public class XamlDocumentServiceTests
         Assert.False(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(10)));
         Assert.False(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.FromTicks(1), TimeSpan.FromMilliseconds(1)));
         Assert.True(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.FromSeconds(5), TimeSpan.Zero));
-        Assert.True(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.Zero, TimeSpan.FromSeconds(1)));
+        Assert.False(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.Zero, TimeSpan.FromSeconds(1)));
+        Assert.False(XamlDocumentService.ShouldStartXmlnsCollection(TimeSpan.Zero, TimeSpan.Zero));
     }
 
     [Fact]
