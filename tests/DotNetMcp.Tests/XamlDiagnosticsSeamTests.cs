@@ -127,7 +127,7 @@ public class XamlDiagnosticsSeamTests
     }
 
     [Fact]
-    public async Task xaml_diagnostics_zero_budget_does_not_hard_fail()
+    public async Task xaml_diagnostics_zero_budget_returns_a_truncated_page_with_next_cursor()
     {
         var root = CreateTempDir("root");
         var solution = Path.Combine(root, "App.slnx");
@@ -157,8 +157,8 @@ public class XamlDiagnosticsSeamTests
 
             Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
             var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(result);
-            Assert.False(body.Truncated);
-            Assert.True(string.IsNullOrWhiteSpace(body.NextCursor));
+            Assert.True(body.Truncated);
+            Assert.False(string.IsNullOrWhiteSpace(body.NextCursor));
             Assert.DoesNotContain("hard", body.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally

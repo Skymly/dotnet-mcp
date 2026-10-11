@@ -11,6 +11,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- A soft budget of 0 means the budget is already spent in every consumer: xaml_diagnostics, batch project_diagnostics, and C#/VB find references or callers truncate with nextCursor instead of running unbounded or falling back (`#322`)
 - Apply-failure rollback no longer writes old text back to disk while holding the workspace status gate, so GetStatus and CurrentEpoch stay responsive during multi-file rollbacks (`#376`)
 - diagnostics_preview_fix and symbol_preview_refactoring refuse a generated-document change only when no handwritten document would change, matching rename (`#407`)
 - A fix, refactoring, or rename that would create or delete documents is refused with DocumentAddOrRemoveRefused instead of previewing a misleading write set (`#406`)
@@ -97,6 +98,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Docs
 
+- ADR-0003 Amendment 3 and the README soft-budget note name the tools that return partial results + nextCursor on budget and the ones that run without a budget (`#332`)
 - ADR-0001 Amendment 6 names the four product projects on disk; DotNetMcp.Workspace was never created and its duties live in DotNetMcp.Server (`#426`)
 - ADR-0002 Amendment 5 names the current session interface without rewriting the accepted body (`#483`)
 - README test command matches CI, states that transitive restore is not locked, and the Chinese section includes pack (`#481`)

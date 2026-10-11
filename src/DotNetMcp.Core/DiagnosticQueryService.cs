@@ -63,7 +63,7 @@ public sealed class DiagnosticQueryService
         foreach (var project in session.Solution.Projects)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (budget > TimeSpan.Zero && started.Elapsed >= budget)
+            if (started.Elapsed >= budget)
             {
                 stoppedEarly = true;
                 break;
@@ -80,13 +80,17 @@ public sealed class DiagnosticQueryService
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (budget > TimeSpan.Zero && started.Elapsed >= budget)
+                if (started.Elapsed >= budget)
                 {
                     stoppedEarly = true;
                     break;
                 }
 
-                var remaining = budget <= TimeSpan.Zero ? budget : budget - started.Elapsed;
+                var remaining = budget - started.Elapsed;
+                if (remaining < TimeSpan.Zero)
+                {
+                    remaining = TimeSpan.Zero;
+                }
                 var (page, error) = await adapter.GetProjectDiagnosticsAsync(
                         session,
                         projectId,
