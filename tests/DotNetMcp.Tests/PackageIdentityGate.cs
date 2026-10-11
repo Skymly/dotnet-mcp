@@ -40,6 +40,7 @@ internal static class PackageIdentityGate
         var hasProductEntries = false;
         if (unreleased.Success)
         {
+            // A bullet counts only while the most recent ### heading is Added/Changed/Fixed/Security (or before any heading); ### Docs/### Tests must come after product subsections.
             var inProductSection = true;
             foreach (var line in unreleased.Groups[1].Value.Split('\n'))
             {

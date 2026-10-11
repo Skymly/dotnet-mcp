@@ -58,6 +58,7 @@ jobs:
           $unreleasedHasEntries = $false
           if ($changelog -match '(?ms)^## Unreleased\b(.*?)(?=^## |\z)') {
             $unreleased = $Matches[1]
+            # A bullet counts only while the most recent ### heading is Added/Changed/Fixed/Security (or before any heading); ### Docs/### Tests must come after product subsections.
             $inProductSection = $true
             foreach ($line in ($unreleased -split "`n")) {
               if ($line -match '^### ') {

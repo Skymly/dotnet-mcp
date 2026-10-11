@@ -134,6 +134,8 @@ public class PackageIdentitySeamTests
     [InlineData("4.0.1", "4.0.1", "4.0.1", "### Fixed\n\n- a product fix (#427)")]
     [InlineData("4.0.1", "4.0.1", "4.0.1", "### Docs\n\n- an ADR amendment (#426)\n\n### Fixed\n\n- a product fix (#427)")]
     [InlineData("4.0.2", "4.0.2", "4.0.1", "### Docs\n\n- an ADR amendment (#426)")]
+    [InlineData("4.0.1", "4.0.1", "4.0.1", "### Security\n\n- a security fix (#1)")]
+    [InlineData("4.0.1", "4.0.1", "4.0.1", "### Docs\n\n- an ADR amendment (#426)\n- an orphan bullet with no new heading (#2)")]
     public void ci_powershell_gate_matches_package_identity_gate(
         string csprojVersion,
         string jsonVersion,

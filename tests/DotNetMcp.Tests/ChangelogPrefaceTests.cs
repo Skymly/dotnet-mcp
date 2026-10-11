@@ -14,24 +14,27 @@ public class ChangelogPrefaceTests
     }
 
     [Fact]
-    public void unreleased_docs_subsection_comes_after_product_subsections()
+    public void unreleased_non_product_subsections_come_after_product_subsections()
     {
         var changelog = File.ReadAllText(Path.Combine(FindRepoRoot(), "CHANGELOG.md"));
         var unreleased = System.Text.RegularExpressions.Regex.Match(
             changelog,
             "(?ms)^## Unreleased\\b(.*?)(?=^## |\\z)").Groups[1].Value;
-        var docsIndex = unreleased.IndexOf("### Docs", StringComparison.Ordinal);
-        if (docsIndex < 0)
+        foreach (var nonProductHeading in new[] { "### Docs", "### Tests" })
         {
-            return;
-        }
+            var nonProductIndex = unreleased.IndexOf(nonProductHeading, StringComparison.Ordinal);
+            if (nonProductIndex < 0)
+            {
+                continue;
+            }
 
-        foreach (var productHeading in new[] { "### Added", "### Changed", "### Fixed", "### Security" })
-        {
-            var productIndex = unreleased.IndexOf(productHeading, StringComparison.Ordinal);
-            Assert.True(
-                productIndex < 0 || productIndex < docsIndex,
-                $"### Docs must follow {productHeading} inside Unreleased");
+            foreach (var productHeading in new[] { "### Added", "### Changed", "### Fixed", "### Security" })
+            {
+                var productIndex = unreleased.IndexOf(productHeading, StringComparison.Ordinal);
+                Assert.True(
+                    productIndex < 0 || productIndex < nonProductIndex,
+                    $"{nonProductHeading} must follow {productHeading} inside Unreleased");
+            }
         }
     }
 
