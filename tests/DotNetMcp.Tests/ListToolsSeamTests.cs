@@ -58,6 +58,9 @@ public class ListToolsSeamTests
         var previewFix = Assert.Single(tools, t => t.Name == "diagnostics_preview_fix");
         Assert.Contains("FixListEpochMismatch", previewFix.Description, StringComparison.Ordinal);
         var listRefactorings = Assert.Single(tools, t => t.Name == "symbol_list_refactorings");
+        Assert.Contains("built-in", listRefactorings.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("project-loaded", listRefactorings.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("empty list", listRefactorings.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("RefactoringListEpochMismatch", listRefactorings.Description, StringComparison.Ordinal);
         var previewRefactoring = Assert.Single(tools, t => t.Name == "symbol_preview_refactoring");
         Assert.Contains("RefactoringListEpochMismatch", previewRefactoring.Description, StringComparison.Ordinal);

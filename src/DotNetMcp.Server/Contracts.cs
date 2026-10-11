@@ -70,6 +70,7 @@ public static class PolicyErrorCodes
     public const string GeneratedSymbolRefactoringRefused = "GeneratedSymbolRefactoringRefused";
     public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
     public const string RefactoringApplyFailed = "RefactoringApplyFailed";
+    public const string DocumentAddOrRemoveRefused = "DocumentAddOrRemoveRefused";
 }
 
 public sealed record XamlBindingSegmentDto
@@ -474,6 +475,7 @@ public sealed record CodeRefactoringItemDto
 
 public sealed record SymbolListRefactoringsResultDto
 {
+    public required bool IncludesProjectAnalyzers { get; init; }
     public required long Epoch { get; init; }
     public required IReadOnlyList<CodeRefactoringItemDto> Items { get; init; }
 }

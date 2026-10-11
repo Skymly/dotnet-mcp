@@ -34,6 +34,12 @@ public sealed class WorkspaceHostOptions
     public Action? BeforeApplyFinalPathGate { get; init; }
 
     /// <summary>
+    /// Test seam invoked before each disk write of an apply-failure rollback.
+    /// Runs outside the status gate. Production leaves this null.
+    /// </summary>
+    public Action? BeforeRollbackWrite { get; init; }
+
+    /// <summary>
     /// Test seam invoked after drift has read disk text and before it applies repairs.
     /// Production leaves this null. Must not call CheckDrift or ApplyChangedPaths.
     /// </summary>
