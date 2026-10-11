@@ -112,6 +112,9 @@ ADR-0001/0002 原稿均未处理一个产品级阻断问题：**加载 ~150 项�
 - `symbol_members`（无 softBudget 入口）
 - `symbol_type_hierarchy`（无 softBudget 入口）
 - `symbol_find_implementations`（无 softBudget 入口）
+
+**受预算约束但超预算返回错误（不分页）：**
+
 - `symbol_resolve` 受同一预算约束，但超预算返回 `SoftBudgetExceeded` 错误而不是部分页 + `nextCursor`。
 
 为这些工具补上游标式预算是未来工作，不在本修订范围。
