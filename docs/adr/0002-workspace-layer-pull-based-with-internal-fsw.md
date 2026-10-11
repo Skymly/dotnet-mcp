@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S2；2026-08-19 Amendment 3 / Spike S4；2026-08-22 Amendment 4）** —— 拉取式方向不变，但接口签名、新鲜度语义、快照一致性与解决方案格式支持均被修正。Amendment 4 把 F# 快照并列在 Epoch 旁。以「决策」小节的现行内容为准。
+Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S2；2026-08-19 Amendment 3 / Spike S4；2026-08-22 Amendment 4；2026-10-11 Amendment 5）** —— 拉取式方向不变。Amendment 5 给出磁盘上的当前会话接口；「决策」代码块保持原文。
 
 ## 上下文
 
@@ -124,3 +124,22 @@ public interface IWorkspaceSession : IDisposable
 ## Amendment 4（2026-08-22）：F# 快照并列
 
 §8 兑现：FCS 不经 `IWorkspaceSession.Solution` / `GetCompilationAsync`。`WorkspaceSession` 冻结时捕获 `FSharpWorkspaceSnapshot`（同一 Epoch）。语言接缝仍是 `ILanguageAdapter`，不另开第三条接缝。
+
+
+## Amendment 5（2026-10-11）：会话接口与磁盘对齐
+
+证据：`src/DotNetMcp.Core/IWorkspaceSession.cs`。
+
+「决策」代码块仍写 `IWorkspaceProvider`，且 `GetGeneratorRunResultAsync` 返回 `GeneratorDriverRunResult`。该段保持原文。现行接口没有 `IWorkspaceProvider`。`GetGeneratorRunResultAsync` 返回 `DriverRunSnapshot`，会话还冻结同代次的 `FSharpSnapshot`。以磁盘接口为准：
+
+```csharp
+public interface IWorkspaceSession : IDisposable
+{
+    long Epoch { get; }
+    Solution Solution { get; }
+    FSharpWorkspaceSnapshot FSharpSnapshot { get; }
+    Task<Compilation> GetCompilationAsync(ProjectId projectId, CancellationToken cancellationToken = default);
+    Task<Compilation> GetCompilationWithoutGeneratedTreesAsync(ProjectId projectId, CancellationToken cancellationToken = default);
+    Task<DriverRunSnapshot> GetGeneratorRunResultAsync(ProjectId projectId, CancellationToken cancellationToken = default);
+}
+```
