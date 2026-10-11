@@ -779,6 +779,28 @@ public class FSharpSymbolQueryServiceTests
     }
 
     [Fact]
+    public async Task find_references_entire_solution_stays_in_defining_project()
+    {
+        var snapshot = new FSharpWorkspaceSnapshot(1, [
+            SnapshotProject(FsProjectId, "DupA", DupAPath, DupASource),
+            SnapshotProject(OtherProjectId, "DupB", DupBPath, DupBSource),
+        ]);
+        using var session = Session(snapshot);
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "ping", projectId: FsProjectId);
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await adapter.FindReferencesAsync(session, resolved!.Handle, entireSolution: true);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Equal(2, page!.Items.Count);
+        Assert.All(page.Items, r =>
+            Assert.Contains("DupA", r.FilePath ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("entireSolution does not widen F# search", page.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task check_does_not_notify_unchanged_snapshot_files()
     {
         using var session = Session(WidgetSnapshot());
@@ -917,6 +939,8 @@ public class FSharpSymbolQueryServiceTests
         ]);
 
     private static readonly string CollPath = Path.Combine(FixtureRoot, "Coll", "Lib.fs");
+    private static readonly string DupAPath = Path.Combine(FixtureRoot, "DupA", "Lib.fs");
+    private static readonly string DupBPath = Path.Combine(FixtureRoot, "DupB", "Lib.fs");
 
     private const string CollSource = """
         namespace Coll
@@ -925,6 +949,20 @@ public class FSharpSymbolQueryServiceTests
             member _.X = x
             static member op_Explicit(x: Widget) : int = x.X
             static member op_Explicit(x: Widget) : string = "s"
+        """;
+
+    private const string DupASource = """
+        module DupA.Lib
+
+        let ping () = 1
+        let go () = ping()
+        """;
+
+    private const string DupBSource = """
+        module DupB.Lib
+
+        let ping () = 2
+        let go () = ping()
         """;
 
     private static FSharpWorkspaceSnapshot OverloadSnapshot() =>
