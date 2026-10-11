@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- F# symbol_find_references and symbol_find_callers say on every page that only the defining project was searched, and that entireSolution does not widen F# search (`#333`)
 - Docs: ADR-0002 Amendment 5 names the current session interface without rewriting the accepted body (`#483`)
 - Docs: README test command matches CI, states that transitive restore is not locked, and the Chinese section includes pack (`#481`)
 - Tests: the packed README and the mcp-name comment match the server package identity (`#479`)

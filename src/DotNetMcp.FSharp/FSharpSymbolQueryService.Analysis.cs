@@ -63,8 +63,22 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        return Page(hits, session.Epoch, entireSolution, pageLimit, cursor, "symbol_find_references", handle, truncatedByBudget);
+        var (page, pageError) = Page(
+            hits,
+            session.Epoch,
+            entireSolution,
+            pageLimit,
+            cursor,
+            "symbol_find_references",
+            handle,
+            truncatedByBudget);
+        return (page is null ? null : page with { Message = page.Message + ScopeNote(entireSolution) }, pageError);
     }
+
+    private static string ScopeNote(bool entireSolution) =>
+        entireSolution
+            ? " entireSolution does not widen F# search; only the defining project was searched."
+            : " F# search covers only the defining project; projects that reference it were not searched.";
 
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
         IWorkspaceSession session,
@@ -227,7 +241,9 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        return Page(hits, session.Epoch, limit, cursor, "symbol_find_callers", handle, "No callers were found.", truncatedByBudget);
+        var (page, pageError) = Page(
+            hits, session.Epoch, limit, cursor, "symbol_find_callers", handle, "No callers were found.", truncatedByBudget);
+        return (page is null ? null : page with { Message = page.Message + ScopeNote(entireSolution) }, pageError);
     }
 
     private async Task<(FSharpCatalogItem? Item, FSharpProjectSnapshot? Project, FSharpCheckProjectResults? Check, SymbolQueryError? Error)>

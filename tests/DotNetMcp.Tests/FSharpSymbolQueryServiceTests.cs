@@ -439,6 +439,40 @@ public class FSharpSymbolQueryServiceTests
     }
 
     [Fact]
+    public async Task find_references_message_discloses_defining_project_scope_both_modes()
+    {
+        using var session = Session(RenameSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "ping");
+        Assert.Null(resolveError);
+
+        var (scoped, scopedError) = await adapter.FindReferencesAsync(session, resolved!.Handle);
+        Assert.Null(scopedError);
+        Assert.Contains("F# search covers only the defining project", scoped!.Message, StringComparison.Ordinal);
+
+        var (entire, entireError) = await adapter.FindReferencesAsync(session, resolved.Handle, entireSolution: true);
+        Assert.Null(entireError);
+        Assert.Contains("entireSolution does not widen F# search", entire!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task find_callers_message_discloses_defining_project_scope_both_modes()
+    {
+        using var session = Session(RenameSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "ping");
+        Assert.Null(resolveError);
+
+        var (scoped, scopedError) = await adapter.FindCallersAsync(session, resolved!.Handle);
+        Assert.Null(scopedError);
+        Assert.Contains("F# search covers only the defining project", scoped!.Message, StringComparison.Ordinal);
+
+        var (entire, entireError) = await adapter.FindCallersAsync(session, resolved.Handle, entireSolution: true);
+        Assert.Null(entireError);
+        Assert.Contains("entireSolution does not widen F# search", entire!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task check_does_not_notify_unchanged_snapshot_files()
     {
         using var session = Session(WidgetSnapshot());
