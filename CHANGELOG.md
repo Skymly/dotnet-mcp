@@ -6,11 +6,14 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Changed
 
+- F# member signatures now carry fully qualified parameter types instead of line-number suffixes, so fsharp: member handles issued by earlier versions must be resolved again (`#383`)
 - symbol_preview_rename, diagnostics_preview_fix, and symbol_preview_refactoring report idempotentHint=false, since each call stores a new TTL previewId (`#444`)
 - `message` on paged results is optional instead of required, matching the payloads that already omit it (`#443`)
 
 ### Fixed
 
+- F# symbol_find_references and symbol_find_callers say on every page that only the defining project was searched, and that entireSolution does not widen F# search (`#333`)
+- F# symbol_type_hierarchy names the first base type or interface that is outside the defining project instead of reporting "has no base types", and symbol_find_implementations discloses its defining-project scope (`#384`)
 - A soft budget of 0 means the budget is already spent in every consumer: xaml_diagnostics, batch project_diagnostics, and C#/VB find references or callers truncate with nextCursor instead of running unbounded or falling back (`#322`)
 - Apply-failure rollback no longer writes old text back to disk while holding the workspace status gate, so GetStatus and CurrentEpoch stay responsive during multi-file rollbacks (`#376`)
 - diagnostics_preview_fix and symbol_preview_refactoring refuse a generated-document change only when no handwritten document would change, matching rename (`#407`)

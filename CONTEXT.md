@@ -5,7 +5,7 @@
 ## Language
 
 **SymbolHandle**:
-跨 MCP 调用稳定引用某一符号的不透明句柄（含所属项目与签名身份，不含工作区代次）。
+跨 MCP 调用稳定引用某一符号的不透明句柄（含所属项目与签名身份，不含工作区代次）。F# 与 C#/VB 句柄共享 `{language}:{projectId}:{signature}#{checksum}` 语法，但 F# 签名内容与 Roslyn 格式不同构，`fsharp:` 与 `csharp:`/`vb:` 句柄不可跨语言互解。
 _Avoid_: Roslyn ISymbol id, document URI alone
 
 **Workspace**:
@@ -65,7 +65,7 @@ _Avoid_: code-behind-only DataContext walk
 _Avoid_: treating non-csharp handles as a blanket reject
 
 **P3 F#**:
-工作区可加载 SDK 风格 `.fsproj` / 混合解决方案；语言标记为 `fsharp`。F# 符号使用独立 FCS 栈上的 `fsharp:` SymbolHandle，导航/分析/诊断与 C# 同级。F# 源生成器归因不在本分期。
+工作区可加载 SDK 风格 `.fsproj` / 混合解决方案；语言标记为 `fsharp`。F# 符号使用独立 FCS 栈上的 `fsharp:` SymbolHandle，导航/诊断与 C# 同级；references/callers/implementations/type hierarchy 只覆盖定义项目，跨项目外部基类型在页面消息中具名。F# 源生成器归因不在本分期。
 _Avoid_: LSP proxy, stuffing F# into Roslyn ISymbol
 
 
