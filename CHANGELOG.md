@@ -7,6 +7,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 ### Changed
 
 - symbol_preview_rename, diagnostics_preview_fix, and symbol_preview_refactoring report idempotentHint=false, since each call stores a new TTL previewId (`#444`)
+- `message` on paged results is optional instead of required, matching the payloads that already omit it (`#443`)
 
 ### Fixed
 
