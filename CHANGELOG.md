@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- diagnostics_preview_fix and symbol_preview_refactoring refuse a generated-document change only when no handwritten document would change, matching rename (`#407`)
 - A fix, refactoring, or rename that would create or delete documents is refused with DocumentAddOrRemoveRefused instead of previewing a misleading write set (`#406`)
 - symbol_list_refactorings says the list is built-in Features providers only, and the response sets IncludesProjectAnalyzers to false (`#402`)
 - Docs: ADR-0002 Amendment 5 names the current session interface without rewriting the accepted body (`#483`)

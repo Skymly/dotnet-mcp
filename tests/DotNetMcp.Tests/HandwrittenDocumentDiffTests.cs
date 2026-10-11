@@ -218,6 +218,25 @@ public class HandwrittenDocumentDiffTests
     }
 
     [Fact]
+    public void decide_slices_returns_handwritten_slices_when_generated_is_also_touched()
+    {
+        var diff = new HandwrittenDiff(
+            [new RenameDocumentSlice("a.cs", "old", "new")],
+            TouchedGenerated: true,
+            AddsOrRemovesDocuments: false);
+
+        var (slices, error) = CodeActionDocuments.DecideSlices(
+            diff,
+            () => new FixApplyFailedError("apply", "x"),
+            () => new GeneratedDocumentFixRefusedError("generated", "y"),
+            () => new DocumentAddOrRemoveRefusedError("add or remove", "z"));
+
+        Assert.Null(error);
+        var kept = Assert.Single(slices!);
+        Assert.Equal("a.cs", kept.Path);
+    }
+
+    [Fact]
     public void decide_slices_returns_handwritten_slices()
     {
         var diff = new HandwrittenDiff(

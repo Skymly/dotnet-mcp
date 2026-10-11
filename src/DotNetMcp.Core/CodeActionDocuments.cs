@@ -83,7 +83,7 @@ public static class CodeActionDocuments
             return (null, addOrRemoveRefused());
         }
 
-        if (diff.TouchedGenerated)
+        if (diff.Slices.Count == 0 && diff.TouchedGenerated)
         {
             return (null, generatedRefused());
         }
