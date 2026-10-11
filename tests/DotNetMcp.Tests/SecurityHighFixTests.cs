@@ -386,6 +386,84 @@ public class SecurityHighFixTests
     }
 
     [Fact]
+    public async Task apply_failure_rollback_writes_disk_without_holding_the_status_gate()
+    {
+        var root = CreateTempDir("root");
+        var fileA = Path.Combine(root, "A.cs");
+        var fileB = Path.Combine(root, "B.cs");
+        File.WriteAllText(fileA, "oldA");
+        File.WriteAllText(fileB, "oldB");
+
+        var workspace = new AdhocWorkspace();
+        var project = workspace.AddProject("Lib", LanguageNames.CSharp);
+        var docBId = DocumentId.CreateNewId(project.Id);
+        foreach (var (id, path, text) in new[]
+        {
+            (DocumentId.CreateNewId(project.Id), fileA, "oldA"),
+            (docBId, fileB, "oldB"),
+        })
+        {
+            workspace.TryApplyChanges(workspace.CurrentSolution.AddDocument(DocumentInfo.Create(
+                id, Path.GetFileName(path),
+                loader: TextLoader.From(TextAndVersion.Create(SourceText.From(text), VersionStamp.Create())),
+                filePath: path)));
+        }
+
+        var loaded = new LoadedSolution(workspace, workspace.CurrentSolution, []);
+
+        WorkspaceHost? host = null;
+        var rollbackProbed = false;
+        var gateFreeDuringRollback = false;
+        host = new WorkspaceHost(
+            new FixedSolutionLoader(loaded),
+            new WorkspaceHostOptions
+            {
+                Debounce = TimeSpan.Zero,
+                FileWatcher = new ManualWorkspaceFileWatcher(),
+                BeforeRollbackWrite = () =>
+                {
+                    rollbackProbed = true;
+                    if (Task.Run(() => host!.GetStatus()).Wait(TimeSpan.FromSeconds(5)))
+                    {
+                        gateFreeDuringRollback = true;
+                    }
+                },
+            },
+            TrustedRoots.Create([root]));
+
+        try
+        {
+            host.BeginOpen(Path.Combine(root, "Lib.csproj"));
+            WaitReady(host);
+
+            // Stale loaded.Solution so the post-write workspace update fails into PreviewTargetMissing.
+            workspace.TryApplyChanges(
+                workspace.CurrentSolution.WithDocumentText(docBId, SourceText.From("drifted")));
+
+            var outcome = host.WriteDeclaredPaths(
+                [
+                    new WorkspaceEditDocument(fileA, "oldA", "newA"),
+                    new WorkspaceEditDocument(fileB, "oldB", "newB"),
+                ]);
+
+            Assert.True(outcome.Failed);
+            Assert.Equal(PolicyErrorCodes.PreviewTargetMissing, outcome.Error!.Error);
+            Assert.Equal(
+                "A preview document is not in the ready workspace; disk was rolled back.",
+                outcome.Error.Message);
+            Assert.True(rollbackProbed);
+            Assert.True(gateFreeDuringRollback);
+            Assert.Equal("oldA", File.ReadAllText(fileA));
+            Assert.Equal("oldB", File.ReadAllText(fileB));
+        }
+        finally
+        {
+            await host.DisposeAsync();
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public void fsharp_capture_skips_symlink_directories_and_outside_roots()
     {
         var root = CreateTempDir("root");

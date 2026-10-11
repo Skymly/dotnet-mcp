@@ -58,6 +58,9 @@ public class ListToolsSeamTests
         var previewFix = Assert.Single(tools, t => t.Name == "diagnostics_preview_fix");
         Assert.Contains("FixListEpochMismatch", previewFix.Description, StringComparison.Ordinal);
         var listRefactorings = Assert.Single(tools, t => t.Name == "symbol_list_refactorings");
+        Assert.Contains("built-in", listRefactorings.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("project-loaded", listRefactorings.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("empty list", listRefactorings.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("RefactoringListEpochMismatch", listRefactorings.Description, StringComparison.Ordinal);
         var previewRefactoring = Assert.Single(tools, t => t.Name == "symbol_preview_refactoring");
         Assert.Contains("RefactoringListEpochMismatch", previewRefactoring.Description, StringComparison.Ordinal);
@@ -110,7 +113,9 @@ public class ListToolsSeamTests
     private static bool ExpectReadOnly(string name) =>
         !ExpectDestructive(name) && name is not ("workspace_open" or "workspace_check_drift");
 
-    private static bool ExpectIdempotent(string name) => ExpectReadOnly(name);
+    private static bool ExpectIdempotent(string name) =>
+        ExpectReadOnly(name)
+        && name is not ("symbol_preview_rename" or "diagnostics_preview_fix" or "symbol_preview_refactoring");
 
     private static string FindServerDir()
     {

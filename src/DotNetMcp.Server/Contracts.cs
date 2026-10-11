@@ -70,6 +70,7 @@ public static class PolicyErrorCodes
     public const string GeneratedSymbolRefactoringRefused = "GeneratedSymbolRefactoringRefused";
     public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
     public const string RefactoringApplyFailed = "RefactoringApplyFailed";
+    public const string DocumentAddOrRemoveRefused = "DocumentAddOrRemoveRefused";
 }
 
 public sealed record XamlBindingSegmentDto
@@ -181,7 +182,7 @@ public sealed record SymbolMembersResultDto
     public required IReadOnlyList<MemberListItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
-    public required string Message { get; init; }
+    public string? Message { get; init; }
 }
 
 public sealed record ReferenceLocationItemDto
@@ -200,7 +201,7 @@ public sealed record SymbolFindReferencesResultDto
     public required IReadOnlyList<ReferenceLocationItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
-    public required string Message { get; init; }
+    public string? Message { get; init; }
 }
 
 public sealed record CallerLocationItemDto
@@ -220,7 +221,7 @@ public sealed record SymbolFindCallersResultDto
     public required IReadOnlyList<CallerLocationItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
-    public required string Message { get; init; }
+    public string? Message { get; init; }
 }
 
 public sealed record ImplementationItemDto
@@ -235,7 +236,7 @@ public sealed record SymbolFindImplementationsResultDto
     public required IReadOnlyList<ImplementationItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
-    public required string Message { get; init; }
+    public string? Message { get; init; }
 }
 
 public sealed record HierarchyItemDto
@@ -250,7 +251,7 @@ public sealed record SymbolTypeHierarchyResultDto
     public required IReadOnlyList<HierarchyItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
-    public required string Message { get; init; }
+    public string? Message { get; init; }
 }
 
 public sealed record DiagnosticItemDto
@@ -273,7 +274,7 @@ public sealed record ProjectDiagnosticsResultDto
     public required IReadOnlyList<DiagnosticItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
-    public required string Message { get; init; }
+    public string? Message { get; init; }
     public IReadOnlyList<string>? MissingDependencyOutputs { get; init; }
 }
 
@@ -301,7 +302,7 @@ public sealed record ProjectListGeneratedSourcesResultDto
     public required IReadOnlyList<GeneratedSourceItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
-    public required string Message { get; init; }
+    public string? Message { get; init; }
     public long Epoch { get; init; }
 }
 
@@ -318,7 +319,7 @@ public sealed record ProjectListGeneratorDiagnosticsResultDto
     public required IReadOnlyList<GeneratorDiagnosticItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }
-    public required string Message { get; init; }
+    public string? Message { get; init; }
     public long Epoch { get; init; }
 }
 
@@ -474,6 +475,7 @@ public sealed record CodeRefactoringItemDto
 
 public sealed record SymbolListRefactoringsResultDto
 {
+    public required bool IncludesProjectAnalyzers { get; init; }
     public required long Epoch { get; init; }
     public required IReadOnlyList<CodeRefactoringItemDto> Items { get; init; }
 }
