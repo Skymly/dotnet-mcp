@@ -34,7 +34,8 @@ public class FSharpSymbolQueryServiceTests
         let alpha: int = "not-an-int"
         """;
 
-    private const string HierPath = @"C:\fake-fs-unit\FsHier\Hier.fs";
+    private static readonly string FixtureRoot = Path.Combine(Path.GetTempPath(), "fake-fs-unit");
+    private static readonly string HierPath = Path.Combine(FixtureRoot, "FsHier", "Hier.fs");
 
     private const string HierSource = """
         namespace FsHier
@@ -752,6 +753,32 @@ public class FSharpSymbolQueryServiceTests
     }
 
     [Fact]
+    public async Task return_type_collision_gets_return_suffix_not_line_suffix()
+    {
+        using var session = Session(new FSharpWorkspaceSnapshot(1, [
+            SnapshotProject(FsProjectId, "Coll", CollPath, CollSource)]));
+        var adapter = Adapter();
+        var (widget, widgetError) = await adapter.ResolveByNameAsync(session, "Widget");
+        Assert.Null(widgetError);
+        Assert.NotNull(widget);
+
+        var (members, membersError) = await adapter.GetMembersAsync(session, widget!.Handle, limit: 50);
+        Assert.Null(membersError);
+        Assert.NotNull(members);
+        var signatures = members!.Items
+            .Select(SignatureOf)
+            .Where(s => s.StartsWith("Coll.Widget.op_Explicit(", StringComparison.Ordinal))
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(2, signatures.Count);
+        Assert.All(signatures, s => Assert.DoesNotContain("@", s, StringComparison.Ordinal));
+        Assert.Contains("Coll.Widget.op_Explicit(Coll.Widget)", signatures);
+        Assert.Single(signatures, s =>
+            s == "Coll.Widget.op_Explicit(Coll.Widget):System.Int32" ||
+            s == "Coll.Widget.op_Explicit(Coll.Widget):System.String");
+    }
+
+    [Fact]
     public async Task check_does_not_notify_unchanged_snapshot_files()
     {
         using var session = Session(WidgetSnapshot());
@@ -810,8 +837,8 @@ public class FSharpSymbolQueryServiceTests
     private static FSharpWorkspaceSnapshot HierSnapshot() =>
         new(1, [SnapshotProject(FsProjectId, "FsHier", HierPath, HierSource)]);
 
-    private const string OverloadsPath = @"C:\fake-fs-unit\FsOverload\Overloads.fs";
-    private const string CallsPath = @"C:\fake-fs-unit\FsOverload\Calls.fs";
+    private static readonly string OverloadsPath = Path.Combine(FixtureRoot, "FsOverload", "Overloads.fs");
+    private static readonly string CallsPath = Path.Combine(FixtureRoot, "FsOverload", "Calls.fs");
 
     private const string OverloadsSource = """
         namespace NsA
@@ -848,8 +875,8 @@ public class FSharpSymbolQueryServiceTests
         let callStrings () = gadget.N(["s"])
         """;
 
-    private const string KindsPath = @"C:\fake-fs-unit\FsKinds\Kinds.fs";
-    private const string KindsUsesPath = @"C:\fake-fs-unit\FsKinds\Uses.fs";
+    private static readonly string KindsPath = Path.Combine(FixtureRoot, "FsKinds", "Kinds.fs");
+    private static readonly string KindsUsesPath = Path.Combine(FixtureRoot, "FsKinds", "Uses.fs");
 
     private const string KindsSource = """
         namespace Kinds
@@ -888,6 +915,17 @@ public class FSharpSymbolQueryServiceTests
                     new FSharpDocumentSnapshot(KindsUsesPath, KindsUsesSource),
                 ]),
         ]);
+
+    private static readonly string CollPath = Path.Combine(FixtureRoot, "Coll", "Lib.fs");
+
+    private const string CollSource = """
+        namespace Coll
+
+        type Widget(x: int) =
+            member _.X = x
+            static member op_Explicit(x: Widget) : int = x.X
+            static member op_Explicit(x: Widget) : string = "s"
+        """;
 
     private static FSharpWorkspaceSnapshot OverloadSnapshot() =>
         new(1, [

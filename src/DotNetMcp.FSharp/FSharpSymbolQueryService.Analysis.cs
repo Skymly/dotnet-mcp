@@ -323,14 +323,16 @@ public sealed partial class FSharpSymbolQueryService
                 return false;
             }
 
-            var key = MemberFullName(member.DeclaringEntity.Value, member);
+            var owner = member.DeclaringEntity.Value;
+            var resolved = ResolveAccessor(member, owner) ?? member;
+            var key = MemberFullName(owner, resolved);
             if (string.Equals(key, item.SignatureQualifiedName, StringComparison.Ordinal)
-                || string.Equals(key + ":" + FormatReturnType(member), item.SignatureQualifiedName, StringComparison.Ordinal))
+                || string.Equals(key + ":" + FormatReturnType(resolved), item.SignatureQualifiedName, StringComparison.Ordinal))
             {
                 return true;
             }
 
-            var loc = member.DeclarationLocation;
+            var loc = resolved.DeclarationLocation;
             return string.Equals(
                 key + "@" + loc.StartLine + ":" + loc.StartColumn,
                 item.SignatureQualifiedName,
