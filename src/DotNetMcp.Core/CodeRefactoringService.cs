@@ -86,7 +86,7 @@ public sealed class CodeRefactoringService
                     "This Code Refactoring would change a generated document.",
                     "Change the generator input (handwritten source / attribute) instead of applying a refactoring to generated output."),
                 () => new DocumentAddOrRemoveRefusedError(
-                    "This Code Refactoring would add or remove documents; apply only edits existing documents.",
+                    "This Code Refactoring would add or remove documents; apply only edits to existing documents.",
                     "Pick another refactoringIndex from symbol_list_refactorings that does not create or delete files, or make the change without this tool."),
                 cancellationToken)
             .ConfigureAwait(false);
