@@ -4,6 +4,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ## Unreleased
 
+### Changed
+
+- F# member signatures now carry fully qualified parameter types instead of line-number suffixes, so fsharp: member handles issued by earlier versions must be resolved again (`#383`)
+
 ### Fixed
 
 - F# symbol_find_references and symbol_find_callers say on every page that only the defining project was searched, and that entireSolution does not widen F# search (`#333`)
