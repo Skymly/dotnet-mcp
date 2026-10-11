@@ -119,6 +119,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 - Graph gate checks AnalyzerReferences against trusted roots plus dotnet / NuGet toolchain roots; MetadataReferences stay unchecked (read-only metadata) (`#254`)
 
+### Docs
+
+- ADR-0001 Amendment 6 names the four product projects on disk; DotNetMcp.Workspace was never created and its duties live in DotNetMcp.Server (`#426`)
+
 ## 4.0.1 - 2026-09-12
 
 Patch on the 4.0 line. `v4.0.0` was git-tagged only; this is the first intended NuGet publish of **`Skymly.DotNetMcp`**.
