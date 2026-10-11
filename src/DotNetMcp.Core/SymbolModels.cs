@@ -102,6 +102,9 @@ public sealed record RenameLanguageNotSupportedError(string Message, string Sugg
 public sealed record InvalidRenameNameError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.InvalidRenameName, Message, SuggestedAction);
 
+public sealed record DocumentAddOrRemoveRefusedError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.DocumentAddOrRemoveRefused, Message, SuggestedAction);
+
 public static class SymbolQueryErrorCodes
 {
     public const string InvalidSymbolHandle = "InvalidSymbolHandle";
@@ -135,6 +138,7 @@ public static class SymbolQueryErrorCodes
     public const string GeneratedSymbolRefactoringRefused = "GeneratedSymbolRefactoringRefused";
     public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
     public const string RefactoringApplyFailed = "RefactoringApplyFailed";
+    public const string DocumentAddOrRemoveRefused = "DocumentAddOrRemoveRefused";
 }
 
 public static class DeclarationAvailability

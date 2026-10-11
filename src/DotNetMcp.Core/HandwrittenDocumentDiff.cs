@@ -3,36 +3,45 @@ using Microsoft.CodeAnalysis;
 namespace DotNetMcp.Core;
 
 /// <summary>
+/// Handwritten slices, whether generated output changed, and whether the diff adds or removes documents.
+/// </summary>
+public sealed record HandwrittenDiff(
+    IReadOnlyList<RenameDocumentSlice> Slices,
+    bool TouchedGenerated,
+    bool AddsOrRemovesDocuments);
+
+/// <summary>
 /// Solution pair (or equivalent document pairs) → handwritten Workspace Edit slices.
 /// Origin=SourceGenerator documents never become write slices.
+/// Added or removed handwritten documents and added or removed projects never become write slices;
+/// they set <see cref="HandwrittenDiff.AddsOrRemovesDocuments"/> instead.
 /// </summary>
 public static class HandwrittenDocumentDiff
 {
-    public static async Task<(IReadOnlyList<RenameDocumentSlice> Slices, bool TouchedGenerated)> FromSolutionsAsync(
+    public static async Task<HandwrittenDiff> FromSolutionsAsync(
         Solution before,
         Solution after,
         CancellationToken cancellationToken = default)
     {
         var slices = new List<RenameDocumentSlice>();
         var touchedGenerated = false;
+        var addsOrRemoves = false;
         var changes = after.GetChanges(before);
 
         foreach (var project in changes.GetAddedProjects())
         {
-            touchedGenerated |= await CollectProjectDocumentsAsync(
+            addsOrRemoves = true;
+            touchedGenerated |= await CollectProjectGeneratedAsync(
                     after.GetProject(project.Id) ?? project,
-                    added: true,
-                    slices,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
 
         foreach (var project in changes.GetRemovedProjects())
         {
-            touchedGenerated |= await CollectProjectDocumentsAsync(
+            addsOrRemoves = true;
+            touchedGenerated |= await CollectProjectGeneratedAsync(
                     before.GetProject(project.Id) ?? project,
-                    added: false,
-                    slices,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -47,26 +56,38 @@ public static class HandwrittenDocumentDiff
 
             foreach (var docId in projectChange.GetAddedDocuments())
             {
-                touchedGenerated |= await CollectDocumentAsync(
-                        after.GetDocument(docId),
-                        generatedIds,
-                        oldText: string.Empty,
-                        newTextFromDoc: true,
-                        slices,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                var document = after.GetDocument(docId);
+                if (document is null)
+                {
+                    continue;
+                }
+
+                if (generatedIds.Contains(docId) || document is SourceGeneratedDocument)
+                {
+                    touchedGenerated = true;
+                }
+                else
+                {
+                    addsOrRemoves = true;
+                }
             }
 
             foreach (var docId in projectChange.GetRemovedDocuments())
             {
-                touchedGenerated |= await CollectDocumentAsync(
-                        before.GetDocument(docId),
-                        generatedIds,
-                        oldText: null,
-                        newTextFromDoc: false,
-                        slices,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                var document = before.GetDocument(docId);
+                if (document is null)
+                {
+                    continue;
+                }
+
+                if (generatedIds.Contains(docId) || document is SourceGeneratedDocument)
+                {
+                    touchedGenerated = true;
+                }
+                else
+                {
+                    addsOrRemoves = true;
+                }
             }
 
             foreach (var docId in projectChange.GetChangedDocuments())
@@ -107,10 +128,10 @@ public static class HandwrittenDocumentDiff
             }
         }
 
-        return (slices, touchedGenerated);
+        return new HandwrittenDiff(slices, touchedGenerated, addsOrRemoves);
     }
 
-    public static async Task<(IReadOnlyList<RenameDocumentSlice> Slices, bool TouchedGenerated)> FromDocumentPairsAsync(
+    public static async Task<HandwrittenDiff> FromDocumentPairsAsync(
         Solution solution,
         IEnumerable<RenameDocumentSlice> pairs,
         CancellationToken cancellationToken = default)
@@ -135,14 +156,12 @@ public static class HandwrittenDocumentDiff
             slices.Add(pair);
         }
 
-        return (slices, touchedGenerated);
+        return new HandwrittenDiff(slices, touchedGenerated, AddsOrRemovesDocuments: false);
     }
 
 
-    private static async Task<bool> CollectProjectDocumentsAsync(
+    private static async Task<bool> CollectProjectGeneratedAsync(
         Project? project,
-        bool added,
-        List<RenameDocumentSlice> slices,
         CancellationToken cancellationToken)
     {
         if (project is null)
@@ -154,14 +173,10 @@ public static class HandwrittenDocumentDiff
         var touchedGenerated = false;
         foreach (var document in project.Documents)
         {
-            touchedGenerated |= await CollectDocumentAsync(
-                    document,
-                    generatedIds,
-                    oldText: added ? string.Empty : null,
-                    newTextFromDoc: added,
-                    slices,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            if (generatedIds.Contains(document.Id) || document is SourceGeneratedDocument)
+            {
+                touchedGenerated = true;
+            }
         }
 
         foreach (var generated in await project.GetSourceGeneratedDocumentsAsync(cancellationToken).ConfigureAwait(false))
@@ -173,41 +188,6 @@ public static class HandwrittenDocumentDiff
         }
 
         return touchedGenerated;
-    }
-
-    private static async Task<bool> CollectDocumentAsync(
-        Document? document,
-        HashSet<DocumentId> generatedIds,
-        string? oldText,
-        bool newTextFromDoc,
-        List<RenameDocumentSlice> slices,
-        CancellationToken cancellationToken)
-    {
-        if (document is null)
-        {
-            return false;
-        }
-
-        if (generatedIds.Contains(document.Id) || document is SourceGeneratedDocument)
-        {
-            return true;
-        }
-
-        if (string.IsNullOrWhiteSpace(document.FilePath))
-        {
-            return false;
-        }
-
-        var text = (await document.GetTextAsync(cancellationToken).ConfigureAwait(false)).ToString();
-        var sliceOld = oldText ?? text;
-        var sliceNew = newTextFromDoc ? text : string.Empty;
-        if (sliceOld == sliceNew)
-        {
-            return false;
-        }
-
-        slices.Add(new RenameDocumentSlice(document.FilePath, sliceOld, sliceNew));
-        return false;
     }
 
     private static async Task<bool> GeneratedTextChangedAsync(

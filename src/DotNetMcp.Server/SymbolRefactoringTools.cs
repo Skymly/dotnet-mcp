@@ -71,7 +71,8 @@ public sealed class SymbolRefactoringTools
         "refactoringIndex must come from symbol_list_refactorings for this handle on the current Epoch. " +
         "If that Epoch has advanced, fails with RefactoringListEpochMismatch and does not select another action. " +
         "Returns previewId bound to the current Epoch + TTL. Does not write disk. " +
-        "Generated documents are refused. Not a generic apply_edit / write / shell.")]
+        "Generated documents are refused. An action that would create or delete files is refused with DocumentAddOrRemoveRefused. " +
+        "Not a generic apply_edit / write / shell.")]
     public async Task<CallToolResult> SymbolPreviewRefactoring(
         [Description("Handwritten C# / VB SymbolHandle from symbol_resolve.")]
         string handle,

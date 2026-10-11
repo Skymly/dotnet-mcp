@@ -93,7 +93,8 @@ public sealed class DiagnosticTools
         "If that Epoch has advanced, fails with FixListEpochMismatch and does not select another action. " +
         "Returns previewId bound to the current Epoch + TTL. Does not write disk. " +
         "scope=occurrence (default), scope=document, or scope=project for Fix all with the same EquivalenceKey. " +
-        "Generated documents are refused. Not a generic apply_edit / write / shell.")]
+        "Generated documents are refused. An action that would create or delete files is refused with DocumentAddOrRemoveRefused. " +
+        "Not a generic apply_edit / write / shell.")]
     public async Task<CallToolResult> DiagnosticsPreviewFix(
         [Description("Roslyn projectId from workspace_list_projects / project_diagnostics.")]
         string projectId,

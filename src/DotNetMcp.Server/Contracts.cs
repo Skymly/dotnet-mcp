@@ -70,6 +70,7 @@ public static class PolicyErrorCodes
     public const string GeneratedSymbolRefactoringRefused = "GeneratedSymbolRefactoringRefused";
     public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
     public const string RefactoringApplyFailed = "RefactoringApplyFailed";
+    public const string DocumentAddOrRemoveRefused = "DocumentAddOrRemoveRefused";
 }
 
 public sealed record XamlBindingSegmentDto

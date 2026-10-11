@@ -58,6 +58,7 @@ public static class CodeActionDocuments
         Solution? after,
         Func<SymbolQueryError> applyFailed,
         Func<SymbolQueryError> generatedRefused,
+        Func<SymbolQueryError> addOrRemoveRefused,
         CancellationToken cancellationToken)
     {
         if (after is null)
@@ -65,20 +66,34 @@ public static class CodeActionDocuments
             return (null, applyFailed());
         }
 
-        var (slices, generated) = await HandwrittenDocumentDiff
+        var diff = await HandwrittenDocumentDiff
             .FromSolutionsAsync(before, after, cancellationToken)
             .ConfigureAwait(false);
-        if (generated)
+        return DecideSlices(diff, applyFailed, generatedRefused, addOrRemoveRefused);
+    }
+
+    internal static (IReadOnlyList<RenameDocumentSlice>? Documents, SymbolQueryError? Error) DecideSlices(
+        HandwrittenDiff diff,
+        Func<SymbolQueryError> applyFailed,
+        Func<SymbolQueryError> generatedRefused,
+        Func<SymbolQueryError> addOrRemoveRefused)
+    {
+        if (diff.AddsOrRemovesDocuments)
+        {
+            return (null, addOrRemoveRefused());
+        }
+
+        if (diff.TouchedGenerated)
         {
             return (null, generatedRefused());
         }
 
-        if (slices.Count == 0)
+        if (diff.Slices.Count == 0)
         {
             return (null, applyFailed());
         }
 
-        return (slices, null);
+        return (diff.Slices, null);
     }
 
     private static IReadOnlyList<TProvider> LoadProviders<TProvider>(string language)

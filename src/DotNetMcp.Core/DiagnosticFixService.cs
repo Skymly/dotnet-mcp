@@ -149,6 +149,9 @@ public sealed class DiagnosticFixService
                 () => new GeneratedDocumentFixRefusedError(
                     "This Diagnostic fix would change a generated document.",
                     "Change the generator input (handwritten source / attribute) instead of applying a fix to generated output."),
+                () => new DocumentAddOrRemoveRefusedError(
+                    "This Diagnostic fix would add or remove documents; apply only edits existing documents.",
+                    "Pick another fixIndex from diagnostics_list_fixes that does not create or delete files, or make the change without this tool."),
                 cancellationToken)
             .ConfigureAwait(false);
         if (sliceError is not null)

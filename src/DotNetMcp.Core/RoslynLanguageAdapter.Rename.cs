@@ -79,9 +79,17 @@ public sealed partial class RoslynLanguageAdapter
             newName,
             cancellationToken).ConfigureAwait(false);
 
-        var (slices, generated) = await HandwrittenDocumentDiff
+        var diff = await HandwrittenDocumentDiff
             .FromSolutionsAsync(session.Solution, renamed, cancellationToken)
             .ConfigureAwait(false);
+        if (diff.AddsOrRemovesDocuments)
+        {
+            return (null, new DocumentAddOrRemoveRefusedError(
+                "This rename would add or remove documents; rename only edits existing documents.",
+                "Rename the symbol by hand, or revert the added / removed files and preview again."));
+        }
+
+        var (slices, generated) = (diff.Slices, diff.TouchedGenerated);
         if (generated && slices.Count == 0)
         {
             return (null, new GeneratedSymbolRenameRefusedError(

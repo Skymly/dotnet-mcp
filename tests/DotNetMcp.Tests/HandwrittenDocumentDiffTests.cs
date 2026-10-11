@@ -26,16 +26,17 @@ public class HandwrittenDocumentDiffTests
         };
         pairs.AddRange(generated.Select(d => new RenameDocumentSlice(d.FilePath!, "old-gen", "new-gen")));
 
-        var (slices, touchedGenerated) = await HandwrittenDocumentDiff.FromDocumentPairsAsync(
+        var diff = await HandwrittenDocumentDiff.FromDocumentPairsAsync(
             workspace.CurrentSolution,
             pairs,
             CancellationToken.None);
 
-        Assert.True(touchedGenerated);
-        var kept = Assert.Single(slices);
+        Assert.True(diff.TouchedGenerated);
+        Assert.False(diff.AddsOrRemovesDocuments);
+        var kept = Assert.Single(diff.Slices);
         Assert.Equal(handwritten.FilePath, kept.Path);
         Assert.Equal("new-hw", kept.NewText);
-        Assert.All(generated, d => Assert.DoesNotContain(slices, s => PathsEqual(s.Path, d.FilePath)));
+        Assert.All(generated, d => Assert.DoesNotContain(diff.Slices, s => PathsEqual(s.Path, d.FilePath)));
     }
 
     [Fact]
@@ -47,13 +48,14 @@ public class HandwrittenDocumentDiffTests
             handwritten.Id,
             SourceText.From("namespace GeneratorHost; public static class Host { public static int N => 1; }"));
 
-        var (slices, touchedGenerated) = await HandwrittenDocumentDiff.FromSolutionsAsync(
+        var diff = await HandwrittenDocumentDiff.FromSolutionsAsync(
             workspace.CurrentSolution,
             after,
             CancellationToken.None);
 
-        Assert.False(touchedGenerated);
-        var kept = Assert.Single(slices);
+        Assert.False(diff.TouchedGenerated);
+        Assert.False(diff.AddsOrRemovesDocuments);
+        var kept = Assert.Single(diff.Slices);
         Assert.True(PathsEqual(kept.Path, handwritten.FilePath));
         Assert.Contains("public static int N => 1", kept.NewText, StringComparison.Ordinal);
     }
@@ -78,27 +80,28 @@ public class HandwrittenDocumentDiffTests
             "RenamedThing",
             CancellationToken.None);
 
-        var (slices, _) = await HandwrittenDocumentDiff.FromSolutionsAsync(
+        var diff = await HandwrittenDocumentDiff.FromSolutionsAsync(
             workspace.CurrentSolution,
             renamed,
             CancellationToken.None);
 
-        Assert.Contains(slices, s =>
+        Assert.False(diff.AddsOrRemovesDocuments);
+        Assert.Contains(diff.Slices, s =>
             s.Path.EndsWith("Host.cs", StringComparison.OrdinalIgnoreCase) &&
             s.NewText.Contains("RenamedThing", StringComparison.Ordinal));
-        Assert.All(slices, s =>
+        Assert.All(diff.Slices, s =>
             Assert.DoesNotContain(".g.cs", Path.GetFileName(s.Path), StringComparison.OrdinalIgnoreCase));
         Assert.All(generated, d =>
         {
             if (!string.IsNullOrWhiteSpace(d.FilePath))
             {
-                Assert.DoesNotContain(slices, s => PathsEqual(s.Path, d.FilePath));
+                Assert.DoesNotContain(diff.Slices, s => PathsEqual(s.Path, d.FilePath));
             }
         });
     }
 
     [Fact]
-    public async Task from_solutions_emits_handwritten_added_documents_without_generated_flag()
+    public async Task from_solutions_flags_handwritten_added_documents_instead_of_emitting_slices()
     {
         using var workspace = CreatePlainWorkspace();
         var project = workspace.CurrentSolution.Projects.Single();
@@ -109,39 +112,35 @@ public class HandwrittenDocumentDiffTests
             SourceText.From("namespace Host; public class Extra {}"),
             filePath: extraPath);
 
-        var (slices, touchedGenerated) = await HandwrittenDocumentDiff.FromSolutionsAsync(
+        var diff = await HandwrittenDocumentDiff.FromSolutionsAsync(
             workspace.CurrentSolution,
             after,
             CancellationToken.None);
 
-        Assert.False(touchedGenerated);
-        var added = Assert.Single(slices);
-        Assert.True(PathsEqual(added.Path, extraPath));
-        Assert.Equal(string.Empty, added.OldText);
-        Assert.Contains("class Extra", added.NewText, StringComparison.Ordinal);
+        Assert.False(diff.TouchedGenerated);
+        Assert.True(diff.AddsOrRemovesDocuments);
+        Assert.Empty(diff.Slices);
     }
 
     [Fact]
-    public async Task from_solutions_emits_handwritten_removed_documents_without_generated_flag()
+    public async Task from_solutions_flags_handwritten_removed_documents_instead_of_emitting_slices()
     {
         using var workspace = CreatePlainWorkspace();
         var handwritten = Assert.Single(workspace.CurrentSolution.Projects.Single().Documents);
         var after = workspace.CurrentSolution.RemoveDocument(handwritten.Id);
 
-        var (slices, touchedGenerated) = await HandwrittenDocumentDiff.FromSolutionsAsync(
+        var diff = await HandwrittenDocumentDiff.FromSolutionsAsync(
             workspace.CurrentSolution,
             after,
             CancellationToken.None);
 
-        Assert.False(touchedGenerated);
-        var removed = Assert.Single(slices);
-        Assert.True(PathsEqual(removed.Path, handwritten.FilePath));
-        Assert.Equal(string.Empty, removed.NewText);
-        Assert.Contains("class Host", removed.OldText, StringComparison.Ordinal);
+        Assert.False(diff.TouchedGenerated);
+        Assert.True(diff.AddsOrRemovesDocuments);
+        Assert.Empty(diff.Slices);
     }
 
     [Fact]
-    public async Task handwritten_add_is_not_generated_document_fix_refused()
+    public async Task handwritten_add_is_refused_with_document_add_or_remove_refused()
     {
         using var workspace = CreatePlainWorkspace();
         var project = workspace.CurrentSolution.Projects.Single();
@@ -157,10 +156,84 @@ public class HandwrittenDocumentDiffTests
             after,
             () => new FixApplyFailedError("no handwritten change", "retry"),
             () => new GeneratedDocumentFixRefusedError("generated", "change input"),
+            () => new DocumentAddOrRemoveRefusedError("add or remove", "edit existing only"),
             CancellationToken.None);
 
+        Assert.Null(slices);
+        Assert.Equal(SymbolQueryErrorCodes.DocumentAddOrRemoveRefused, error!.Code);
+    }
+
+    [Fact]
+    public void decide_slices_refuses_add_or_remove_before_anything_else()
+    {
+        var diff = new HandwrittenDiff(
+            [new RenameDocumentSlice("a.cs", "old", "new")],
+            TouchedGenerated: true,
+            AddsOrRemovesDocuments: true);
+
+        var (slices, error) = CodeActionDocuments.DecideSlices(
+            diff,
+            () => new FixApplyFailedError("apply", "x"),
+            () => new GeneratedDocumentFixRefusedError("generated", "y"),
+            () => new DocumentAddOrRemoveRefusedError("add or remove", "z"));
+
+        Assert.Null(slices);
+        Assert.Equal(SymbolQueryErrorCodes.DocumentAddOrRemoveRefused, error!.Code);
+    }
+
+    [Fact]
+    public void decide_slices_refuses_generated_documents()
+    {
+        var diff = new HandwrittenDiff(
+            [],
+            TouchedGenerated: true,
+            AddsOrRemovesDocuments: false);
+
+        var (slices, error) = CodeActionDocuments.DecideSlices(
+            diff,
+            () => new FixApplyFailedError("apply", "x"),
+            () => new GeneratedDocumentFixRefusedError("generated", "y"),
+            () => new DocumentAddOrRemoveRefusedError("add or remove", "z"));
+
+        Assert.Null(slices);
+        Assert.Equal(SymbolQueryErrorCodes.GeneratedDocumentFixRefused, error!.Code);
+    }
+
+    [Fact]
+    public void decide_slices_fails_apply_when_nothing_changed()
+    {
+        var diff = new HandwrittenDiff(
+            [],
+            TouchedGenerated: false,
+            AddsOrRemovesDocuments: false);
+
+        var (slices, error) = CodeActionDocuments.DecideSlices(
+            diff,
+            () => new FixApplyFailedError("apply", "x"),
+            () => new GeneratedDocumentFixRefusedError("generated", "y"),
+            () => new DocumentAddOrRemoveRefusedError("add or remove", "z"));
+
+        Assert.Null(slices);
+        Assert.Equal(SymbolQueryErrorCodes.FixApplyFailed, error!.Code);
+    }
+
+    [Fact]
+    public void decide_slices_returns_handwritten_slices()
+    {
+        var diff = new HandwrittenDiff(
+            [new RenameDocumentSlice("a.cs", "old", "new")],
+            TouchedGenerated: false,
+            AddsOrRemovesDocuments: false);
+
+        var (slices, error) = CodeActionDocuments.DecideSlices(
+            diff,
+            () => new FixApplyFailedError("apply", "x"),
+            () => new GeneratedDocumentFixRefusedError("generated", "y"),
+            () => new DocumentAddOrRemoveRefusedError("add or remove", "z"));
+
         Assert.Null(error);
-        Assert.Contains(slices!, s => PathsEqual(s.Path, extraPath) && s.OldText.Length == 0);
+        var kept = Assert.Single(slices!);
+        Assert.Equal("a.cs", kept.Path);
     }
 
 
