@@ -115,8 +115,19 @@ public sealed partial class FSharpSymbolQueryService
             })
             .ToList();
 
-        return Page(impls, session.Epoch, pageLimit: limit, cursor, "symbol_find_implementations", handle,
+        var (page, pageError) = Page(impls, session.Epoch, pageLimit: limit, cursor, "symbol_find_implementations", handle,
             emptyMessage: "No implementations were found.");
+        if (page is not null)
+        {
+            page = page with
+            {
+                Message = page.Items.Count == 0
+                    ? "No implementations were found in the defining F# project; other projects were not searched."
+                    : page.Message + " F# search covers only types in the defining project."
+            };
+        }
+
+        return (page, pageError);
     }
 
     public async Task<(PagedResult<HierarchyItem>? Success, SymbolQueryError? Error)> GetTypeHierarchyAsync(
@@ -153,10 +164,17 @@ public sealed partial class FSharpSymbolQueryService
             current = parent.BaseTypeName;
         }
 
+        var outsideNames = new List<string>();
+        if (!string.IsNullOrWhiteSpace(current))
+        {
+            outsideNames.Add($"'{current}'");
+        }
+
         foreach (var ifaceName in item.InterfaceNames ?? [])
         {
             if (!byName.TryGetValue(ifaceName, out var iface))
             {
+                outsideNames.Add($"'{ifaceName}'");
                 continue;
             }
 
@@ -164,8 +182,17 @@ public sealed partial class FSharpSymbolQueryService
             chain.Add(new HierarchyItem(HierarchyRelationKind.Interface, success.Handle, success.Summary));
         }
 
-        return Page(chain, session.Epoch, pageLimit: limit, cursor, "symbol_type_hierarchy", handle,
+        var (page, pageError) = Page(chain, session.Epoch, pageLimit: limit, cursor, "symbol_type_hierarchy", handle,
             emptyMessage: "Type has no base types or interfaces.");
+        if (page is not null && outsideNames.Count > 0)
+        {
+            var note =
+                $"Base-type chain stops at {string.Join(", ", outsideNames)}, which is outside the defining F# project; " +
+                "external base types and interfaces are not returned.";
+            page = page with { Message = page.Items.Count == 0 ? note : page.Message + " " + note };
+        }
+
+        return (page, pageError);
     }
 
     public async Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(

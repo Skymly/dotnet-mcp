@@ -941,12 +941,23 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             }
 
             var baseType = entity.BaseType;
-            if (!OptionModule.IsSome(baseType) || !baseType.Value.HasTypeDefinition)
+            if (!OptionModule.IsSome(baseType))
             {
                 return null;
             }
 
-            var name = EntityFullName(baseType.Value.TypeDefinition);
+            var resolved = baseType.Value;
+            while (resolved.IsAbbreviation)
+            {
+                resolved = resolved.AbbreviatedType;
+            }
+
+            if (!resolved.HasTypeDefinition)
+            {
+                return null;
+            }
+
+            var name = EntityFullName(resolved.TypeDefinition);
             return name is "System.Object" or "obj" ? null : name;
         }
         catch (Exception)

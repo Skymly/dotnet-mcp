@@ -34,6 +34,25 @@ public class FSharpSymbolQueryServiceTests
         let alpha: int = "not-an-int"
         """;
 
+    private const string HierPath = @"C:\fake-fs-unit\FsHier\Hier.fs";
+
+    private const string HierSource = """
+        namespace FsHier
+
+        type IMarker =
+            abstract Tag: string
+
+        type Plain() =
+            member _.Value = 1
+
+        type MyError() =
+            inherit System.Exception()
+
+        type MarkerA() =
+            interface IMarker with
+                member _.Tag = "a"
+        """;
+
     private static FSharpSymbolQueryService Adapter() => new();
 
     [Theory]
@@ -473,6 +492,65 @@ public class FSharpSymbolQueryServiceTests
     }
 
     [Fact]
+    public async Task type_hierarchy_names_external_base_type_instead_of_no_bases()
+    {
+        using var session = Session(HierSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "MyError");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await adapter.GetTypeHierarchyAsync(session, resolved!.Handle);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Empty(page!.Items);
+        Assert.Contains("System.Exception", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("has no base types", page.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task type_hierarchy_plain_type_keeps_no_bases_message()
+    {
+        using var session = Session(HierSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Plain");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await adapter.GetTypeHierarchyAsync(session, resolved!.Handle);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Empty(page!.Items);
+        Assert.Equal("Type has no base types or interfaces.", page.Message);
+    }
+
+    [Fact]
+    public async Task find_implementations_message_discloses_defining_project_scope()
+    {
+        using var session = Session(HierSnapshot());
+        var adapter = Adapter();
+        var (iface, resolveError) = await adapter.ResolveByNameAsync(session, "IMarker");
+        Assert.Null(resolveError);
+        Assert.NotNull(iface);
+
+        var (page, error) = await adapter.FindImplementationsAsync(session, iface!.Handle);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Contains(page!.Items, i => i.Summary.DisplayName == "MarkerA");
+        Assert.Contains("F# search covers only types in the defining project.", page.Message, StringComparison.Ordinal);
+
+        var (plain, plainError) = await adapter.ResolveByNameAsync(session, "Plain");
+        Assert.Null(plainError);
+        var (empty, emptyError) = await adapter.FindImplementationsAsync(session, plain!.Handle);
+        Assert.Null(emptyError);
+        Assert.NotNull(empty);
+        Assert.Empty(empty!.Items);
+        Assert.Equal(
+            "No implementations were found in the defining F# project; other projects were not searched.",
+            empty.Message);
+    }
+
+    [Fact]
     public async Task check_does_not_notify_unchanged_snapshot_files()
     {
         using var session = Session(WidgetSnapshot());
@@ -527,6 +605,9 @@ public class FSharpSymbolQueryServiceTests
 
     private static FSharpWorkspaceSnapshot BrokenSnapshot() =>
         new(1, [SnapshotProject(FsProjectId, "Broken", BrokenPath, BrokenSource)]);
+
+    private static FSharpWorkspaceSnapshot HierSnapshot() =>
+        new(1, [SnapshotProject(FsProjectId, "FsHier", HierPath, HierSource)]);
 
     private static FSharpProjectSnapshot SnapshotProject(string projectId, string name, string path, string text) =>
         new(

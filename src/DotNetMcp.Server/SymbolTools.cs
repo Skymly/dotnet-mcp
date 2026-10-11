@@ -224,7 +224,8 @@ public sealed class SymbolTools
 
     [McpServerTool(Name = "symbol_find_implementations", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Find types and members that implement or derive from a SymbolHandle (interfaces, abstract/virtual " +
-        "members, and class inheritance). Results are paginated; cursors bind to the workspace epoch.")]
+        "members, and class inheritance). Results are paginated; cursors bind to the workspace epoch. " +
+        "F# handles search only the defining project.")]
     public async Task<CallToolResult> SymbolFindImplementations(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
         string handle,
@@ -256,7 +257,9 @@ public sealed class SymbolTools
 
     [McpServerTool(Name = "symbol_type_hierarchy", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Return a type SymbolHandle's base-type chain (immediate to root) then implemented interfaces, " +
-        "paginated. Cursors bind to the workspace epoch and become stale when the workspace generation advances.")]
+        "paginated. Cursors bind to the workspace epoch and become stale when the workspace generation advances. " +
+        "For F# handles the chain covers only types in the same project and stops at the first external base type, " +
+        "which the message names.")]
     public async Task<CallToolResult> SymbolTypeHierarchy(
         [Description("Type SymbolHandle from symbol_resolve.")]
         string handle,
