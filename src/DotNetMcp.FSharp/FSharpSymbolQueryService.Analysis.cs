@@ -164,17 +164,13 @@ public sealed partial class FSharpSymbolQueryService
             current = parent.BaseTypeName;
         }
 
-        var outsideNames = new List<string>();
-        if (!string.IsNullOrWhiteSpace(current))
-        {
-            outsideNames.Add($"'{current}'");
-        }
-
+        var stoppedAt = string.IsNullOrWhiteSpace(current) ? null : current;
+        var outsideInterfaces = new List<string>();
         foreach (var ifaceName in item.InterfaceNames ?? [])
         {
             if (!byName.TryGetValue(ifaceName, out var iface))
             {
-                outsideNames.Add($"'{ifaceName}'");
+                outsideInterfaces.Add($"'{ifaceName}'");
                 continue;
             }
 
@@ -182,12 +178,21 @@ public sealed partial class FSharpSymbolQueryService
             chain.Add(new HierarchyItem(HierarchyRelationKind.Interface, success.Handle, success.Summary));
         }
 
+        var outsideNames = stoppedAt is null
+            ? outsideInterfaces
+            : [$"'{stoppedAt}'", .. outsideInterfaces];
+
         var (page, pageError) = Page(chain, session.Epoch, pageLimit: limit, cursor, "symbol_type_hierarchy", handle,
             emptyMessage: "Type has no base types or interfaces.");
         if (page is not null && outsideNames.Count > 0)
         {
+            var head = stoppedAt is not null
+                ? $"Base-type chain stops at {string.Join(", ", outsideNames)}"
+                : (outsideNames.Count == 1 ? "External interface " : "External interfaces ") +
+                  string.Join(", ", outsideNames);
+            var verb = outsideNames.Count == 1 ? "is" : "are";
             var note =
-                $"Base-type chain stops at {string.Join(", ", outsideNames)}, which is outside the defining F# project; " +
+                $"{head}, which {verb} outside the defining F# project; " +
                 "external base types and interfaces are not returned.";
             page = page with { Message = page.Items.Count == 0 ? note : page.Message + " " + note };
         }

@@ -52,6 +52,16 @@ public class FSharpSymbolQueryServiceTests
         type MarkerA() =
             interface IMarker with
                 member _.Tag = "a"
+
+        type OnlyIface() =
+            interface System.IDisposable with
+                member _.Dispose() = ()
+
+        type TwoIfaces() =
+            interface System.IDisposable with
+                member _.Dispose() = ()
+            interface System.ICloneable with
+                member _.Clone() = box ()
         """;
 
     private static FSharpSymbolQueryService Adapter() => new();
@@ -750,6 +760,45 @@ public class FSharpSymbolQueryServiceTests
             string.Equals(d.Path, KindsUsesPath, StringComparison.OrdinalIgnoreCase));
         Assert.Contains("w0.Name", uses.NewText, StringComparison.Ordinal);
         Assert.Contains("w0.Name <- 9", uses.NewText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task type_hierarchy_names_single_external_interface()
+    {
+        using var session = Session(HierSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "OnlyIface");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await adapter.GetTypeHierarchyAsync(session, resolved!.Handle);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Empty(page!.Items);
+        Assert.StartsWith(
+            "External interface 'System.IDisposable', which is outside",
+            page.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("has no base types", page.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task type_hierarchy_names_multiple_external_interfaces_plural()
+    {
+        using var session = Session(HierSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "TwoIfaces");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await adapter.GetTypeHierarchyAsync(session, resolved!.Handle);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Empty(page!.Items);
+        Assert.StartsWith("External interfaces ", page.Message, StringComparison.Ordinal);
+        Assert.Contains("which are outside", page.Message, StringComparison.Ordinal);
+        Assert.Contains("'System.IDisposable'", page.Message, StringComparison.Ordinal);
+        Assert.Contains("'System.ICloneable'", page.Message, StringComparison.Ordinal);
     }
 
     [Fact]
