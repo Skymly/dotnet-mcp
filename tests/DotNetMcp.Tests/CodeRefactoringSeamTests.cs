@@ -243,7 +243,9 @@ public class CodeRefactoringSeamTests
             "symbol_list_refactorings",
             new Dictionary<string, object?> { ["handle"] = handle });
         Assert.True(listed.IsError is not true, InProcessMcpFixture.TextOf(listed));
-        return InProcessMcpFixture.Deserialize<SymbolListRefactoringsResultDto>(listed);
+        var body = InProcessMcpFixture.Deserialize<SymbolListRefactoringsResultDto>(listed);
+        Assert.False(body.IncludesProjectAnalyzers);
+        return body;
     }
 
     internal static async Task<SymbolPreviewRefactoringResultDto> PreviewWorkingAsync(

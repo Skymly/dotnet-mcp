@@ -404,34 +404,43 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                         : "Retry apply with the same previewId; disk rollback may be incomplete.");
             }
 
+            string? failureError = null;
+            string? failureMessage = null;
             lock (_gate)
             {
                 if (_phase != "ready" || !ReferenceEquals(_loaded, loaded) || _epoch != epochAtStart)
                 {
-                    var rolledBack = RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: false);
-                    return FailWrite(
-                        PolicyErrorCodes.PreviewEpochMismatch,
-                        rolledBack
-                            ? "Workspace epoch changed before apply could commit; disk was rolled back."
-                            : "Workspace epoch changed before apply could commit; disk rollback may be incomplete.",
-                        "Call the matching preview tool again on the current snapshot.");
+                    RevertDeclaredPathsInMemory(loaded, prepared);
+                    failureError = PolicyErrorCodes.PreviewEpochMismatch;
+                    failureMessage = "Workspace epoch changed before apply could commit";
                 }
-
-                foreach (var (document, _, _) in prepared)
+                else
                 {
-                    var newText = SourceText.From(document.NewText);
-                    if (!loaded.TryUpdateDocumentFromText(document.Path, newText)
-                        && !loaded.HasMatchingDocumentText(document.Path, newText)
-                        && !TryReadFSharpSnapshotText(fsharp, document.Path, out _))
+                    foreach (var (document, _, _) in prepared)
                     {
-                        RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: false);
-                        return FailWrite(
-                            PolicyErrorCodes.PreviewTargetMissing,
-                            "A preview document is not in the ready workspace; disk was rolled back.",
-                            "Call the matching preview tool again on the current snapshot.");
+                        var newText = SourceText.From(document.NewText);
+                        if (!loaded.TryUpdateDocumentFromText(document.Path, newText)
+                            && !loaded.HasMatchingDocumentText(document.Path, newText)
+                            && !TryReadFSharpSnapshotText(fsharp, document.Path, out _))
+                        {
+                            RevertDeclaredPathsInMemory(loaded, prepared);
+                            failureError = PolicyErrorCodes.PreviewTargetMissing;
+                            failureMessage = "A preview document is not in the ready workspace";
+                            break;
+                        }
                     }
                 }
+            }
 
+            if (failureError is not null)
+            {
+                var rolledBack = RewriteDeclaredPaths(prepared, writtenCount, includeCurrent: false);
+                return FailWrite(
+                    failureError,
+                    rolledBack
+                        ? failureMessage + "; disk was rolled back."
+                        : failureMessage + "; disk rollback may be incomplete.",
+                    "Call the matching preview tool again on the current snapshot.");
             }
         }
 
@@ -521,8 +530,17 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
     }
 
-    private static bool RollbackDeclaredPaths(
+    private static void RevertDeclaredPathsInMemory(
         LoadedSolution loaded,
+        IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)> writes)
+    {
+        foreach (var (document, _, _) in writes)
+        {
+            loaded.TryUpdateDocumentFromText(document.Path, SourceText.From(document.OldText));
+        }
+    }
+
+    private bool RewriteDeclaredPaths(
         IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)> writes,
         int writtenCount,
         bool includeCurrent)
@@ -531,6 +549,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         var rolledBack = true;
         for (var i = 0; i < end; i++)
         {
+            _options.BeforeRollbackWrite?.Invoke();
             try
             {
                 FileTextCodec.Write(writes[i].FinalPath, writes[i].Document.OldText, writes[i].Encoding);
@@ -541,11 +560,17 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
         }
 
-        foreach (var (document, _, _) in writes)
-        {
-            loaded.TryUpdateDocumentFromText(document.Path, SourceText.From(document.OldText));
-        }
+        return rolledBack;
+    }
 
+    private bool RollbackDeclaredPaths(
+        LoadedSolution loaded,
+        IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)> writes,
+        int writtenCount,
+        bool includeCurrent)
+    {
+        var rolledBack = RewriteDeclaredPaths(writes, writtenCount, includeCurrent);
+        RevertDeclaredPathsInMemory(loaded, writes);
         return rolledBack;
     }
 

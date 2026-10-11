@@ -90,6 +90,7 @@ Typical agent loop: `workspace_open` (returns immediately) → poll `workspace_s
 If a code-action provider throws, `diagnostics_preview_fix` and `symbol_preview_refactoring` still return `FixApplyFailed` or `RefactoringApplyFailed`, but the message says the provider threw. That is not the same as a fix that produced no handwritten change. Fix all stops with `FixApplyFailed` instead of skipping that occurrence.
 
 `project_diagnostics` without `projectId` reports a failed project as `error` plus `suggestedAction`, not as a `Severity=Error` diagnostic. Do not pass that row to `diagnostics_list_fixes`.
+On paged results (`items` / `truncated` / `nextCursor`), `message` is optional and omitted when there is nothing to add.
 
 An empty or whitespace `path` to `workspace_open` or an XAML tool is an empty-path error (`InvalidWorkspacePath` or `XamlDocumentNotFound`), not `PathOutsideTrustedRoots`.
 `workspace_open` returns the same progress fields as `workspace_status`, including `errorCode` when the open fails before the background load. A null `errorCode` is omitted.
@@ -105,7 +106,7 @@ See [ADR-0004](docs/adr/0004-security-and-path-policy.md).
 
 ## Soft budgets and long-running load
 
-List/scan tools honor a soft time budget ([ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)): they return partial results + `nextCursor` instead of hanging past the common ~60s client `tools/call` cap. Progress notifications are **not** a keepalive.
+These tools stop at the soft budget ([ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)) and return partial results + `nextCursor` instead of hanging past the common ~60s client `tools/call` cap: `project_diagnostics`, `xaml_diagnostics`, `project_list_dynamic_invocations`, `symbol_find_references`, `symbol_find_callers`. For F# projects the budget only bounds work after the full FCS project check. These run to completion (or to the client timeout) without a budget: `symbol_members`, `symbol_type_hierarchy`, `symbol_find_implementations`, `project_list_generated_sources`, `project_list_generator_diagnostics`. `symbol_resolve` is bounded by the same budget, but a budget hit fails with `SoftBudgetExceeded` rather than a partial page. Progress notifications are **not** a keepalive.
 
 | Environment variable | Default | Use |
 |----------------------|---------|-----|
@@ -117,7 +118,7 @@ List/scan tools honor a soft time budget ([ADR-0003](docs/adr/0003-long-running-
 
 Document-scope Fix all applies at most 32 fixes. Project-scope Fix all also stops at a fixed application cap (default 64). Neither application cap is an environment variable.
 
-Invalid values fall back to the defaults.
+`0` means the budget is already spent — list tools return a truncated page right away (possibly empty) with `nextCursor`, and project Fix all fails the preview; `symbol_find_references` and `symbol_find_callers` still finish the current document so the cursor advances, so a page may contain items; negative or unparseable values fall back to the defaults.
 
 `workspace_open` never blocks the MCP request. Clients that do not opt into MCP Tasks should poll `workspace_status`. `workspace_status.watcher` is `ok`, `lost`, or `off`; `lost` means file watching failed and a restart was attempted. Details: `spikes/s3-mcp-long-running/CONCLUSIONS.md`. That note separates the spike `jobId` shape from the product DTO, which has no `jobId`.
 
