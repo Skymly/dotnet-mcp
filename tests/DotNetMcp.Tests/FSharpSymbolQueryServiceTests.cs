@@ -34,6 +34,25 @@ public class FSharpSymbolQueryServiceTests
         let alpha: int = "not-an-int"
         """;
 
+    private const string HierPath = @"C:\fake-fs-unit\FsHier\Hier.fs";
+
+    private const string HierSource = """
+        namespace FsHier
+
+        type IMarker =
+            abstract Tag: string
+
+        type Plain() =
+            member _.Value = 1
+
+        type MyError() =
+            inherit System.Exception()
+
+        type MarkerA() =
+            interface IMarker with
+                member _.Tag = "a"
+        """;
+
     private static FSharpSymbolQueryService Adapter() => new();
 
     [Theory]
@@ -413,8 +432,8 @@ public class FSharpSymbolQueryServiceTests
         Assert.Null(membersError);
         var pings = members!.Items.Where(m => m.Summary.DisplayName == "Ping").ToList();
         Assert.Equal(2, pings.Count);
-        var intPing = Assert.Single(pings, p => p.Handle.Contains("(int)", StringComparison.Ordinal));
-        var strPing = Assert.Single(pings, p => p.Handle.Contains("(string)", StringComparison.Ordinal));
+        var intPing = Assert.Single(pings, p => p.Handle.Contains("(System.Int32)", StringComparison.Ordinal));
+        var strPing = Assert.Single(pings, p => p.Handle.Contains("(System.String)", StringComparison.Ordinal));
 
         var (intRefs, intRefError) = await adapter.FindReferencesAsync(session, intPing.Handle);
         Assert.Null(intRefError);
@@ -436,6 +455,300 @@ public class FSharpSymbolQueryServiceTests
         Assert.Null(strCallerError);
         Assert.DoesNotContain(intCallers!.Items, c => c.CallerSummary.DisplayName == "UseStr");
         Assert.DoesNotContain(strCallers!.Items, c => c.CallerSummary.DisplayName == "UseInt");
+    }
+
+    [Fact]
+    public async Task find_references_message_discloses_defining_project_scope_both_modes()
+    {
+        using var session = Session(RenameSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "ping");
+        Assert.Null(resolveError);
+
+        var (scoped, scopedError) = await adapter.FindReferencesAsync(session, resolved!.Handle);
+        Assert.Null(scopedError);
+        Assert.Contains("F# search covers only the defining project", scoped!.Message, StringComparison.Ordinal);
+
+        var (entire, entireError) = await adapter.FindReferencesAsync(session, resolved.Handle, entireSolution: true);
+        Assert.Null(entireError);
+        Assert.Contains("entireSolution does not widen F# search", entire!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task find_callers_message_discloses_defining_project_scope_both_modes()
+    {
+        using var session = Session(RenameSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "ping");
+        Assert.Null(resolveError);
+
+        var (scoped, scopedError) = await adapter.FindCallersAsync(session, resolved!.Handle);
+        Assert.Null(scopedError);
+        Assert.Contains("F# search covers only the defining project", scoped!.Message, StringComparison.Ordinal);
+
+        var (entire, entireError) = await adapter.FindCallersAsync(session, resolved.Handle, entireSolution: true);
+        Assert.Null(entireError);
+        Assert.Contains("entireSolution does not widen F# search", entire!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task type_hierarchy_names_external_base_type_instead_of_no_bases()
+    {
+        using var session = Session(HierSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "MyError");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await adapter.GetTypeHierarchyAsync(session, resolved!.Handle);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Empty(page!.Items);
+        Assert.Contains("System.Exception", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("has no base types", page.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task type_hierarchy_plain_type_keeps_no_bases_message()
+    {
+        using var session = Session(HierSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Plain");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await adapter.GetTypeHierarchyAsync(session, resolved!.Handle);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Empty(page!.Items);
+        Assert.Equal("Type has no base types or interfaces.", page.Message);
+    }
+
+    [Fact]
+    public async Task find_implementations_message_discloses_defining_project_scope()
+    {
+        using var session = Session(HierSnapshot());
+        var adapter = Adapter();
+        var (iface, resolveError) = await adapter.ResolveByNameAsync(session, "IMarker");
+        Assert.Null(resolveError);
+        Assert.NotNull(iface);
+
+        var (page, error) = await adapter.FindImplementationsAsync(session, iface!.Handle);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Contains(page!.Items, i => i.Summary.DisplayName == "MarkerA");
+        Assert.Contains("F# search covers only types in the defining project.", page.Message, StringComparison.Ordinal);
+
+        var (plain, plainError) = await adapter.ResolveByNameAsync(session, "Plain");
+        Assert.Null(plainError);
+        var (empty, emptyError) = await adapter.FindImplementationsAsync(session, plain!.Handle);
+        Assert.Null(emptyError);
+        Assert.NotNull(empty);
+        Assert.Empty(empty!.Items);
+        Assert.Equal(
+            "No implementations were found in the defining F# project; other projects were not searched.",
+            empty.Message);
+    }
+
+    [Fact]
+    public async Task overloaded_member_signatures_are_fully_qualified_and_line_free()
+    {
+        using var session = Session(OverloadSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Gadget");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (members, membersError) = await adapter.GetMembersAsync(session, resolved!.Handle, limit: 50);
+        Assert.Null(membersError);
+        Assert.NotNull(members);
+
+        var ms = members!.Items.Where(m => m.Summary.DisplayName == "M").ToList();
+        Assert.Equal(2, ms.Count);
+        var aM = Assert.Single(ms, m => m.Handle.Contains("(NsA.Foo)", StringComparison.Ordinal));
+        var bM = Assert.Single(ms, m => m.Handle.Contains("(NsB.Foo)", StringComparison.Ordinal));
+        Assert.NotEqual(aM.Handle, bM.Handle);
+
+        var ns = members.Items.Where(m => m.Summary.DisplayName == "N").ToList();
+        Assert.Equal(2, ns.Count);
+        var intN = Assert.Single(ns, m =>
+            m.Handle.Contains("(Microsoft.FSharp.Collections.FSharpList<System.Int32>)", StringComparison.Ordinal));
+        var stringN = Assert.Single(ns, m =>
+            m.Handle.Contains("(Microsoft.FSharp.Collections.FSharpList<System.String>)", StringComparison.Ordinal));
+        Assert.NotEqual(intN.Handle, stringN.Handle);
+
+        foreach (var item in ms.Concat(ns))
+        {
+            Assert.True(
+                SymbolHandle.TryParse(item.Handle, out var parsed, out _),
+                item.Handle);
+            Assert.DoesNotContain("@", parsed!.SignatureQualifiedName, StringComparison.Ordinal);
+            Assert.DoesNotContain("(Foo)", parsed.SignatureQualifiedName, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task find_references_does_not_mix_namespace_overloads()
+    {
+        using var session = Session(OverloadSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Gadget");
+        Assert.Null(resolveError);
+        var (members, membersError) = await adapter.GetMembersAsync(session, resolved!.Handle, limit: 50);
+        Assert.Null(membersError);
+        var aM = Assert.Single(members!.Items, m => m.Handle.Contains("(NsA.Foo)", StringComparison.Ordinal));
+        var bM = Assert.Single(members.Items, m => m.Handle.Contains("(NsB.Foo)", StringComparison.Ordinal));
+
+        var (aRefs, aError) = await adapter.FindReferencesAsync(session, aM.Handle);
+        Assert.Null(aError);
+        var (bRefs, bError) = await adapter.FindReferencesAsync(session, bM.Handle);
+        Assert.Null(bError);
+
+        var callA = CallsSource.IndexOf("callA", StringComparison.Ordinal);
+        var callB = CallsSource.IndexOf("callB", StringComparison.Ordinal);
+        Assert.True(callA >= 0);
+        Assert.True(callB >= 0);
+
+        var aItems = aRefs!.Items.Where(r => string.Equals(r.FilePath, CallsPath, StringComparison.OrdinalIgnoreCase)).ToList();
+        var bItems = bRefs!.Items.Where(r => string.Equals(r.FilePath, CallsPath, StringComparison.OrdinalIgnoreCase)).ToList();
+        Assert.Contains(aItems, r => r.Start is int s && s > callA && s < callB);
+        Assert.DoesNotContain(aItems, r => r.Start is int s && s > callB);
+        Assert.Contains(bItems, r => r.Start is int s && s > callB);
+        Assert.DoesNotContain(bItems, r => r.Start is int s && s > callA && s < callB);
+    }
+
+    [Fact]
+    public async Task rename_preview_of_namespace_overload_changes_only_that_overload()
+    {
+        using var session = Session(OverloadSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Gadget");
+        Assert.Null(resolveError);
+        var (members, membersError) = await adapter.GetMembersAsync(session, resolved!.Handle, limit: 50);
+        Assert.Null(membersError);
+        var aM = Assert.Single(members!.Items, m => m.Handle.Contains("(NsA.Foo)", StringComparison.Ordinal));
+
+        var (draft, error) = await adapter.BuildRenamePreviewAsync(session, aM.Handle, "Q");
+        Assert.Null(error);
+        Assert.NotNull(draft);
+
+        var decl = Assert.Single(draft!.Documents, d =>
+            string.Equals(d.Path, OverloadsPath, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("member _.Q(x: NsA.Foo)", decl.NewText, StringComparison.Ordinal);
+        Assert.Contains("member _.M(x: NsB.Foo)", decl.NewText, StringComparison.Ordinal);
+
+        var calls = Assert.Single(draft.Documents, d =>
+            string.Equals(d.Path, CallsPath, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("gadget.Q(NsA.Foo())", calls.NewText, StringComparison.Ordinal);
+        Assert.Contains("gadget.M(NsB.Foo())", calls.NewText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task member_signatures_format_functions_tuples_arrays_and_generic_parameters()
+    {
+        using var session = Session(OverloadSnapshot());
+        var adapter = Adapter();
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Gadget");
+        Assert.Null(resolveError);
+        var (members, membersError) = await adapter.GetMembersAsync(session, resolved!.Handle, limit: 50);
+        Assert.Null(membersError);
+        Assert.NotNull(members);
+
+        string Signature(string name)
+        {
+            var item = Assert.Single(members!.Items, m => m.Summary.DisplayName == name);
+            Assert.True(SymbolHandle.TryParse(item.Handle, out var parsed, out _), item.Handle);
+            return parsed!.SignatureQualifiedName;
+        }
+
+        Assert.EndsWith("P(System.Int32)", Signature("P"), StringComparison.Ordinal);
+        Assert.EndsWith("Q(System.String)", Signature("Q"), StringComparison.Ordinal);
+        Assert.EndsWith("F(System.Int32->System.String)", Signature("F"), StringComparison.Ordinal);
+        Assert.EndsWith("T(System.Int32*System.String)", Signature("T"), StringComparison.Ordinal);
+        Assert.EndsWith("A(System.Int32[])", Signature("A"), StringComparison.Ordinal);
+        Assert.EndsWith("U('T)", Signature("U"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task find_references_counts_constructor_definitions_and_calls()
+    {
+        using var session = Session(KindsSnapshot());
+        var adapter = Adapter();
+        var members = await WidgetMembersAsync(adapter, session);
+
+        var primaryCtor = Assert.Single(members, i => SignatureOf(i) == "Kinds.Widget(System.Int32)");
+        var (primary, primaryError) = await adapter.FindReferencesAsync(session, primaryCtor.Handle);
+        Assert.Null(primaryError);
+        Assert.Equal(4, primary!.Items.Count);
+
+        var newCtor = Assert.Single(members, i => SignatureOf(i) == "Kinds.Widget()");
+        var (explicitNew, newError) = await adapter.FindReferencesAsync(session, newCtor.Handle);
+        Assert.Null(newError);
+        Assert.Equal(2, explicitNew!.Items.Count);
+    }
+
+    [Fact]
+    public async Task find_references_counts_property_uses_and_accessor_declarations()
+    {
+        using var session = Session(KindsSnapshot());
+        var adapter = Adapter();
+        var members = await WidgetMembersAsync(adapter, session);
+
+        var prop = Assert.Single(members, i => SignatureOf(i) == "Kinds.Widget.Prop()");
+        var (propRefs, propError) = await adapter.FindReferencesAsync(session, prop.Handle);
+        Assert.Null(propError);
+        Assert.Equal(5, propRefs!.Items.Count);
+
+        var count = Assert.Single(members, i => SignatureOf(i) == "Kinds.Widget.Count()");
+        var (countRefs, countError) = await adapter.FindReferencesAsync(session, count.Handle);
+        Assert.Null(countError);
+        Assert.Equal(2, countRefs!.Items.Count);
+    }
+
+    [Fact]
+    public async Task find_references_counts_static_generic_and_curried_members()
+    {
+        using var session = Session(KindsSnapshot());
+        var adapter = Adapter();
+        var members = await WidgetMembersAsync(adapter, session);
+
+        var create = Assert.Single(members, i => SignatureOf(i) == "Kinds.Widget.Create(System.Int32)");
+        var (createRefs, createError) = await adapter.FindReferencesAsync(session, create.Handle);
+        Assert.Null(createError);
+        Assert.Equal(2, createRefs!.Items.Count);
+
+        var generic = Assert.Single(members, i => SignatureOf(i) == "Kinds.Widget.Generic('T)");
+        var (genericRefs, genericError) = await adapter.FindReferencesAsync(session, generic.Handle);
+        Assert.Null(genericError);
+        Assert.Equal(2, genericRefs!.Items.Count);
+
+        var (add, addResolveError) = await adapter.ResolveByNameAsync(session, "add");
+        Assert.Null(addResolveError);
+        var (addRefs, addError) = await adapter.FindReferencesAsync(session, add!.Handle);
+        Assert.Null(addError);
+        Assert.Equal(2, addRefs!.Items.Count);
+    }
+
+    [Fact]
+    public async Task rename_preview_of_property_renames_accessors_and_uses()
+    {
+        using var session = Session(KindsSnapshot());
+        var adapter = Adapter();
+        var members = await WidgetMembersAsync(adapter, session);
+        var prop = Assert.Single(members, i => SignatureOf(i) == "Kinds.Widget.Prop()");
+
+        var (draft, error) = await adapter.BuildRenamePreviewAsync(session, prop.Handle, "Name");
+        Assert.Null(error);
+        Assert.NotNull(draft);
+
+        var decl = Assert.Single(draft!.Documents, d =>
+            string.Equals(d.Path, KindsPath, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("member x.Name", decl.NewText, StringComparison.Ordinal);
+
+        var uses = Assert.Single(draft.Documents, d =>
+            string.Equals(d.Path, KindsUsesPath, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("w0.Name", uses.NewText, StringComparison.Ordinal);
+        Assert.Contains("w0.Name <- 9", uses.NewText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -493,6 +806,118 @@ public class FSharpSymbolQueryServiceTests
 
     private static FSharpWorkspaceSnapshot BrokenSnapshot() =>
         new(1, [SnapshotProject(FsProjectId, "Broken", BrokenPath, BrokenSource)]);
+
+    private static FSharpWorkspaceSnapshot HierSnapshot() =>
+        new(1, [SnapshotProject(FsProjectId, "FsHier", HierPath, HierSource)]);
+
+    private const string OverloadsPath = @"C:\fake-fs-unit\FsOverload\Overloads.fs";
+    private const string CallsPath = @"C:\fake-fs-unit\FsOverload\Calls.fs";
+
+    private const string OverloadsSource = """
+        namespace NsA
+
+        type Foo() = member _.Tag = "a"
+
+        namespace NsB
+
+        type Foo() = member _.Tag = "b"
+
+        namespace NsC
+
+        type Gadget() =
+            member _.M(x: NsA.Foo) = 1
+            member _.M(x: NsB.Foo) = 2
+            member _.N(x: int list) = 3
+            member _.N(x: string list) = 4
+            member _.P(x: int) = 5
+            member _.Q(x: string) = 6
+            member _.F(f: int -> string) = 7
+            member _.T(t: int * string) = 8
+            member _.A(a: int[]) = 9
+            member _.U(x: 'T) = x
+        """;
+
+    private const string CallsSource = """
+        module NsC.Calls
+
+        let private gadget = NsC.Gadget()
+
+        let callA () = gadget.M(NsA.Foo())
+        let callB () = gadget.M(NsB.Foo())
+        let callInts () = gadget.N([1])
+        let callStrings () = gadget.N(["s"])
+        """;
+
+    private const string KindsPath = @"C:\fake-fs-unit\FsKinds\Kinds.fs";
+    private const string KindsUsesPath = @"C:\fake-fs-unit\FsKinds\Uses.fs";
+
+    private const string KindsSource = """
+        namespace Kinds
+
+        type Widget(input: int) =
+            new() = Widget(0)
+            member _.Count = input
+            member x.Prop
+                with get () = input + x.Count
+                and set (_v: int) = ()
+            member _.Generic<'T>(x: 'T) = x
+            static member Create(i: int) = Widget(i)
+        """;
+
+    private const string KindsUsesSource = """
+        module Kinds.Uses
+
+        let private w0 = Widget(3)
+        let private w1 = new Kinds.Widget()
+        let private w2 = Kinds.Widget.Create(7)
+        let readProp () = w0.Prop
+        let writeProp () = w0.Prop <- 9
+        let callGeneric () = w0.Generic("hi")
+        let add (a: int) (b: int) = a + b
+        let apply () = add 1 2
+        """;
+
+    private static FSharpWorkspaceSnapshot KindsSnapshot() =>
+        new(1, [
+            new FSharpProjectSnapshot(
+                FsProjectId,
+                "FsKinds",
+                @"C:\fake-fs-unit\FsKinds\FsKinds.fsproj",
+                [
+                    new FSharpDocumentSnapshot(KindsPath, KindsSource),
+                    new FSharpDocumentSnapshot(KindsUsesPath, KindsUsesSource),
+                ]),
+        ]);
+
+    private static FSharpWorkspaceSnapshot OverloadSnapshot() =>
+        new(1, [
+            new FSharpProjectSnapshot(
+                FsProjectId,
+                "FsOverload",
+                @"C:\fake-fs-unit\FsOverload\FsOverload.fsproj",
+                [
+                    new FSharpDocumentSnapshot(OverloadsPath, OverloadsSource),
+                    new FSharpDocumentSnapshot(CallsPath, CallsSource),
+                ]),
+        ]);
+
+    private static async Task<IReadOnlyList<MemberListItem>> WidgetMembersAsync(
+        FSharpSymbolQueryService adapter, FakeSession session)
+    {
+        var (resolved, resolveError) = await adapter.ResolveByNameAsync(session, "Kinds.Widget");
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+        var (members, membersError) = await adapter.GetMembersAsync(session, resolved!.Handle, limit: 50);
+        Assert.Null(membersError);
+        Assert.NotNull(members);
+        return members!.Items;
+    }
+
+    private static string SignatureOf(MemberListItem item)
+    {
+        Assert.True(SymbolHandle.TryParse(item.Handle, out var parsed, out _), item.Handle);
+        return parsed!.SignatureQualifiedName;
+    }
 
     private static FSharpProjectSnapshot SnapshotProject(string projectId, string name, string path, string text) =>
         new(

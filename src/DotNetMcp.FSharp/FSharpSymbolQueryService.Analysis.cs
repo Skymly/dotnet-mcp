@@ -63,8 +63,22 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        return Page(hits, session.Epoch, entireSolution, pageLimit, cursor, "symbol_find_references", handle, truncatedByBudget);
+        var (page, pageError) = Page(
+            hits,
+            session.Epoch,
+            entireSolution,
+            pageLimit,
+            cursor,
+            "symbol_find_references",
+            handle,
+            truncatedByBudget);
+        return (page is null ? null : page with { Message = page.Message + ScopeNote(entireSolution) }, pageError);
     }
+
+    private static string ScopeNote(bool entireSolution) =>
+        entireSolution
+            ? " entireSolution does not widen F# search; only the defining project was searched."
+            : " F# search covers only the defining project; projects that reference it were not searched.";
 
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
         IWorkspaceSession session,
@@ -101,8 +115,19 @@ public sealed partial class FSharpSymbolQueryService
             })
             .ToList();
 
-        return Page(impls, session.Epoch, pageLimit: limit, cursor, "symbol_find_implementations", handle,
+        var (page, pageError) = Page(impls, session.Epoch, pageLimit: limit, cursor, "symbol_find_implementations", handle,
             emptyMessage: "No implementations were found.");
+        if (page is not null)
+        {
+            page = page with
+            {
+                Message = page.Items.Count == 0
+                    ? "No implementations were found in the defining F# project; other projects were not searched."
+                    : page.Message + " F# search covers only types in the defining project."
+            };
+        }
+
+        return (page, pageError);
     }
 
     public async Task<(PagedResult<HierarchyItem>? Success, SymbolQueryError? Error)> GetTypeHierarchyAsync(
@@ -139,10 +164,17 @@ public sealed partial class FSharpSymbolQueryService
             current = parent.BaseTypeName;
         }
 
+        var outsideNames = new List<string>();
+        if (!string.IsNullOrWhiteSpace(current))
+        {
+            outsideNames.Add($"'{current}'");
+        }
+
         foreach (var ifaceName in item.InterfaceNames ?? [])
         {
             if (!byName.TryGetValue(ifaceName, out var iface))
             {
+                outsideNames.Add($"'{ifaceName}'");
                 continue;
             }
 
@@ -150,8 +182,17 @@ public sealed partial class FSharpSymbolQueryService
             chain.Add(new HierarchyItem(HierarchyRelationKind.Interface, success.Handle, success.Summary));
         }
 
-        return Page(chain, session.Epoch, pageLimit: limit, cursor, "symbol_type_hierarchy", handle,
+        var (page, pageError) = Page(chain, session.Epoch, pageLimit: limit, cursor, "symbol_type_hierarchy", handle,
             emptyMessage: "Type has no base types or interfaces.");
+        if (page is not null && outsideNames.Count > 0)
+        {
+            var note =
+                $"Base-type chain stops at {string.Join(", ", outsideNames)}, which is outside the defining F# project; " +
+                "external base types and interfaces are not returned.";
+            page = page with { Message = page.Items.Count == 0 ? note : page.Message + " " + note };
+        }
+
+        return (page, pageError);
     }
 
     public async Task<(PagedResult<CallerLocationItem>? Success, SymbolQueryError? Error)> FindCallersAsync(
@@ -227,7 +268,9 @@ public sealed partial class FSharpSymbolQueryService
             }
         }
 
-        return Page(hits, session.Epoch, limit, cursor, "symbol_find_callers", handle, "No callers were found.", truncatedByBudget);
+        var (page, pageError) = Page(
+            hits, session.Epoch, limit, cursor, "symbol_find_callers", handle, "No callers were found.", truncatedByBudget);
+        return (page is null ? null : page with { Message = page.Message + ScopeNote(entireSolution) }, pageError);
     }
 
     private async Task<(FSharpCatalogItem? Item, FSharpProjectSnapshot? Project, FSharpCheckProjectResults? Check, SymbolQueryError? Error)>
@@ -273,38 +316,31 @@ public sealed partial class FSharpSymbolQueryService
 
     private static bool SameSymbol(FSharpSymbol symbol, FSharpCatalogItem item)
     {
-        var name = symbol.FullName;
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            name = symbol.DisplayName;
-        }
-
-        if (string.Equals(name, item.SignatureQualifiedName, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
         if (symbol is FSharpMemberOrFunctionOrValue member)
         {
-            var signature = FormatParameterSignature(member);
-            var signed = name + signature;
-            if (string.Equals(signed, item.SignatureQualifiedName, StringComparison.Ordinal)
-                || item.SignatureQualifiedName.StartsWith(signed + "@", StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            if (!string.Equals(symbol.DisplayName, item.DisplayName, StringComparison.Ordinal)
-                || !SameDeclarationFile(symbol, item))
+            if (!OptionModule.IsSome(member.DeclaringEntity))
             {
                 return false;
             }
 
-            // Same file + display name is not enough for overloads: require the catalog
-            // signature to include this parameter list when both sides are signed.
-            return string.IsNullOrEmpty(signature)
-                || !item.SignatureQualifiedName.Contains('(', StringComparison.Ordinal)
-                || item.SignatureQualifiedName.Contains(signature, StringComparison.Ordinal);
+            var key = MemberFullName(member.DeclaringEntity.Value, member);
+            if (string.Equals(key, item.SignatureQualifiedName, StringComparison.Ordinal)
+                || string.Equals(key + ":" + FormatReturnType(member), item.SignatureQualifiedName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            var loc = member.DeclarationLocation;
+            return string.Equals(
+                key + "@" + loc.StartLine + ":" + loc.StartColumn,
+                item.SignatureQualifiedName,
+                StringComparison.Ordinal);
+        }
+
+        var name = symbol is FSharpEntity entity ? EntityFullName(entity) : symbol.FullName;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            return string.Equals(name, item.SignatureQualifiedName, StringComparison.Ordinal);
         }
 
         return string.Equals(symbol.DisplayName, item.DisplayName, StringComparison.Ordinal)

@@ -409,7 +409,10 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 var memberName = MemberFullName(entity, member);
                 if (members.Any(m => string.Equals(m.SignatureQualifiedName, memberName, StringComparison.Ordinal)))
                 {
-                    memberName += "@" + member.DeclarationLocation.StartLine + ":" + member.DeclarationLocation.StartColumn;
+                    var withReturn = memberName + ":" + FormatReturnType(member);
+                    memberName = members.Any(m => string.Equals(m.SignatureQualifiedName, withReturn, StringComparison.Ordinal))
+                        ? memberName + "@" + member.DeclarationLocation.StartLine + ":" + member.DeclarationLocation.StartColumn
+                        : withReturn;
                 }
 
                 members.Add(new FSharpCatalogItem(
@@ -518,8 +521,14 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
     private static string MemberFullName(FSharpEntity owner, FSharpMemberOrFunctionOrValue member)
     {
+        member = ResolveAccessor(member, owner) ?? member;
+
         string baseName;
-        if (!string.IsNullOrWhiteSpace(member.FullName) && member.FullName.Contains('.', StringComparison.Ordinal))
+        if (member.IsConstructor)
+        {
+            baseName = EntityFullName(owner);
+        }
+        else if (!string.IsNullOrWhiteSpace(member.FullName) && member.FullName.Contains('.', StringComparison.Ordinal))
         {
             baseName = member.FullName;
         }
@@ -534,6 +543,34 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         return string.IsNullOrEmpty(signature) ? baseName : baseName + signature;
     }
 
+    private static FSharpMemberOrFunctionOrValue? ResolveAccessor(
+        FSharpMemberOrFunctionOrValue member,
+        FSharpEntity owner)
+    {
+        if (!member.IsPropertyGetterMethod && !member.IsPropertySetterMethod)
+        {
+            return null;
+        }
+
+        try
+        {
+            return owner.MembersFunctionsAndValues.FirstOrDefault(candidate =>
+                candidate.IsProperty &&
+                ((candidate.HasGetterMethod && SameAccessor(candidate.GetterMethod, member)) ||
+                 (candidate.HasSetterMethod && SameAccessor(candidate.SetterMethod, member))));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static bool SameAccessor(FSharpMemberOrFunctionOrValue? accessor, FSharpMemberOrFunctionOrValue member) =>
+        accessor is not null &&
+        (accessor.Equals(member) ||
+         (string.Equals(accessor.FullName, member.FullName, StringComparison.Ordinal) &&
+          string.Equals(accessor.DisplayName, member.DisplayName, StringComparison.Ordinal)));
+
     private static string FormatParameterSignature(FSharpMemberOrFunctionOrValue member)
     {
         try
@@ -547,19 +584,14 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             var builder = new System.Text.StringBuilder();
             foreach (var group in groups)
             {
-                builder.Append('(');
-                var first = true;
-                foreach (var parameter in group)
+                var formatted = group.Select(static parameter => FormatFSharpType(parameter.Type)).ToList();
+                if (formatted is ["Microsoft.FSharp.Core.Unit"])
                 {
-                    if (!first)
-                    {
-                        builder.Append(',');
-                    }
-
-                    first = false;
-                    builder.Append(FormatFSharpType(parameter.Type));
+                    formatted.Clear();
                 }
 
+                builder.Append('(');
+                builder.Append(string.Join(",", formatted));
                 builder.Append(')');
             }
 
@@ -571,21 +603,83 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         }
     }
 
+    private static string FormatReturnType(FSharpMemberOrFunctionOrValue member)
+    {
+        try
+        {
+            var parameter = member.ReturnParameter;
+            return parameter is null ? "?" : FormatFSharpType(parameter.Type);
+        }
+        catch (Exception)
+        {
+            return "?";
+        }
+    }
+
     private static string FormatFSharpType(FSharpType type)
     {
-        if (type.HasTypeDefinition)
+        try
         {
-            var name = type.TypeDefinition.DisplayName;
-            return string.IsNullOrWhiteSpace(name) ? "?" : name;
+            while (type.IsAbbreviation)
+            {
+                type = type.AbbreviatedType;
+            }
+
+            if (type.IsGenericParameter)
+            {
+                return "'" + type.GenericParameter.Name;
+            }
+
+            var generic = type.GenericArguments;
+            if (type.IsFunctionType && generic.Count == 2)
+            {
+                return FormatFSharpType(generic[0]) + "->" + FormatFSharpType(generic[1]);
+            }
+
+            if (type.IsTupleType && generic.Count > 0)
+            {
+                return string.Join("*", generic.Select(FormatFSharpType));
+            }
+
+            if (type.HasTypeDefinition)
+            {
+                var definition = type.TypeDefinition;
+                if (definition.IsArrayType)
+                {
+                    var brackets = definition.ArrayRank <= 1 ? "[]" : "[" + new string(',', definition.ArrayRank - 1) + "]";
+                    return (generic.Count > 0 ? FormatFSharpType(generic[0]) : "?") + brackets;
+                }
+
+                var name = StripArity(EntityFullName(definition));
+                return generic.Count == 0
+                    ? name
+                    : name + "<" + string.Join(",", generic.Select(FormatFSharpType)) + ">";
+            }
+
+            return type.ToString() ?? "?";
+        }
+        catch (Exception)
+        {
+            return type.ToString() ?? "?";
+        }
+    }
+
+    private static string StripArity(string name)
+    {
+        var index = name.IndexOf('`');
+        while (index >= 0)
+        {
+            var end = index + 1;
+            while (end < name.Length && char.IsDigit(name[end]))
+            {
+                end++;
+            }
+
+            name = string.Concat(name.AsSpan(0, index), name.AsSpan(end));
+            index = name.IndexOf('`', index);
         }
 
-        var generic = type.GenericArguments;
-        if (type.IsFunctionType && generic.Count == 2)
-        {
-            return FormatFSharpType(generic[0]) + "->" + FormatFSharpType(generic[1]);
-        }
-
-        return type.ToString() ?? "?";
+        return name;
     }
 
     private static string MemberKind(FSharpMemberOrFunctionOrValue member)
@@ -941,12 +1035,23 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             }
 
             var baseType = entity.BaseType;
-            if (!OptionModule.IsSome(baseType) || !baseType.Value.HasTypeDefinition)
+            if (!OptionModule.IsSome(baseType))
             {
                 return null;
             }
 
-            var name = EntityFullName(baseType.Value.TypeDefinition);
+            var resolved = baseType.Value;
+            while (resolved.IsAbbreviation)
+            {
+                resolved = resolved.AbbreviatedType;
+            }
+
+            if (!resolved.HasTypeDefinition)
+            {
+                return null;
+            }
+
+            var name = EntityFullName(resolved.TypeDefinition);
             return name is "System.Object" or "obj" ? null : name;
         }
         catch (Exception)
