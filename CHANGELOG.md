@@ -1,6 +1,6 @@
 # Changelog
 
-All notable product changes are recorded here. Version numbers match `src/DotNetMcp.Server/DotNetMcp.Server.csproj`. A `vMAJOR.MINOR.PATCH` tag is not guaranteed for every published heading.
+All notable product changes are recorded here. Version numbers match `src/DotNetMcp.Server/DotNetMcp.Server.csproj`. A `vMAJOR.MINOR.PATCH` tag is not guaranteed for every published heading. Only bullets under `### Added`, `### Changed`, `### Fixed`, or `### Security` — or an unclassified bullet directly under `## Unreleased` — count as product entries for the version gate; documentation- and test-only entries go under `### Docs` or `### Tests`.
 
 ## Unreleased
 
@@ -11,6 +11,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- The CI version gate no longer treats docs/test-only Unreleased bullets as product entries; unclassified bullets still count (`#427`)
 - Docs: ADR-0002 Amendment 5 names the current session interface without rewriting the accepted body (`#483`)
 - Docs: README test command matches CI, states that transitive restore is not locked, and the Chinese section includes pack (`#481`)
 - Tests: the packed README and the mcp-name comment match the server package identity (`#479`)

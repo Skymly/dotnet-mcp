@@ -10,6 +10,29 @@ public class ChangelogPrefaceTests
         Assert.DoesNotContain("git tags", preface, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("not guaranteed", preface, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("DotNetMcp.Server.csproj", preface, StringComparison.Ordinal);
+        Assert.Contains("### Docs", preface, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void unreleased_docs_subsection_comes_after_product_subsections()
+    {
+        var changelog = File.ReadAllText(Path.Combine(FindRepoRoot(), "CHANGELOG.md"));
+        var unreleased = System.Text.RegularExpressions.Regex.Match(
+            changelog,
+            "(?ms)^## Unreleased\\b(.*?)(?=^## |\\z)").Groups[1].Value;
+        var docsIndex = unreleased.IndexOf("### Docs", StringComparison.Ordinal);
+        if (docsIndex < 0)
+        {
+            return;
+        }
+
+        foreach (var productHeading in new[] { "### Added", "### Changed", "### Fixed", "### Security" })
+        {
+            var productIndex = unreleased.IndexOf(productHeading, StringComparison.Ordinal);
+            Assert.True(
+                productIndex < 0 || productIndex < docsIndex,
+                $"### Docs must follow {productHeading} inside Unreleased");
+        }
     }
 
     [Fact]
