@@ -4,6 +4,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ## Unreleased
 
+### Changed
+
+- symbol_preview_rename, diagnostics_preview_fix, and symbol_preview_refactoring report idempotentHint=false, since each call stores a new TTL previewId (`#444`)
+
 ### Fixed
 
 - Docs: ADR-0002 Amendment 5 names the current session interface without rewriting the accepted body (`#483`)
