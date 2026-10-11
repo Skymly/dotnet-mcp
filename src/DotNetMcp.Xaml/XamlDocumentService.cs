@@ -294,7 +294,7 @@ public sealed class XamlDocumentService
         var (page, pageError) = SoftBudgetPage.Page(
             all,
             epoch,
-            budgetHit: clock.Elapsed >= budget && budget >= TimeSpan.Zero,
+            budgetHit: clock.Elapsed >= budget,
             cursor,
             pageLimit,
             "xaml_diagnostics",
@@ -398,7 +398,7 @@ public sealed class XamlDocumentService
     }
 
     internal static bool ShouldStartXmlnsCollection(TimeSpan budget, TimeSpan elapsed) =>
-        budget <= TimeSpan.Zero || elapsed < budget;
+        elapsed < budget;
 
     public async Task<(string? ClassName, XamlQueryError? Error)> ReadClassName(
         IWorkspaceSession session,
@@ -878,7 +878,7 @@ public sealed class XamlDocumentService
             }
         }
 
-        var stoppedEarly = budget > TimeSpan.Zero && clock.Elapsed >= budget;
+        var stoppedEarly = clock.Elapsed >= budget;
         if (stoppedEarly)
         {
             return (items, true);
@@ -894,7 +894,7 @@ public sealed class XamlDocumentService
             while (reader.Read())
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (budget > TimeSpan.Zero && clock.Elapsed >= budget)
+                if (clock.Elapsed >= budget)
                 {
                     stoppedEarly = true;
                     break;

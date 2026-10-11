@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- A soft budget of 0 means the budget is already spent in every consumer: xaml_diagnostics, batch project_diagnostics, and C#/VB find references or callers truncate with nextCursor instead of running unbounded or falling back (`#322`)
 - Docs: ADR-0002 Amendment 5 names the current session interface without rewriting the accepted body (`#483`)
 - Docs: README test command matches CI, states that transitive restore is not locked, and the Chinese section includes pack (`#481`)
 - Tests: the packed README and the mcp-name comment match the server package identity (`#479`)
