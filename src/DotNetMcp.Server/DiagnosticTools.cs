@@ -87,7 +87,7 @@ public sealed class DiagnosticTools
         });
     }
 
-    [McpServerTool(Name = "diagnostics_preview_fix", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
+    [McpServerTool(Name = "diagnostics_preview_fix", ReadOnly = true, Destructive = false, Idempotent = false, OpenWorld = false), Description(
         "Preview applying one Diagnostic fix as a Workspace Edit. " +
         "fixIndex must come from diagnostics_list_fixes for this locator on the current Epoch. " +
         "If that Epoch has advanced, fails with FixListEpochMismatch and does not select another action. " +

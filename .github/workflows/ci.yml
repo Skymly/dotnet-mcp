@@ -57,7 +57,16 @@ jobs:
           $released = $Matches[1]
           $unreleasedHasEntries = $false
           if ($changelog -match '(?ms)^## Unreleased\b(.*?)(?=^## |\z)') {
-            if ($Matches[1] -match '(?m)^- ') { $unreleasedHasEntries = $true }
+            $unreleased = $Matches[1]
+            $inProductSection = $true
+            foreach ($line in ($unreleased -split "`n")) {
+              if ($line -match '^### ') {
+                $inProductSection = $line -match '^### (Added|Changed|Fixed|Security)\b'
+              } elseif ($inProductSection -and $line -match '^- ') {
+                $unreleasedHasEntries = $true
+                break
+              }
+            }
           }
           if ($unreleasedHasEntries) {
             if ($version -eq $released) {

@@ -35,9 +35,57 @@ public class PackageIdentitySeamTests
         var error = PackageIdentityGate.Evaluate(
             Csproj("4.0.1"),
             ServerJson("4.0.1"),
-            UnreleasedChangelog("4.0.1", productEntry: null));
+            UnreleasedChangelog("4.0.1", unreleasedBody: null));
 
         Assert.Null(error);
+    }
+
+    [Fact]
+    public void version_gate_accepts_docs_only_unreleased_at_previous_release()
+    {
+        var error = PackageIdentityGate.Evaluate(
+            Csproj("4.0.1"),
+            ServerJson("4.0.1"),
+            UnreleasedChangelog("4.0.1", "### Docs\n\n- an ADR amendment (#426)"));
+
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void version_gate_rejects_fixed_subsection_entries_at_previous_release()
+    {
+        var error = PackageIdentityGate.Evaluate(
+            Csproj("4.0.1"),
+            ServerJson("4.0.1"),
+            UnreleasedChangelog("4.0.1", "### Fixed\n\n- a product fix (#427)"));
+
+        Assert.NotNull(error);
+        Assert.Contains("Unreleased", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void version_gate_rejects_docs_and_fixed_mixed_at_previous_release()
+    {
+        var error = PackageIdentityGate.Evaluate(
+            Csproj("4.0.1"),
+            ServerJson("4.0.1"),
+            UnreleasedChangelog("4.0.1", "### Docs\n\n- an ADR amendment (#426)\n\n### Fixed\n\n- a product fix (#427)"));
+
+        Assert.NotNull(error);
+        Assert.Contains("Unreleased", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void version_gate_rejects_docs_only_unreleased_when_version_differs_from_release()
+    {
+        var error = PackageIdentityGate.Evaluate(
+            Csproj("4.0.2"),
+            ServerJson("4.0.2"),
+            UnreleasedChangelog("4.0.1", "### Docs\n\n- an ADR amendment (#426)"));
+
+        Assert.NotNull(error);
+        Assert.Contains("CHANGELOG version", error, StringComparison.Ordinal);
+        Assert.Contains("4.0.2", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -81,13 +129,18 @@ public class PackageIdentitySeamTests
     [InlineData("4.0.1", "4.0.1", "4.0.1", "- a product change (#295)")]
     [InlineData("4.0.1", "4.0.1", "4.0.1", null)]
     [InlineData("4.0.1", "4.0.2", "4.0.1", null)]
+    [InlineData("4.0.1", "4.0.1", "4.0.1", "### Docs\n\n- an ADR amendment (#426)")]
+    [InlineData("4.0.1", "4.0.1", "4.0.1", "### Tests\n\n- a test-only entry (#1)\n\n### Docs\n\n- docs (#2)")]
+    [InlineData("4.0.1", "4.0.1", "4.0.1", "### Fixed\n\n- a product fix (#427)")]
+    [InlineData("4.0.1", "4.0.1", "4.0.1", "### Docs\n\n- an ADR amendment (#426)\n\n### Fixed\n\n- a product fix (#427)")]
+    [InlineData("4.0.2", "4.0.2", "4.0.1", "### Docs\n\n- an ADR amendment (#426)")]
     public void ci_powershell_gate_matches_package_identity_gate(
         string csprojVersion,
         string jsonVersion,
         string released,
-        string? productEntry)
+        string? unreleasedBody)
     {
-        var changelog = UnreleasedChangelog(released, productEntry);
+        var changelog = UnreleasedChangelog(released, unreleasedBody);
         var csproj = Csproj(csprojVersion);
         var serverJson = ServerJson(jsonVersion);
         var csharp = PackageIdentityGate.Evaluate(csproj, serverJson, changelog);
@@ -239,9 +292,9 @@ public class PackageIdentitySeamTests
     private static string ServerJson(string version) =>
         "{\"name\":\"io.github.skymly/dotnet-mcp\",\"description\":\"test\",\"version\":\"" + version + "\"}";
 
-    private static string UnreleasedChangelog(string released, string? productEntry)
+    private static string UnreleasedChangelog(string released, string? unreleasedBody)
     {
-        var body = productEntry is null ? string.Empty : productEntry + "\n";
+        var body = unreleasedBody is null ? string.Empty : unreleasedBody + "\n";
         return $"## Unreleased\n\n{body}## {released} - 2026-09-12\n";
     }
 }

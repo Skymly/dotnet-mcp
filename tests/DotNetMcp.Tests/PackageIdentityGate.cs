@@ -37,8 +37,23 @@ internal static class PackageIdentityGate
             changelog,
             @"^## Unreleased\b(.*?)(?=^## |\z)",
             RegexOptions.Multiline | RegexOptions.Singleline);
-        var hasProductEntries = unreleased.Success
-            && Regex.IsMatch(unreleased.Groups[1].Value, @"^- ", RegexOptions.Multiline);
+        var hasProductEntries = false;
+        if (unreleased.Success)
+        {
+            var inProductSection = true;
+            foreach (var line in unreleased.Groups[1].Value.Split('\n'))
+            {
+                if (Regex.IsMatch(line, @"^### "))
+                {
+                    inProductSection = Regex.IsMatch(line, @"^### (Added|Changed|Fixed|Security)\b");
+                }
+                else if (inProductSection && line.StartsWith("- ", StringComparison.Ordinal))
+                {
+                    hasProductEntries = true;
+                    break;
+                }
+            }
+        }
 
         if (hasProductEntries && version == released)
         {
