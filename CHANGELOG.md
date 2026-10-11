@@ -6,6 +6,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Apply-failure rollback no longer writes old text back to disk while holding the workspace status gate, so GetStatus and CurrentEpoch stay responsive during multi-file rollbacks (`#376`)
+- diagnostics_preview_fix and symbol_preview_refactoring refuse a generated-document change only when no handwritten document would change, matching rename (`#407`)
+- A fix, refactoring, or rename that would create or delete documents is refused with DocumentAddOrRemoveRefused instead of previewing a misleading write set (`#406`)
+- symbol_list_refactorings says the list is built-in Features providers only, and the response sets IncludesProjectAnalyzers to false (`#402`)
 - Docs: ADR-0002 Amendment 5 names the current session interface without rewriting the accepted body (`#483`)
 - Docs: README test command matches CI, states that transitive restore is not locked, and the Chinese section includes pack (`#481`)
 - Tests: the packed README and the mcp-name comment match the server package identity (`#479`)

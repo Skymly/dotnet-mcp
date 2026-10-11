@@ -26,9 +26,11 @@ public sealed class SymbolRefactoringTools
     }
 
     [McpServerTool(Name = "symbol_list_refactorings", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
-        "List first-party / project-loaded Code Refactorings at a handwritten SymbolHandle identifier. " +
+        "List built-in Code Refactorings from Microsoft.CodeAnalysis C# / VB Features at a handwritten SymbolHandle identifier. " +
+        "Does not include refactorings from project analyzer assemblies. " +
         "Returns Epoch. Each refactoringIndex is valid only for that Epoch; if the workspace Epoch advances, symbol_preview_refactoring fails with RefactoringListEpochMismatch instead of selecting another action. " +
-        "Zero refactorings is success with an empty list. F# handles return RefactoringLanguageNotSupported. " +
+        "Zero refactorings is success with an empty list and means no built-in refactoring, not that project analyzers have none. " +
+        "F# handles return RefactoringLanguageNotSupported. " +
         "SourceGenerator Origin is refused. Does not write disk.")]
     public async Task<CallToolResult> SymbolListRefactorings(
         [Description("Handwritten C# / VB SymbolHandle from symbol_resolve.")]
@@ -53,6 +55,7 @@ public sealed class SymbolRefactoringTools
 
         return McpToolEnvelope.OkResult(new SymbolListRefactoringsResultDto
         {
+            IncludesProjectAnalyzers = false,
             Epoch = session!.Epoch,
             Items = success!.Items.Select(i => new CodeRefactoringItemDto
             {
@@ -68,7 +71,9 @@ public sealed class SymbolRefactoringTools
         "refactoringIndex must come from symbol_list_refactorings for this handle on the current Epoch. " +
         "If that Epoch has advanced, fails with RefactoringListEpochMismatch and does not select another action. " +
         "Returns previewId bound to the current Epoch + TTL. Does not write disk. " +
-        "Generated documents are refused. Not a generic apply_edit / write / shell.")]
+        "Generated documents are never written; the preview is refused only when the action would change generated documents and no handwritten document. " +
+        "An action that would create or delete files is refused with DocumentAddOrRemoveRefused. " +
+        "Not a generic apply_edit / write / shell.")]
     public async Task<CallToolResult> SymbolPreviewRefactoring(
         [Description("Handwritten C# / VB SymbolHandle from symbol_resolve.")]
         string handle,
