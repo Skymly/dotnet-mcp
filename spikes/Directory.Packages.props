@@ -1,0 +1,7 @@
+<Project>
+  <!-- Spikes are frozen historical evidence with their own pinned versions. They opt out of the
+       repository's central package management. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

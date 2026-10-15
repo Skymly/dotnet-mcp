@@ -1,0 +1,9 @@
+<Project>
+  <!-- Fixtures opt out of central package management. They pin their own versions on purpose:
+       CustomGenerator must stay on Microsoft.CodeAnalysis.CSharp 4.14.0, below the Roslyn that the
+       SDK ships. The test project copies tests/fixtures/** to its output directory, so this file
+       also covers the copies that MSBuildWorkspace loads from inside the repository tree. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>
