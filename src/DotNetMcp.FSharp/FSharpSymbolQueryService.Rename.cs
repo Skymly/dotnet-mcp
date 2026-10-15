@@ -135,7 +135,8 @@ public sealed partial class FSharpSymbolQueryService
         symbol switch
         {
             FSharpEntity entity => entity.IsProvided || entity.IsProvidedAndErased,
-            FSharpMemberOrFunctionOrValue member => OptionModule.IsSome(member.DeclaringEntity) && (member.DeclaringEntity.Value.IsProvided || member.DeclaringEntity.Value.IsProvidedAndErased),
+            FSharpMemberOrFunctionOrValue member => member.DeclaringEntity is { } declaringEntity
+                && (declaringEntity.Value.IsProvided || declaringEntity.Value.IsProvidedAndErased),
             _ => false
         };
 

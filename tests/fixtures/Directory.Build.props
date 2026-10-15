@@ -1,0 +1,6 @@
+<Project>
+  <!-- Intentionally empty. Fixtures are test material, not product code: this file stops the
+       repository root Directory.Build.props (warnings as errors) from applying to them.
+       The test project copies tests/fixtures/** to its output directory, so this file also
+       shields the copies that MSBuildWorkspace loads. -->
+</Project>

@@ -110,6 +110,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Tests
 
+- product projects build with warnings as errors and no nullable warnings remain in the F# adapter, while fixtures and spikes keep their own warnings; a seam test pins the empty `Directory.Build.props` files and the copy beside the loaded fixtures (`#491`)
 - the packed README and the mcp-name comment match the server package identity (`#479`)
 - tool annotations come from tools/list, and the CI version gate matches the C# package identity gate (`#473`)
 - README tables, install paths, and the SDK feature band are parsed instead of matched as loose text (`#471`)

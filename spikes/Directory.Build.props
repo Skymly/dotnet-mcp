@@ -1,0 +1,4 @@
+<Project>
+  <!-- Intentionally empty. Spikes are frozen historical evidence, not product code: this file
+       stops the repository root Directory.Build.props (warnings as errors) from applying to them. -->
+</Project>
