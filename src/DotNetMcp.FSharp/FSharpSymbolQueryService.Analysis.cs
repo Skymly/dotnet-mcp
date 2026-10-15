@@ -323,12 +323,12 @@ public sealed partial class FSharpSymbolQueryService
     {
         if (symbol is FSharpMemberOrFunctionOrValue member)
         {
-            if (!OptionModule.IsSome(member.DeclaringEntity))
+            if (member.DeclaringEntity is not { } declaringEntity)
             {
                 return false;
             }
 
-            var owner = member.DeclaringEntity.Value;
+            var owner = declaringEntity.Value;
             var resolved = ResolveAccessor(member, owner) ?? member;
             var key = MemberFullName(owner, resolved);
             if (string.Equals(key, item.SignatureQualifiedName, StringComparison.Ordinal)
@@ -356,12 +356,12 @@ public sealed partial class FSharpSymbolQueryService
 
     private static bool SameDeclarationFile(FSharpSymbol symbol, FSharpCatalogItem item)
     {
-        if (!OptionModule.IsSome(symbol.DeclarationLocation))
+        if (symbol.DeclarationLocation is not { } declarationLocation)
         {
             return false;
         }
 
-        var declaredFile = symbol.DeclarationLocation.Value.FileName;
+        var declaredFile = declarationLocation.Value.FileName;
         return item.Locations.Any(location => SameDocumentPath(location.FilePath, declaredFile));
     }
 

@@ -508,10 +508,9 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
 
     private static string EntityFullName(FSharpEntity entity)
     {
-        var name = entity.TryFullName;
-        if (OptionModule.IsSome(name) && !string.IsNullOrWhiteSpace(name.Value))
+        if (entity.TryFullName is { } fullName && !string.IsNullOrWhiteSpace(fullName.Value))
         {
-            return name.Value;
+            return fullName.Value;
         }
 
         return string.IsNullOrWhiteSpace(entity.AccessPath) || entity.AccessPath is "."
@@ -1034,8 +1033,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 return null;
             }
 
-            var baseType = entity.BaseType;
-            if (!OptionModule.IsSome(baseType))
+            if (entity.BaseType is not { } baseType)
             {
                 return null;
             }
