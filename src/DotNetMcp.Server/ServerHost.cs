@@ -81,7 +81,14 @@ public static class ServerHost
             WriteStartupConfigurationError(ex);
             return 1;
         }
-        var builder = Host.CreateApplicationBuilder(args);
+        // The content root is the install directory, not the process working directory. The MCP client
+        // chooses the launch directory, so an appsettings.json found there must not be able to
+        // reformat logging or silence the audit log (ADR-0004 §5). Environment variables still apply.
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+        {
+            Args = args,
+            ContentRootPath = AppContext.BaseDirectory,
+        });
 
         builder.Logging.AddConsole(options =>
         {
