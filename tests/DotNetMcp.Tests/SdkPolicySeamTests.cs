@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using DotNetMcp.Server;
+using Microsoft.Build.Locator;
 
 namespace DotNetMcp.Tests;
 
@@ -111,6 +112,103 @@ public class SdkPolicySeamTests
             try { Directory.Delete(root, true); } catch { }
         }
     }
+
+    [Theory]
+    // An SDK newer than the running runtime cannot load into it, and a stable SDK beats a preview one.
+    [InlineData("10.0.201,11.0.100,10.0.300-preview.1", 10, "10.0.201")]
+    [InlineData("10.0.201,10.0.400-preview.1", 10, "10.0.201")]
+    [InlineData("10.0.300,10.0.300-preview.1", 10, "10.0.300")]
+    // A preview is used only when no stable SDK fits the runtime.
+    [InlineData("10.0.300-preview.1,11.0.100", 10, "10.0.300-preview.1")]
+    // Older majors stay usable; nothing the runtime can load means no answer.
+    [InlineData("8.0.100,9.0.100,11.0.100", 10, "9.0.100")]
+    [InlineData("11.0.100,12.0.100-preview.1", 10, null)]
+    // The same layout is fine for a newer runtime, and folders that are not versions are ignored.
+    [InlineData("10.0.201,11.0.100", 11, "11.0.100")]
+    [InlineData("NuGetFallbackFolder,10.0.201", 10, "10.0.201")]
+    public void sdk_selection_skips_newer_majors_and_prefers_stable_over_preview(
+        string sdkVersions,
+        int runtimeMajor,
+        string? expected)
+    {
+        using var dotnet = new FakeDotNetRoot();
+        foreach (var version in sdkVersions.Split(','))
+        {
+            dotnet.Sdk(version);
+        }
+
+        Assert.Equal(expected, dotnet.SelectedVersion(runtimeMajor));
+    }
+
+    [Fact]
+    public void sdk_selection_falls_back_when_the_newest_directory_has_no_msbuild()
+    {
+        using var dotnet = new FakeDotNetRoot().Sdk("10.0.201").Sdk("10.0.300", withMsBuild: false);
+
+        Assert.Equal("10.0.201", dotnet.SelectedVersion(10));
+    }
+
+    [Fact]
+    public void sdk_selection_tries_roots_in_order_and_skips_a_root_with_only_too_new_sdks()
+    {
+        using var first = new FakeDotNetRoot().Sdk("11.0.100");
+        using var second = new FakeDotNetRoot().Sdk("10.0.201");
+        using var third = new FakeDotNetRoot().Sdk("10.0.300");
+
+        var chosen = MsBuildBootstrap.TryFindNewestSdkDirectory([first.Root, second.Root, third.Root], 10);
+
+        Assert.Equal(
+            Path.GetFullPath(Path.Combine(second.Root, "sdk", "10.0.201")),
+            Path.GetFullPath(chosen!));
+    }
+
+    [Fact]
+    public void fallback_instance_skips_a_sdk_newer_than_the_runtime_and_prefers_stable()
+    {
+        var chosen = MsBuildBootstrap.ChooseFallbackInstance(
+            [SdkCandidate("10.0.201"), SdkCandidate("11.0.100"), SdkCandidate("10.0.400-preview.1")],
+            runtimeMajorVersion: 10);
+
+        Assert.NotNull(chosen);
+        Assert.Equal("10.0.201", Path.GetFileName(chosen.MSBuildPath));
+    }
+
+    [Fact]
+    public void fallback_instance_uses_a_preview_only_when_no_stable_sdk_fits()
+    {
+        var chosen = MsBuildBootstrap.ChooseFallbackInstance(
+            [SdkCandidate("10.0.400-preview.1"), SdkCandidate("11.0.100")],
+            runtimeMajorVersion: 10);
+
+        Assert.NotNull(chosen);
+        Assert.Equal("10.0.400-preview.1", Path.GetFileName(chosen.MSBuildPath));
+    }
+
+    [Fact]
+    public void fallback_instance_is_null_when_every_sdk_is_newer_than_the_runtime()
+    {
+        Assert.Null(MsBuildBootstrap.ChooseFallbackInstance(
+            [SdkCandidate("11.0.100"), SdkCandidate("12.0.100-preview.1")],
+            runtimeMajorVersion: 10));
+    }
+
+    [Fact]
+    public void fallback_instance_does_not_apply_the_runtime_check_to_visual_studio_instances()
+    {
+        // A Visual Studio instance carries the Visual Studio version (17.x), not an SDK version.
+        var visualStudio = new MsBuildBootstrap.MSBuildCandidate(
+            DiscoveryType.VisualStudioSetup,
+            new Version(17, 14),
+            Path.Combine("vs", "MSBuild", "Current", "Bin"));
+
+        Assert.Same(visualStudio, MsBuildBootstrap.ChooseFallbackInstance([visualStudio], runtimeMajorVersion: 10));
+    }
+
+    private static MsBuildBootstrap.MSBuildCandidate SdkCandidate(string folder) =>
+        new(
+            DiscoveryType.DotNetSdk,
+            Version.Parse(folder.Split('-')[0]),
+            Path.Combine("dotnet", "sdk", folder));
 
     internal static bool IsProductFeatureBand(string? version, string? rollForward, bool allowPrerelease) =>
         version is not null
@@ -246,6 +344,50 @@ public class SdkPolicySeamTests
         }
 
         return count;
+    }
+
+    /// <summary>A temporary dotnet install root: <c>sdk/&lt;version&gt;</c> folders, optionally with MSBuild.dll.</summary>
+    private sealed class FakeDotNetRoot : IDisposable
+    {
+        public FakeDotNetRoot()
+        {
+            Root = Path.Combine(Path.GetTempPath(), "dotnet-mcp-sdk-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(Root, "sdk"));
+        }
+
+        public string Root { get; }
+
+        public FakeDotNetRoot Sdk(string version, bool withMsBuild = true)
+        {
+            var directory = Path.Combine(Root, "sdk", version);
+            Directory.CreateDirectory(directory);
+            if (withMsBuild)
+            {
+                File.WriteAllText(Path.Combine(directory, "MSBuild.dll"), version);
+            }
+
+            return this;
+        }
+
+        /// <summary>The version folder the selection picks for the given runtime major version, or null.</summary>
+        public string? SelectedVersion(int runtimeMajor) =>
+            MsBuildBootstrap.TryFindNewestSdkDirectory([Root], runtimeMajor) is { } path
+                ? Path.GetFileName(path)
+                : null;
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Root, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
     }
 
     private static string FindRepoRoot()
