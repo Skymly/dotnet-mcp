@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\DotNetMcp.Core\DotNetMcp.Core.csproj" />
-    <PackageReference Include="FSharp.Compiler.Service" Version="43.10.109" />
+    <PackageReference Include="FSharp.Compiler.Service" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="DotNetMcp.Tests" />
