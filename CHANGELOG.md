@@ -6,6 +6,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Changed
 
+- The bundled compilers are now Roslyn 5.9.0 and FSharp.Compiler.Service 43.12.402, so source generators and analyzers built for the 10.0.3xx SDK (Roslyn 5.6) keep loading and F# projects are checked with a compiler at least as new as that SDK's F# (43.11). ModelContextProtocol 2.2.0 and Microsoft.Extensions.* 10.0.13 come with it; Microsoft.Build.Locator stays on 1.9.1 (`#496`, `#498`)
 - F# member signatures now carry fully qualified parameter types instead of line-number suffixes, so fsharp: member handles issued by earlier versions must be resolved again (`#383`)
 - symbol_preview_rename, diagnostics_preview_fix, and symbol_preview_refactoring report idempotentHint=false, since each call stores a new TTL previewId (`#444`)
 - `message` on paged results is optional instead of required, matching the payloads that already omit it (`#443`)

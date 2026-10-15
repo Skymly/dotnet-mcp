@@ -10,18 +10,21 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageVersion Include="FSharp.Compiler.Service" Version="43.10.109" />
+    <PackageVersion Include="FSharp.Compiler.Service" Version="43.12.402" />
+    <!-- Stays on 1.9.1. From 1.10 on, the package fails the build with MSBL001 because
+         Microsoft.CodeAnalysis.Workspaces.MSBuild brings Microsoft.Build.Framework in as a runtime asset.
+         Excluding it changes what the tool package ships; tracked in #498. -->
     <PackageVersion Include="Microsoft.Build.Locator" Version="1.9.1" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Features" Version="5.6.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.6.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.VisualBasic.Features" Version="5.6.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.VisualBasic.Workspaces" Version="5.6.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.6.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.1" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Features" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.VisualBasic.Features" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.VisualBasic.Workspaces" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageVersion Include="ModelContextProtocol" Version="2.1.0" />
-    <PackageVersion Include="ModelContextProtocol.Extensions.Tasks" Version="2.1.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageVersion Include="ModelContextProtocol.Extensions.Tasks" Version="2.2.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
