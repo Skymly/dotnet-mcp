@@ -31,14 +31,19 @@ public static class MsBuildBootstrap
                 }
                 else
                 {
-                    var instances = MSBuildLocator.QueryVisualStudioInstances().ToArray();
-                    var chosen = instances
-                        .Where(i => i.DiscoveryType == DiscoveryType.DotNetSdk)
-                        .OrderByDescending(i => i.Version)
-                        .FirstOrDefault()
-                        ?? instances.OrderByDescending(i => i.Version).FirstOrDefault()
-                        ?? throw new InvalidOperationException("No MSBuild instances found via MSBuildLocator.");
-                    MSBuildLocator.RegisterInstance(chosen);
+                    var runtimeMajor = Environment.Version.Major;
+                    var chosen = ChooseFallbackInstance(
+                        MSBuildLocator.QueryVisualStudioInstances()
+                            .Select(i => new MSBuildCandidate(i.DiscoveryType, i.Version, i.MSBuildPath, i)),
+                        runtimeMajor);
+                    if (chosen?.Instance is not { } instance)
+                    {
+                        throw new InvalidOperationException(
+                            $"No MSBuild instance that .NET {runtimeMajor} can load was found via MSBuildLocator. "
+                            + $"Install a .NET {runtimeMajor} SDK, or set DOTNET_ROOT to the dotnet install that has one.");
+                    }
+
+                    MSBuildLocator.RegisterInstance(instance);
                 }
             }
 
@@ -47,7 +52,7 @@ public static class MsBuildBootstrap
     }
 
     /// <summary>
-    /// Newest SDK version directory (<c>.../dotnet/sdk/x.y.z</c>), or null.
+    /// Newest SDK version directory (<c>.../dotnet/sdk/x.y.z</c>) that this process can load MSBuild from, or null.
     /// </summary>
     internal static string? TryFindNewestSdkDirectory() =>
         TryFindNewestSdkDirectory(
@@ -58,11 +63,18 @@ public static class MsBuildBootstrap
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
         ]);
 
+    internal static string? TryFindNewestSdkDirectory(IEnumerable<string?> roots) =>
+        TryFindNewestSdkDirectory(roots, Environment.Version.Major);
+
     /// <summary>
-    /// Picks the highest SDK directory under <paramref name="roots"/> that contains MSBuild.dll.
+    /// Picks the SDK directory under <paramref name="roots"/> whose MSBuild this process can load.
+    /// A candidate must contain MSBuild.dll and must not have a major version newer than
+    /// <paramref name="runtimeMajorVersion"/>: that MSBuild targets the newer runtime and cannot load here.
+    /// A stable SDK beats a preview one even when the preview is numerically higher; within each class
+    /// the highest version wins. Roots are tried in order and the first root with a usable SDK wins.
     /// Does not read global.json. Production passes the install roots above.
     /// </summary>
-    internal static string? TryFindNewestSdkDirectory(IEnumerable<string?> roots)
+    internal static string? TryFindNewestSdkDirectory(IEnumerable<string?> roots, int runtimeMajorVersion)
     {
         foreach (var root in roots.Where(r => !string.IsNullOrWhiteSpace(r)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -72,15 +84,18 @@ public static class MsBuildBootstrap
                 continue;
             }
 
-            var newest = Directory.GetDirectories(sdkRoot)
-                .Select(d => new { Path = d, Name = Path.GetFileName(d), Version = ParseSdkVersion(Path.GetFileName(d)) })
-                .Where(x => x.Version is not null)
-                .OrderByDescending(x => x.Version)
+            var best = Directory.GetDirectories(sdkRoot)
+                .Select(ParseSdkDirectory)
+                .OfType<SdkDirectory>()
+                .Where(sdk => sdk.Version.Major <= runtimeMajorVersion
+                    && File.Exists(Path.Combine(sdk.FullPath, "MSBuild.dll")))
+                .OrderBy(sdk => sdk.IsPreview)
+                .ThenByDescending(sdk => sdk.Version)
                 .FirstOrDefault();
 
-            if (newest is not null && File.Exists(Path.Combine(newest.Path, "MSBuild.dll")))
+            if (best is not null)
             {
-                return newest.Path;
+                return best.FullPath;
             }
         }
 
@@ -101,16 +116,57 @@ public static class MsBuildBootstrap
         return Directory.GetParent(sdkVersionDir)?.Parent?.FullName;
     }
 
-    private static Version? ParseSdkVersion(string? name)
+    /// <summary>One MSBuildLocator instance reduced to what the fallback choice needs.</summary>
+    internal sealed record MSBuildCandidate(
+        DiscoveryType Discovery,
+        Version Version,
+        string? MSBuildPath,
+        VisualStudioInstance? Instance = null);
+
+    /// <summary>
+    /// Fallback when no SDK folder was found under the known install roots: picks the instance to register
+    /// from what MSBuildLocator discovered. A .NET SDK instance whose major version is newer than
+    /// <paramref name="runtimeMajorVersion"/> is skipped, a stable SDK beats a preview one, and the highest
+    /// version wins. Returns null when nothing usable remains.
+    /// </summary>
+    internal static MSBuildCandidate? ChooseFallbackInstance(
+        IEnumerable<MSBuildCandidate> candidates,
+        int runtimeMajorVersion)
     {
+        var usable = candidates
+            .Where(c => c.Discovery != DiscoveryType.DotNetSdk || c.Version.Major <= runtimeMajorVersion)
+            .ToArray();
+
+        return usable
+                .Where(c => c.Discovery == DiscoveryType.DotNetSdk)
+                .OrderBy(c => IsPreviewSdkDirectory(c.MSBuildPath))
+                .ThenByDescending(c => c.Version)
+                .FirstOrDefault()
+            ?? usable.OrderByDescending(c => c.Version).FirstOrDefault();
+    }
+
+    private sealed record SdkDirectory(string FullPath, Version Version, bool IsPreview);
+
+    /// <summary>
+    /// Reads an <c>sdk/&lt;version&gt;</c> folder name such as <c>10.0.300</c> or <c>10.0.300-preview.1</c>.
+    /// Folders that are not versions (for example <c>NuGetFallbackFolder</c>) yield null.
+    /// </summary>
+    private static SdkDirectory? ParseSdkDirectory(string fullPath)
+    {
+        var name = Path.GetFileName(fullPath);
         if (string.IsNullOrWhiteSpace(name))
         {
             return null;
         }
 
-        var parts = name.Split('-', 2)[0];
-        return Version.TryParse(parts, out var v) ? v : null;
+        var parts = name.Split('-', 2);
+        return Version.TryParse(parts[0], out var version)
+            ? new SdkDirectory(fullPath, version, IsPreview: parts.Length > 1)
+            : null;
     }
+
+    private static bool IsPreviewSdkDirectory(string? fullPath) =>
+        fullPath is not null && ParseSdkDirectory(fullPath) is { IsPreview: true };
 }
 
 public sealed class MsBuildSolutionLoader : ISolutionLoader
