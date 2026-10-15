@@ -1,0 +1,13 @@
+# Whitespace rules for the product, test and bench sources. They are enforced by
+# `dotnet format whitespace --verify-no-changes` on the Linux CI job.
+# No diagnostic severities are set here on purpose.
+# tests/fixtures and spikes stop the lookup with their own .editorconfig.
+root = true
+
+[*]
+end_of_line = lf
+
+[*.cs]
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true

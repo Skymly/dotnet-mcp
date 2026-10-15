@@ -1,0 +1,3 @@
+# Intentionally empty. Spikes are frozen historical evidence, not product code: this file stops the
+# repository root .editorconfig from applying to them.
+root = true

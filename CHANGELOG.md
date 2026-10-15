@@ -113,6 +113,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Tests
 
+- C# whitespace is checked against a root `.editorconfig` with `dotnet format whitespace --verify-no-changes` on the Ubuntu job, fixtures and spikes are exempt, three misplaced braces are fixed, and a test runs the exact CI command against a badly formatted file so the gate cannot pass without checking anything (`#502`)
 - CI runs on macOS as well as Ubuntu and Windows, fails on known vulnerable packages, pins the checkout and setup-dotnet actions to commit SHAs, cancels a pull request's superseded runs, and runs with a read-only token and a job timeout (`#501`)
 - direct package versions live in one `Directory.Packages.props` instead of 12 Roslyn lines across four project files; fixtures and spikes opt out, and a seam test keeps each package family on one version (`#493`)
 - product projects build with warnings as errors and no nullable warnings remain in the F# adapter, while fixtures and spikes keep their own warnings; a seam test pins the empty `Directory.Build.props` files and the copy beside the loaded fixtures (`#491`)
