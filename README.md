@@ -95,6 +95,8 @@ On paged results (`items` / `truncated` / `nextCursor`), `message` is optional a
 An empty or whitespace `path` to `workspace_open` or an XAML tool is an empty-path error (`InvalidWorkspacePath` or `XamlDocumentNotFound`), not `PathOutsideTrustedRoots`.
 `workspace_open` returns the same progress fields as `workspace_status`, including `errorCode` when the open fails before the background load. A null `errorCode` is omitted.
 
+A source generator or analyzer that references a newer `Microsoft.CodeAnalysis` than the server bundles is refused by Roslyn, and its output silently drops out of `project_list_generators`, `project_list_generated_sources`, and `symbol_attribution`. Once the workspace is ready, `workspace_status.warnings` carries an `AnalyzerReferencesNewerCompiler` entry that names the file (not its path). It is read from the assembly's metadata, so the analyzer is not loaded to find out. The fix is a dotnet-mcp release that bundles a newer Roslyn.
+
 ## Security
 
 1. **Trusted roots** — every path is canonicalized (including parent reparse points). Unresolvable links fail closed. Loaded project graphs and apply-paths are re-checked. Configure `--roots` / `--roots=path` or `DOTNET_MCP_TRUSTED_ROOTS`. When both are set, the trusted set is their union. Startup failure uses `TrustedRootsConfigurationFailed` on stderr, not a stack trace.

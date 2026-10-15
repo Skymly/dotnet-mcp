@@ -193,21 +193,23 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         MsBuildBootstrap.EnsureRegistered();
         var ext = Path.GetExtension(fullPath);
 
+        // LoadedSolution.Warnings is this same list, so warnings added after the load show up in the status.
+        var warnings = new List<string>();
         LoadedSolution loaded;
         if (ext.Equals(".slnf", StringComparison.OrdinalIgnoreCase))
         {
-            loaded = await OpenSlnfAsync(fullPath, progress, cancellationToken).ConfigureAwait(false);
+            loaded = await OpenSlnfAsync(fullPath, warnings, progress, cancellationToken).ConfigureAwait(false);
         }
         else if (ext.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
             ext.Equals(".slnx", StringComparison.OrdinalIgnoreCase))
         {
-            loaded = await OpenSolutionAsync(fullPath, progress, cancellationToken).ConfigureAwait(false);
+            loaded = await OpenSolutionAsync(fullPath, warnings, progress, cancellationToken).ConfigureAwait(false);
         }
         else if (ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
             ext.Equals(".vbproj", StringComparison.OrdinalIgnoreCase) ||
             ext.Equals(".fsproj", StringComparison.OrdinalIgnoreCase))
         {
-            loaded = await OpenProjectAsync(fullPath, progress, cancellationToken).ConfigureAwait(false);
+            loaded = await OpenProjectAsync(fullPath, warnings, progress, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -216,6 +218,9 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         }
 
         await EnsureGraphOrDisposeAsync(loaded, _trustedRoots).ConfigureAwait(false);
+
+        // Only after the gate: the analyzer files are known to sit under trusted or toolchain roots.
+        warnings.AddRange(AnalyzerCompilerSkew.Detect(loaded.Solution));
 
         return loaded;
     }
@@ -249,10 +254,10 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
 
     private static async Task<LoadedSolution> OpenSolutionAsync(
         string solutionPath,
+        List<string> warnings,
         IProgress<LoadProgress>? progress,
         CancellationToken ct)
     {
-        var warnings = new List<string>();
         var workspace = CreateWorkspace(warnings);
         progress?.Report(new LoadProgress(0, 1));
 
@@ -275,10 +280,10 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
 
     private static async Task<LoadedSolution> OpenProjectAsync(
         string projectPath,
+        List<string> warnings,
         IProgress<LoadProgress>? progress,
         CancellationToken ct)
     {
-        var warnings = new List<string>();
         var workspace = CreateWorkspace(warnings);
         progress?.Report(new LoadProgress(0, 1));
 
@@ -299,13 +304,13 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
 
     private async Task<LoadedSolution> OpenSlnfAsync(
         string slnfPath,
+        List<string> warnings,
         IProgress<LoadProgress>? progress,
         CancellationToken ct)
     {
         var projectPaths = SlnfParser.ResolveProjectPaths(slnfPath);
         // Hard-fail escaping .slnf entries before MSBuild opens (and executes) them.
         TrustedGraphGate.EnsureProjectPathsUnderRoots(projectPaths, _trustedRoots, ".slnf");
-        var warnings = new List<string>();
         var workspace = CreateWorkspace(warnings);
         var total = Math.Max(1, projectPaths.Count);
         progress?.Report(new LoadProgress(0, total));

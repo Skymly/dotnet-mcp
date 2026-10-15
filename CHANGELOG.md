@@ -13,6 +13,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- A source generator or analyzer that references a newer Microsoft.CodeAnalysis than the server bundles is now reported in `workspace_status` warnings as `AnalyzerReferencesNewerCompiler`, read from assembly metadata without loading it, instead of silently dropping out of generator queries (`#499`)
 - MSBuild registration no longer picks an SDK newer than the running runtime, prefers a stable SDK over a preview one, and falls back to the next usable SDK when the newest folder lacks MSBuild.dll instead of giving up on that install root; the MSBuildLocator fallback applies the same rules and names the runtime version when nothing fits (`#495`)
 - The server no longer reads `appsettings.json` from the directory the MCP client launched it in: the host content root is the install directory, so a repository's logging configuration cannot reformat stderr or silence the audit log (`#489`)
 - F# symbol_find_references and symbol_find_callers say on every page that only the defining project was searched, and that entireSolution does not widen F# search (`#333`)
