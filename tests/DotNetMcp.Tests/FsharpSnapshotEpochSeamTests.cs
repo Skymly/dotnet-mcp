@@ -30,7 +30,8 @@ public class FsharpSnapshotEpochSeamTests
                 fsproj,
                 "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><Compile Include=\"Widget.fs\" /><Compile Include=\"Uses.fs\" /></ItemGroup></Project>");
             Assert.True(fx.WorkspaceHost.TryGetReadySession(out var beforeSession));
-            var widgetPath = Path.Combine(root, "FsLib", "Widget.fs");
+            // macOS keeps /var as a symlink to /private/var, so the lexical path and the canonical path differ.
+            var widgetPath = PathCanonical.Of(Path.Combine(root, "FsLib", "Widget.fs"));
             Assert.Contains(
                 Assert.Single(beforeSession!.FSharpSnapshot.Projects).Documents,
                 d => d.Path.Equals(widgetPath, StringComparison.OrdinalIgnoreCase));
@@ -117,7 +118,8 @@ public class FsharpSnapshotEpochSeamTests
                 });
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
-            var signature = Path.Combine(root, "FsLib", "Widget.fsi");
+            // macOS keeps /var as a symlink to /private/var, so the lexical path and the canonical path differ.
+            var signature = PathCanonical.Of(Path.Combine(root, "FsLib", "Widget.fsi"));
 
             Assert.True(fx.WorkspaceHost.TryGetReadySession(out var beforeSession));
             Assert.Contains(
