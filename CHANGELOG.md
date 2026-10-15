@@ -12,6 +12,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- The server no longer reads `appsettings.json` from the directory the MCP client launched it in: the host content root is the install directory, so a repository's logging configuration cannot reformat stderr or silence the audit log (`#489`)
 - F# symbol_find_references and symbol_find_callers say on every page that only the defining project was searched, and that entireSolution does not widen F# search (`#333`)
 - F# symbol_type_hierarchy names the first base type or interface that is outside the defining project instead of reporting "has no base types", and symbol_find_implementations discloses its defining-project scope (`#384`)
 - A soft budget of 0 means the budget is already spent in every consumer: xaml_diagnostics, batch project_diagnostics, and C#/VB find references or callers truncate with nextCursor instead of running unbounded or falling back (`#322`)
