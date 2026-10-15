@@ -113,6 +113,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Tests
 
+- CI runs the packed `Skymly.DotNetMcp` tool with the README's `dotnet tool exec` form, opens a fixture workspace over MCP and resolves a symbol, and fails if that test was skipped instead of run (`#503`)
 - C# whitespace is checked against a root `.editorconfig` with `dotnet format whitespace --verify-no-changes` on the Ubuntu job, fixtures and spikes are exempt, three misplaced braces are fixed, and a test runs the exact CI command against a badly formatted file so the gate cannot pass without checking anything (`#502`)
 - CI runs on macOS as well as Ubuntu and Windows, fails on known vulnerable packages, pins the checkout and setup-dotnet actions to commit SHAs, cancels a pull request's superseded runs, and runs with a read-only token and a job timeout (`#501`)
 - direct package versions live in one `Directory.Packages.props` instead of 12 Roslyn lines across four project files; fixtures and spikes opt out, and a seam test keeps each package family on one version (`#493`)

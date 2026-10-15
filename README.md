@@ -136,7 +136,7 @@ dotnet test DotNetMcp.slnx -c Release --no-build --verbosity normal
 
 There is no `packages.lock.json`, and `RestorePackagesWithLockFile` is not set. Direct PackageReference versions are pinned centrally in `Directory.Packages.props`; the test fixtures and spikes opt out and pin their own. Transitive dependency resolution is not locked, so a later restore can select a different transitive version.
 
-CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Ubuntu, Windows **and** macOS; product SDK via [`global.json`](global.json) 10.0.x roll-forward, fixture SDKs 8.0.x/9.0.x, a C# whitespace-format check, a known-vulnerable-package check, pack + `McpServer` metadata check). Third-party actions are pinned to commit SHAs and the workflow token is read-only.
+CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Ubuntu, Windows **and** macOS; product SDK via [`global.json`](global.json) 10.0.x roll-forward, fixture SDKs 8.0.x/9.0.x, a C# whitespace-format check, a known-vulnerable-package check, pack + `McpServer` metadata check, and a smoke test that runs the packed tool with the `dotnet tool exec` form from Quick Start). Third-party actions are pinned to commit SHAs and the workflow token is read-only.
 
 The whitespace rules live in the root [`.editorconfig`](.editorconfig) (LF line endings, 4-space indent for C#); fixtures and spikes are exempt. CI runs this on Ubuntu, and you can run the same command locally on a checkout with LF line endings:
 
