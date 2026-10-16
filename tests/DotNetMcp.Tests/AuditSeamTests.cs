@@ -207,7 +207,7 @@ public class AuditSeamTests
                 audit.Snapshot(),
                 e => e.Kind == "path_policy_denied" &&
                      e.ToolName == "symbol_apply_rename" &&
-                     string.Equals(e.Path, outsideFile, StringComparison.OrdinalIgnoreCase));
+                     SamePath(e.Path, outsideFile));
         }
         finally
         {
@@ -258,6 +258,13 @@ public class AuditSeamTests
             TryDelete(outside);
         }
     }
+
+    /// <summary>
+    /// The audit records the canonical path, so a temp path that passes through a symlink
+    /// (macOS keeps /var as a link to /private/var) does not compare equal as text.
+    /// </summary>
+    private static bool SamePath(string? recorded, string expected) =>
+        recorded is not null && PathPolicy.Comparer.Equals(PathPolicy.Normalize(recorded), PathPolicy.Normalize(expected));
 
     private static async Task<WorkspaceStatusDto> WaitUntilFailedAsync(InProcessMcpFixture fx)
     {

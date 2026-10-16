@@ -12,6 +12,80 @@ namespace DotNetMcp.Tests;
 /// </summary>
 public class SecurityHighFixTests
 {
+    [MacFact]
+    public void path_policy_refuses_a_root_that_only_reaches_the_file_through_a_symlink()
+    {
+        var lexical = Path.Combine(Path.GetTempPath(), "dotnet-mcp-via-link-" + Guid.NewGuid().ToString("N"), "leaf.cs");
+        var canonical = PathCanonical.Of(lexical);
+        Assert.NotEqual(lexical, canonical);
+        // Both sides resolve the symlink ancestor, so the two spellings name one directory: a root
+        // given either way covers the file addressed the other way.
+        Assert.True(TrustedRoots.Create([Path.GetDirectoryName(lexical)!]).Contains(canonical));
+        Assert.True(TrustedRoots.Create([Path.GetDirectoryName(canonical)!]).Contains(lexical));
+    }
+
+    [Fact]
+    public void path_policy_resolves_a_symlink_in_an_ancestor_of_the_temp_directory()
+    {
+        // macOS keeps /var as a symlink to /private/var, so every temp path has a symlink in an ancestor.
+        var lexical = Path.Combine(Path.GetTempPath(), "dotnet-mcp-ancestor-" + Guid.NewGuid().ToString("N"), "leaf.cs");
+        var canonical = Path.GetFullPath(lexical);
+        if (string.Equals(lexical, canonical, StringComparison.Ordinal))
+        {
+            // No symlink ancestor here (Windows, Linux). A junction covers the same shape below.
+            return;
+        }
+
+        var normalized = PathPolicy.Normalize(lexical);
+        Assert.Equal(PathCanonical.Of(canonical), normalized);
+        Assert.True(TrustedRoots.Create([Path.GetDirectoryName(normalized)!]).Contains(lexical));
+    }
+
+    [WindowsFact]
+    public void path_policy_resolves_a_junction_in_an_ancestor_of_the_path()
+    {
+        var real = CreateTempDir("real");
+        var link = Path.Combine(Path.GetTempPath(), "dotnet-mcp-junction-" + Guid.NewGuid().ToString("N"));
+        var created = Junction(link, real);
+        if (!created)
+        {
+            TryDelete(real);
+            return;
+        }
+
+        try
+        {
+            var lexical = Path.Combine(link, "leaf.cs");
+            var normalized = PathPolicy.Normalize(lexical);
+            Assert.Equal(PathCanonical.Of(Path.Combine(real, "leaf.cs")), normalized);
+            Assert.True(TrustedRoots.Create([real]).Contains(lexical));
+        }
+        finally
+        {
+            TryDelete(link);
+            TryDelete(real);
+        }
+    }
+
+    private static bool Junction(string link, string target)
+    {
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe")
+        {
+            ArgumentList = { "/c", "mklink", "/J", link, target },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        });
+        if (process is null)
+        {
+            return false;
+        }
+
+        process.WaitForExit();
+        return process.ExitCode == 0 && Directory.Exists(link);
+    }
+
     [Fact]
     public void path_policy_resolves_parent_directory_symlink_for_existing_leaf()
     {
@@ -28,7 +102,9 @@ public class SecurityHighFixTests
             Assert.True(File.Exists(lexical));
 
             var normalized = PathPolicy.Normalize(lexical);
-            Assert.Equal(PathPolicy.Normalize(secret), normalized);
+            // Compare the canonical form, not the normalized lexical path: on macOS the temp directory
+            // itself sits under the /var -> /private/var symlink, so the two spellings differ.
+            Assert.Equal(PathCanonical.Of(secret), normalized);
 
             var trusted = TrustedRoots.Create([root]);
             Assert.False(trusted.Contains(lexical));

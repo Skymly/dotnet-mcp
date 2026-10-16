@@ -1208,7 +1208,7 @@ public sealed class XamlDocumentService
             string? fullPath;
             try
             {
-                fullPath = Path.GetFullPath(path);
+                fullPath = PathCanonical.Of(path);
             }
             catch (Exception)
             {
@@ -1227,7 +1227,7 @@ public sealed class XamlDocumentService
                     string documentPath;
                     try
                     {
-                        documentPath = Path.GetFullPath(document.FilePath);
+                        documentPath = PathCanonical.Of(document.FilePath);
                     }
                     catch (Exception)
                     {
@@ -1292,6 +1292,22 @@ public sealed class XamlDocumentService
         if (!string.Equals(fullPath, path, StringComparison.OrdinalIgnoreCase))
         {
             yield return fullPath;
+        }
+
+        // macOS keeps /var as a symlink to /private/var, so the lexical path and the canonical path differ.
+        string canonical;
+        try
+        {
+            canonical = PathCanonical.Of(fullPath);
+        }
+        catch (Exception)
+        {
+            yield break;
+        }
+
+        if (!string.Equals(canonical, fullPath, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return canonical;
         }
     }
 

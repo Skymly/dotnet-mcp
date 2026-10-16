@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Xml.Linq;
+using DotNetMcp.Core;
 
 namespace DotNetMcp.Server;
 
@@ -33,7 +34,9 @@ internal static class FSharpProjectFile
                 continue;
             }
 
-            var combined = Path.GetFullPath(Path.Combine(dir, spec.Replace('\\', Path.DirectorySeparatorChar)));
+            // Resolve existing parent symlinks (macOS: /var -> /private/var) so the path matches the
+            // canonical form the snapshot stores. A missing file still appends lexically.
+            var combined = PathCanonical.Of(Path.Combine(dir, spec.Replace('\\', Path.DirectorySeparatorChar)));
             var ext = Path.GetExtension(combined);
             if (ext.Equals(".fs", StringComparison.OrdinalIgnoreCase) ||
                 ext.Equals(".fsi", StringComparison.OrdinalIgnoreCase) ||

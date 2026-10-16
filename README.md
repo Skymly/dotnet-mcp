@@ -99,7 +99,7 @@ A source generator or analyzer that references a newer `Microsoft.CodeAnalysis` 
 
 ## Security
 
-1. **Trusted roots** — every path is canonicalized (including parent reparse points). Unresolvable links fail closed. Loaded project graphs and apply-paths are re-checked. Configure `--roots` / `--roots=path` or `DOTNET_MCP_TRUSTED_ROOTS`. When both are set, the trusted set is their union. Startup failure uses `TrustedRootsConfigurationFailed` on stderr, not a stack trace.
+1. **Trusted roots** — every path is canonicalized (including parent reparse points). Unresolvable links fail closed. Loaded project graphs and apply-paths are re-checked. Configure `--roots` / `--roots=path` or `DOTNET_MCP_TRUSTED_ROOTS`. When both are set, the trusted set is their union. Path comparison ignores case on Windows and respects it on Linux and macOS, including a default macOS volume that does not, so write a path with the same casing as the configured root. Startup failure uses `TrustedRootsConfigurationFailed` on stderr, not a stack trace.
 2. **Open means execute** — loading a solution runs MSBuild and referenced analyzers / source generators. Do not point this server at untrusted trees. `.slnf` project entries are checked before MSBuild opens them; `.sln` / `.slnx` / single-project graphs are checked after load, so an out-of-root `ProjectReference` is evaluated before it is rejected.
 3. **Default read + named writes** — only rename / diagnostic fix / refactoring preview-apply. No generic write, command, or network tools. Apply refuses, and does not write, a document that has no BOM and is not valid UTF-8 (`SourceEncodingRefused`).
 4. **Audit** — local process logs (stderr under stdio). Tool name and path metadata only; no source text; no telemetry. Disable with `DOTNET_MCP_AUDIT=0`. Logging configuration comes from environment variables and the server's own install directory. An `appsettings.json` in the directory the MCP client launched the server from is not read, so an opened repository cannot reformat or silence the audit log.
@@ -136,7 +136,7 @@ dotnet test DotNetMcp.slnx -c Release --no-build --verbosity normal
 
 There is no `packages.lock.json`, and `RestorePackagesWithLockFile` is not set. Direct PackageReference versions are pinned centrally in `Directory.Packages.props`; the test fixtures and spikes opt out and pin their own. Transitive dependency resolution is not locked, so a later restore can select a different transitive version.
 
-CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Ubuntu **and** Windows; product SDK via [`global.json`](global.json) 10.0.x roll-forward, fixture SDKs 8.0.x/9.0.x, pack + `McpServer` metadata check).
+CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Ubuntu, Windows **and** macOS; product SDK via [`global.json`](global.json) 10.0.x roll-forward, fixture SDKs 8.0.x/9.0.x, a known-vulnerable-package check, pack + `McpServer` metadata check). Third-party actions are pinned to commit SHAs and the workflow token is read-only.
 
 Product benches: [`docs/perf/benchmark.md`](docs/perf/benchmark.md).
 

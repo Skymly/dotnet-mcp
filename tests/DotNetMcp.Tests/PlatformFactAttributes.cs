@@ -29,6 +29,20 @@ public sealed class UnixFactAttribute : FactAttribute
 }
 
 /// <summary>
+/// Skips except on macOS. macOS CI runs the body.
+/// </summary>
+public sealed class MacFactAttribute : FactAttribute
+{
+    public MacFactAttribute()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            Skip = "Runs on macOS CI.";
+        }
+    }
+}
+
+/// <summary>
 /// Skips except on Linux. Linux CI runs the body.
 /// </summary>
 public sealed class LinuxFactAttribute : FactAttribute

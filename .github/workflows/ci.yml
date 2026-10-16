@@ -6,18 +6,29 @@ on:
   pull_request:
     branches: [main]
 
+# The jobs only read the repository.
+permissions:
+  contents: read
+
+# A new commit on a pull request cancels that pull request's older run. Every push to main keeps its own
+# group, so no main commit is ever left without a finished run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-and-test:
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Setup .NET SDKs
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           # Product SDK: global.json 10.0.100 + rollForward latestFeature (10.0.x, not a patch pin).
           # 8.0.x / 9.0.x stay floating: SampleFilter/MultiTfm fixtures need those MSBuild workloads.
@@ -79,6 +90,33 @@ jobs:
 
       - name: Restore
         run: dotnet restore DotNetMcp.slnx
+
+      - name: Check for known vulnerable packages
+        # The dependency graph is the same on every OS, so one runner is enough.
+        if: matrix.os == 'ubuntu-latest'
+        shell: pwsh
+        run: |
+          # dotnet list package exits 0 even when it finds advisories, so read its JSON report.
+          $text = dotnet list src/DotNetMcp.Server/DotNetMcp.Server.csproj package --vulnerable --include-transitive --format json | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "dotnet list package failed with exit code ${LASTEXITCODE}: $text" }
+          $start = $text.IndexOf('{')
+          if ($start -lt 0) { throw "dotnet list package printed no JSON report: $text" }
+          $report = $text.Substring($start) | ConvertFrom-Json
+          $advisories = foreach ($project in @($report.projects) | Where-Object { $null -ne $_ }) {
+            foreach ($framework in @($project.frameworks) | Where-Object { $null -ne $_ }) {
+              $packages = @($framework.topLevelPackages) + @($framework.transitivePackages) | Where-Object { $null -ne $_ }
+              foreach ($package in $packages) {
+                foreach ($vulnerability in @($package.vulnerabilities) | Where-Object { $null -ne $_ }) {
+                  "$($package.id) $($package.resolvedVersion): $($vulnerability.severity) $($vulnerability.advisoryurl)"
+                }
+              }
+            }
+          }
+          if ($advisories) {
+            $advisories | ForEach-Object { Write-Host "::error::$_" }
+            throw "Known vulnerable packages found: $(@($advisories).Count) advisory(ies)."
+          }
+          Write-Host "No known vulnerable packages."
 
       - name: Build
         run: dotnet build DotNetMcp.slnx -c Release --no-restore
