@@ -1975,5 +1975,6 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             SourceText.From("module Placeholder"));
 
         return solution;
-    }}
+    }
+}
 

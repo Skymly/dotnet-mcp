@@ -186,7 +186,8 @@ public static class PathPolicy
                 return finalPath;
             }
 
-            return TrimTrailingSeparators(Path.GetFullPath(target?.FullName ?? path));        }
+            return TrimTrailingSeparators(Path.GetFullPath(target?.FullName ?? path));
+        }
         catch (PathPolicyException)
         {
             throw;

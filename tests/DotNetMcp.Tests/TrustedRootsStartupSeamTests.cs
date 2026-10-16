@@ -160,7 +160,8 @@ public class TrustedRootsStartupSeamTests
         }
     }
 
-    private static string CreateTempDir()    {
+    private static string CreateTempDir()
+    {
         var dir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-roots-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         return dir;

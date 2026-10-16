@@ -1,0 +1,5 @@
+# Intentionally empty. Fixtures are test material, not product code: this file stops the repository
+# root .editorconfig from applying to them. The test project copies tests/fixtures/** to its output
+# directory, so it also covers the fixture copies that MSBuildWorkspace loads from inside the
+# repository tree.
+root = true

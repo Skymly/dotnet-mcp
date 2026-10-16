@@ -38,6 +38,12 @@ jobs:
             9.0.x
             10.0.x
 
+      - name: Check C# whitespace formatting
+        # Linux only: a Windows checkout turns line endings into CRLF, which the end_of_line = lf rule would flag.
+        # Folders need the trailing slash. Without it nothing matches and the check passes without looking at a file.
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet format whitespace . --folder --include src/ tests/DotNetMcp.Tests/ benches/ --exclude "**/bin/**" "**/obj/**" --verify-no-changes
+
       - name: Verify package versions match
         shell: pwsh
         run: |
