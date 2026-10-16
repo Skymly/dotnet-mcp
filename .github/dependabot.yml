@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    # Fixtures and spikes pin their own versions on purpose (see their Directory.Packages.props).
+    exclude-paths:
+      - "tests/fixtures/**"
+      - "spikes/**"
+    # Packages of one family ship together and must move together.
+    groups:
+      roslyn:
+        patterns:
+          - "Microsoft.CodeAnalysis*"
+      mcp:
+        patterns:
+          - "ModelContextProtocol*"
+      extensions:
+        patterns:
+          - "Microsoft.Extensions.*"
+    ignore:
+      # 1.10 and later fail the build with MSBL001 until #498 is resolved.
+      - dependency-name: "Microsoft.Build.Locator"
+
+  # Actions are pinned to commit SHAs with a version comment; Dependabot updates both.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
