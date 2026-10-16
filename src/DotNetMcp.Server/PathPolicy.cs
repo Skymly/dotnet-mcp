@@ -150,7 +150,10 @@ public static class PathPolicy
                 return TrimTrailingSeparators(Path.GetFullPath(path));
             }
 
-            if (isReparse)
+            // macOS reports attributes without the reparse-point flag for a symlink in an ancestor
+            // (File.GetAttributes("/var/folders/...") says Directory, never ReparsePoint), so the flag
+            // alone misses it. A resolved target is the reliable signal on every platform.
+            if (isReparse || target is not null)
             {
                 if (target is null)
                 {
