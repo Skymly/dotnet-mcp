@@ -18,13 +18,10 @@ public class SecurityHighFixTests
         var lexical = Path.Combine(Path.GetTempPath(), "dotnet-mcp-via-link-" + Guid.NewGuid().ToString("N"), "leaf.cs");
         var canonical = PathCanonical.Of(lexical);
         Assert.NotEqual(lexical, canonical);
-        // The lexical directory is the symlink, not a trusted root. The policy resolves the symlink
-        // ancestor, so a root given as the symlink reaches exactly the canonical file.
-        var lexicalRoot = TrustedRoots.Create([Path.GetDirectoryName(lexical)!]);
-        Assert.True(lexicalRoot.Contains(canonical));
-        // The reverse stays closed: a root given as the canonical directory does not cover the same
-        // file addressed through the symlink, because the symlink itself is outside that root.
-        Assert.False(TrustedRoots.Create([Path.GetDirectoryName(canonical)!]).Contains(lexical));
+        // Both sides resolve the symlink ancestor, so the two spellings name one directory: a root
+        // given either way covers the file addressed the other way.
+        Assert.True(TrustedRoots.Create([Path.GetDirectoryName(lexical)!]).Contains(canonical));
+        Assert.True(TrustedRoots.Create([Path.GetDirectoryName(canonical)!]).Contains(lexical));
     }
 
     [Fact]
