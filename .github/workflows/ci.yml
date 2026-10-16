@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Setup .NET SDKs
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           # Product SDK: global.json 10.0.100 + rollForward latestFeature (10.0.x, not a patch pin).
           # 8.0.x / 9.0.x stay floating: SampleFilter/MultiTfm fixtures need those MSBuild workloads.
