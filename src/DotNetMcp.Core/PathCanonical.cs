@@ -64,6 +64,14 @@ public static class PathCanonical
                 continue;
             }
 
+            // LinkTarget is stored as written. A relative target (macOS stores /var as "private/var")
+            // is relative to the link's own directory, not to the process working directory.
+            if (!Path.IsPathRooted(target))
+            {
+                var parent = Path.GetDirectoryName(current);
+                target = string.IsNullOrEmpty(parent) ? target : Path.Combine(parent, target);
+            }
+
             if (strict && !LinkTargetExists(target))
             {
                 // A dangling link has no final path. Trusted-root checks must fail closed on it
