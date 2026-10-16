@@ -1,3 +1,5 @@
+using DotNetMcp.Core;
+
 namespace DotNetMcp.Server;
 
 /// <summary>
@@ -36,7 +38,22 @@ public static class PathPolicy
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         var full = StripExtendedPrefix(Path.GetFullPath(path));
-        return Canonicalize(full);
+        // Resolve symlinks and junctions segment by segment first. Canonicalize below only follows a
+        // node whose attributes carry the reparse-point flag, and macOS reports no such flag for a
+        // path that merely passes through a symlinked ancestor (/var -> /private/var).
+        string resolved;
+        try
+        {
+            resolved = PathCanonical.OfOrThrow(full);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new PathPolicyException(
+                "A reparse point could not be followed while enforcing trusted roots.",
+                ex);
+        }
+
+        return Canonicalize(resolved);
     }
 
     /// <summary>
@@ -150,10 +167,7 @@ public static class PathPolicy
                 return TrimTrailingSeparators(Path.GetFullPath(path));
             }
 
-            // macOS reports attributes without the reparse-point flag for a symlink in an ancestor
-            // (File.GetAttributes("/var/folders/...") says Directory, never ReparsePoint), so the flag
-            // alone misses it. A resolved target is the reliable signal on every platform.
-            if (isReparse || target is not null)
+            if (isReparse)
             {
                 if (target is null)
                 {
