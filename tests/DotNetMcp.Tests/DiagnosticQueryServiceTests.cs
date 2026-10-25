@@ -288,6 +288,13 @@ public class DiagnosticQueryServiceTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<(SymbolSourceSuccess? Success, SymbolQueryError? Error)> GetSourceAsync(
+            IWorkspaceSession session,
+            string handle,
+            int maxChars,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
             IWorkspaceSession session,
             string projectId,

@@ -77,6 +77,7 @@ public static class PolicyErrorCodes
     public const string InvalidPosition = "InvalidPosition";
     public const string NoSymbolAtPosition = "NoSymbolAtPosition";
     public const string SymbolNotAddressable = "SymbolNotAddressable";
+    public const string SourceUnavailable = "SourceUnavailable";
 }
 
 public sealed record XamlBindingSegmentDto
@@ -372,6 +373,26 @@ public sealed record SymbolAttributionResultDto
     public required string OriginKind { get; init; }
     public GeneratorIdentityDto? Generator { get; init; }
     public required IReadOnlyDictionary<string, SymbolAttributionDto> Members { get; init; }
+}
+
+public sealed record SymbolSourceDeclarationDto
+{
+    public required string Origin { get; init; }
+    public GeneratorIdentityDto? Generator { get; init; }
+    public string? FilePath { get; init; }
+    public int Line { get; init; }
+    public int Column { get; init; }
+    public int EndLine { get; init; }
+    public int EndColumn { get; init; }
+    public required string Text { get; init; }
+    public bool Truncated { get; init; }
+}
+
+public sealed record SymbolSourceResultDto
+{
+    public required IReadOnlyList<SymbolSourceDeclarationDto> Declarations { get; init; }
+    public bool Truncated { get; init; }
+    public string? Message { get; init; }
 }
 
 public sealed record DriftItemDto

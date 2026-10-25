@@ -98,6 +98,12 @@ public interface ILanguageAdapter
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default);
 
+    Task<(SymbolSourceSuccess? Success, SymbolQueryError? Error)> GetSourceAsync(
+        IWorkspaceSession session,
+        string handle,
+        int maxChars,
+        CancellationToken cancellationToken = default);
+
     Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
         IWorkspaceSession session,
         string projectId,

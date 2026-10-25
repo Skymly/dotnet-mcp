@@ -318,6 +318,13 @@ public class LanguageAdapterSeamTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult<(SymbolAttributionSuccess?, SymbolQueryError?)>((null, NotFound()));
 
+        public Task<(SymbolSourceSuccess? Success, SymbolQueryError? Error)> GetSourceAsync(
+            IWorkspaceSession session,
+            string handle,
+            int maxChars,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<(SymbolSourceSuccess?, SymbolQueryError?)>((null, NotFound()));
+
         public Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
             IWorkspaceSession session,
             string projectId,
