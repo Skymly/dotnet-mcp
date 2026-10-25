@@ -57,7 +57,7 @@ _Avoid_: renaming generated members; writing disk from preview
 _Avoid_: generic XML file, WPF/WinUI document
 
 **XAML usage**:
-XAML 文档内一处指向符号的使用点：`x:Class`、element 类型、属性/事件 attribute、`x:DataType`、markup 类型引用、binding 路径段、`x:Name` 生成字段、事件 handler。每个使用点带 `Location` 四元组、`SignatureQualified` 符号键与可重解析句柄；经 `x:DataType` / `x:Class` / 静态 DataContext 解析为 Exact，仅同名匹配为 Unverified。索引按 `(Epoch, ProjectId)` 缓存，Core 接缝为 `IXamlUsageSource`（ADR-0006），会话经 `IXamlUsageSourceProvider` 可选暴露。`symbol_find_references` 已接入：源码命中之后同一分页流追加 Exact 使用点（cursor stage 1，Unverified 不进入），`xamlUsage` 标注种类。
+XAML 文档内一处指向符号的使用点：`x:Class`、element 类型、属性/事件 attribute、`x:DataType`、markup 类型引用、binding 路径段、`x:Name` 生成字段、事件 handler。每个使用点带 `Location` 四元组、`SignatureQualified` 符号键与可重解析句柄；经 `x:DataType` / `x:Class` / 静态 DataContext 解析为 Exact，仅同名匹配为 Unverified。索引按 `(Epoch, ProjectId)` 缓存，Core 接缝为 `IXamlUsageSource`（ADR-0006），会话经 `IXamlUsageSourceProvider` 可选暴露。`symbol_find_references` 已接入：源码命中之后同一分页流追加 Exact 使用点（cursor stage 1，Unverified 不进入），`xamlUsage` 标注种类。`symbol_resolve_at` 亦已接入：已注册文档内的位置反查覆盖使用点，`resolvedFrom=Reference`、`matched` 为使用点 span；落在使用点之外报 `NoSymbolAtPosition`，未接线会话保持 `UnsupportedDocumentForPosition`。
 _Avoid_: XAML document index, usage as a third adapter concept
 
 **Binding path**:
@@ -98,7 +98,7 @@ _Avoid_: MetadataGenerated, COM-in-Origin
 _Avoid_: treating dynamic as SymbolAttribution
 
 **Location**:
-所有带位置的工具输出共用同一套坐标：`line`/`column`/`endLine`/`endColumn`（外加 `start`/`length` 偏移）。行与列均为 1 基；列按 UTF-16 code unit 计，tab 记 1 列，与 `csc` / MSBuild `file(line,col)` 一致；`endColumn` 指向最后一个字符之后（不含）。`InMetadata`/`None` 无源位置时四个字段缺席（JSON 省略）；源生成文档按生成文本计列。任一工具输出的位置可原样喂给 `diagnostics_list_fixes` / `diagnostics_preview_fix` / `symbol_resolve_at` 等消费方。
+所有带位置的工具输出共用同一套坐标：`line`/`column`/`endLine`/`endColumn`（外加 `start`/`length` 偏移）。行与列均为 1 基；列按 UTF-16 code unit 计，tab 记 1 列，与 `csc` / MSBuild `file(line,col)` 一致；`endColumn` 指向最后一个字符之后（不含）。`InMetadata`/`None` 无源位置时四个字段缺席（JSON 省略）；源生成文档按生成文本计列。任一工具输出的位置可原样喂给 `diagnostics_list_fixes` / `diagnostics_preview_fix` / `symbol_resolve_at` 等消费方（`symbol_find_references` 报告的 XAML 使用点位置同样原样喂回 `symbol_resolve_at`）。
 _Avoid_: 0-based columns, startCharacter-style per-tool field names, `#line`-mapped locations
 
 **Diagnostic fix**:

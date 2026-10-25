@@ -14,8 +14,11 @@ public class Adr0006SeamTests
         Assert.Contains("ILanguageAdapter", text, StringComparison.Ordinal);
         Assert.Contains("(Epoch, ProjectId)", text, StringComparison.Ordinal);
         Assert.Contains("IWorkspaceSessionCaches", text, StringComparison.Ordinal);
-        // The seam is wired but unconsumed this chunk — say so in the ADR.
-        Assert.Contains("不消费", text, StringComparison.Ordinal);
+        // The consumers landed in later chunks — the ADR names both and keeps
+        // the unwired-behavior invariant.
+        Assert.Contains("symbol_find_references", text, StringComparison.Ordinal);
+        Assert.Contains("symbol_resolve_at", text, StringComparison.Ordinal);
+        Assert.Contains("未接线", text, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -165,8 +165,8 @@ Workspace Edit module 不进 Workspace：按 ADR-0005，`WorkspaceEdit`（previe
 
 - **dispatch 在 `LanguageAdapters`**：Server 侧不做语言分流；`LanguageAdapters.ResolveAtPositionAsync` 按被定位文档/项目的 language（可附 `projectId`）选一次 adapter，与句柄路径同一接缝。
 - **F# 与既有 catalog 对齐签名**：FCS adapter 只读 `FSharpWorkspaceSnapshot`（Amendment 5），FCS 符号先映射回 `FlattenCatalog` 的 `FSharpCatalogItem`，句柄签名与 `symbol_resolve` 同源产出，不接受「位置独有」的签名格式。
-- **多 TFM 重复签名**：同一位置跨项目命中且签名相同时去重为单结果；签名不同（或 `projectId` 缺位时多项目命中）返回 `SymbolAmbiguous`；`projectId` 选中单个项目视图后照常解析。局部变量、参数与 F# 模块不可寻址，返回 `SymbolNotAddressable` 并附 containing member 签名；`.xaml`/`.axaml` 返回 `UnsupportedDocumentForPosition`，不引入 document-lifecycle / `didOpen` 语义。
+- **多 TFM 重复签名**：同一位置跨项目命中且签名相同时去重为单结果；签名不同（或 `projectId` 缺位时多项目命中）返回 `SymbolAmbiguous`；`projectId` 选中单个项目视图后照常解析。局部变量、参数与 F# 模块不可寻址，返回 `SymbolNotAddressable` 并附 containing member 签名；`.xaml`/`.axaml` 不经语言 adapter 分流——会话接线 `IXamlUsageSource`（Amendment 8）时由使用点索引解析覆盖使用点，未接线时返回 `UnsupportedDocumentForPosition`，不引入 document-lifecycle / `didOpen` 语义。
 
 ## Amendment 8（2026-10-25）：XAML 使用点索引作为 Core 接缝
 
-XAML 使用点索引细化 §3/§5（XAML 仍非 `ILanguageAdapter`，依赖仍 Xaml → Core）并遵守 §4（分页归 Core）：抽象 `IXamlUsageSource` 由 Core 拥有、`DotNetMcp.Xaml` 实现、`DotNetMcp.Server` 接线但不消费，缓存按 `(Epoch, ProjectId)` 由 host 持有。详见 `docs/adr/0006-xaml-usage-index-core-seam.md`。
+XAML 使用点索引细化 §3/§5（XAML 仍非 `ILanguageAdapter`，依赖仍 Xaml → Core）并遵守 §4（分页归 Core）：抽象 `IXamlUsageSource` 由 Core 拥有、`DotNetMcp.Xaml` 实现、`DotNetMcp.Server` 接线，缓存按 `(Epoch, ProjectId)` 由 host 持有。消费侧为 `symbol_find_references`（Exact 使用点并入同一分页流）与 `symbol_resolve_at`（已注册文档内位置解析覆盖使用点的目标句柄，`resolvedFrom=Reference`，`matched` 为使用点 span；未接线会话保持 `UnsupportedDocumentForPosition`）。详见 `docs/adr/0006-xaml-usage-index-core-seam.md`。

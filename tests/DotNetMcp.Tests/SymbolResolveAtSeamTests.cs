@@ -214,8 +214,11 @@ public class SymbolResolveAtSeamTests
                 fx, Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "Elsewhere.cs"), 1, 1);
             Assert.Equal(PolicyErrorCodes.PathOutsideTrustedRoots, outside.Error);
 
+            // With the wired XAML usage source (ADR-0006) .axaml positions route
+            // through the usage index; an unindexed document has no covering
+            // usage. The unwired-session refusal lives in XamlResolveAtTests.
             var axaml = await ResolveAtErrorAsync(fx, Path.Combine(root, "View.axaml"), 1, 1);
-            Assert.Equal(PolicyErrorCodes.UnsupportedDocumentForPosition, axaml.Error);
+            Assert.Equal(PolicyErrorCodes.NoSymbolAtPosition, axaml.Error);
 
             var missing = await ResolveAtErrorAsync(fx, Path.Combine(root, "NotHere.cs"), 1, 1);
             Assert.Equal(PolicyErrorCodes.DocumentNotInWorkspace, missing.Error);

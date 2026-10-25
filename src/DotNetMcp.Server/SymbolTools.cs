@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using DotNetMcp.Core;
+using Microsoft.CodeAnalysis.Text;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -65,8 +66,12 @@ public sealed class SymbolTools
         "emitted by project_diagnostics, symbol_find_references, symbol_find_callers, symbol_goto_definition or a " +
         "grep-style hit feed this tool verbatim. Returns the matched identifier span/text and resolvedFrom " +
         "(Declaration or Reference); when overload resolution fails but a single candidate remains, candidateReason " +
-        "says why. Optional projectId disambiguates linked / multi-TFM documents. .axaml/.xaml documents return " +
-        "UnsupportedDocumentForPosition — a XAML position entry arrives with a later XAML ticket (use xaml_* tools). " +
+        "says why. Optional projectId disambiguates linked / multi-TFM documents. Registered XAML documents " +
+        "(Avalonia .axaml, MAUI .xaml) resolve positions through the XAML usage index (ADR-0006): a covering " +
+        "usage point — a binding segment, element/attribute name, x:Class/x:DataType/x:Name value, markup type, " +
+        "or event-handler name — yields its target symbol with resolvedFrom=Reference and matched set to the " +
+        "usage span; a position outside every usage returns NoSymbolAtPosition, and a session without a wired " +
+        "XAML usage source still returns UnsupportedDocumentForPosition (use xaml_* tools). " +
         "Does not open buffers and never writes disk.")]
     public async Task<CallToolResult> SymbolResolveAt(
         [Description("Source file path under a trusted root (regular or source-generated document).")]
@@ -113,13 +118,26 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        if (path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase) ||
-            path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
+        // ADR-0006: with a wired XAML usage source, .axaml/.xaml positions route
+        // through the usage index instead of the language adapters; an unwired
+        // session keeps the pre-seam refusal verbatim.
+        var xamlSource = (session as IXamlUsageSourceProvider)?.XamlUsageSource;
+        var isXamlDocument = xamlSource?.IsXamlDocumentPath(canonicalPath) ??
+            (path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase) ||
+             path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase));
+        if (isXamlDocument)
         {
-            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(
-                new UnsupportedDocumentForPositionError(
-                    "XAML documents do not have a position-based symbol surface yet; a XAML position entry arrives with a later XAML ticket.",
-                    "Use the xaml_* tools (xaml_resolve_class, xaml_list_xmlns, xaml_resolve_name, xaml_resolve_binding, xaml_diagnostics) for XAML documents.")));
+            if (xamlSource is null)
+            {
+                return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(
+                    new UnsupportedDocumentForPositionError(
+                        "XAML documents do not have a position-based symbol surface yet; a XAML position entry arrives with a later XAML ticket.",
+                        "Use the xaml_* tools (xaml_resolve_class, xaml_list_xmlns, xaml_resolve_name, xaml_resolve_binding, xaml_diagnostics) for XAML documents.")));
+            }
+
+            return await ResolveXamlUsageAtAsync(
+                    session!, xamlSource, canonicalPath, line, column, projectId, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var (success, error) = await _languages
@@ -545,6 +563,108 @@ public sealed class SymbolTools
         Handle = success.Handle,
         Summary = ToSummaryDto(success.Summary)
     };
+
+    /// <summary>
+    /// XAML position entry (ADR-0006): the usage index maps a position inside a
+    /// registered document to the usage point covering it. The point's target
+    /// handle re-resolves through the same summary path a source hit takes, so
+    /// the result shape is the same <see cref="SymbolResolveAtResultDto"/> — a
+    /// XAML use site is always <see cref="SymbolResolveFrom.Reference"/> of its
+    /// target. A position outside every usage, or a usage whose indexed span or
+    /// handle no longer resolves, reports NoSymbolAtPosition rather than a
+    /// half-verified success.
+    /// </summary>
+    private async Task<CallToolResult> ResolveXamlUsageAtAsync(
+        IWorkspaceSession session,
+        IXamlUsageSource xamlSource,
+        string path,
+        int line,
+        int column,
+        string? projectId,
+        CancellationToken cancellationToken)
+    {
+        var usage = await xamlSource
+            .FindAtPositionAsync(session, path, line, column, projectId, cancellationToken)
+            .ConfigureAwait(false);
+        if (usage is null)
+        {
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(
+                new NoSymbolAtPositionError(
+                    $"No XAML usage covers position ({line},{column}) in '{path}'.",
+                    "Point at a XAML usage span (a binding segment, element or attribute name, x:Class/x:DataType/x:Name value, markup type, or event-handler name) emitted by another tool.")));
+        }
+
+        var matchedText = await XamlUsageSpanTextAsync(session, usage, cancellationToken)
+            .ConfigureAwait(false);
+        var (resolved, error) = await _languages
+            .GetSummaryAsync(session, usage.Handle, cancellationToken)
+            .ConfigureAwait(false);
+        if (matchedText is null || error is not null || resolved is null)
+        {
+            // Defensive policy: the index just read this document and emitted a
+            // verifiable handle, so an unslicable span or an unresolvable target
+            // means a stale index/compilation mix — fail closed instead of
+            // reporting an unverified handle or a guessed matched text.
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(
+                new NoSymbolAtPositionError(
+                    $"The XAML usage at position ({line},{column}) in '{path}' no longer resolves to a workspace symbol.",
+                    "The document or its target changed since the index snapshot; re-run the producing tool or wait for the workspace to refresh, then retry.")));
+        }
+
+        return McpToolEnvelope.OkResult(ToResolveAtDto(new SymbolResolveAtSuccess(
+            usage.Handle,
+            resolved.Summary,
+            new MatchedIdentifier(
+                usage.Line,
+                usage.Column,
+                usage.EndLine,
+                usage.EndColumn,
+                matchedText),
+            SymbolResolveFrom.Reference,
+            CandidateReason: null)));
+    }
+
+    /// <summary>
+    /// Slice the usage point's own span out of the indexed AdditionalDocument —
+    /// the same "matched identifier text" the source path reports in
+    /// <see cref="MatchedIdentifier.Text"/>. <see cref="XamlUsagePoint.Snippet"/>
+    /// is a trimmed source-line excerpt, not the span, so the exact text is
+    /// re-derived from the document the index read. Returns null only when the
+    /// document vanished or the span fell out of range (stale index).
+    /// </summary>
+    private static async Task<string?> XamlUsageSpanTextAsync(
+        IWorkspaceSession session,
+        XamlUsagePoint usage,
+        CancellationToken cancellationToken)
+    {
+        foreach (var project in session.Solution.Projects)
+        {
+            if (!string.Equals(
+                    project.Id.Id.ToString("D"), usage.ProjectId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var document in project.AdditionalDocuments)
+            {
+                if (document.FilePath is null ||
+                    !string.Equals(document.FilePath, usage.FilePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
+                if (usage.Start < 0 || usage.Length < 0 || usage.Start + usage.Length > text.Length)
+                {
+                    return null;
+                }
+
+                return text.ToString(new TextSpan(usage.Start, usage.Length));
+            }
+        }
+
+        return null;
+    }
 
     private static SymbolResolveAtResultDto ToResolveAtDto(SymbolResolveAtSuccess success) => new()
     {
