@@ -8,6 +8,10 @@ namespace DotNetMcp.Core;
 
 public sealed partial class RoslynLanguageAdapter
 {
+    // Find-references paging lanes: stage 0 walks scoped documents, stage 1
+    // walks the Exact XAML usage list once source hits are exhausted.
+    private const int XamlReferencesStage = 1;
+
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
         IWorkspaceSession session,
         string handle,
@@ -201,20 +205,15 @@ public sealed partial class RoslynLanguageAdapter
                 handle,
                 out var docIndex,
                 out var locOffset,
+                out _,
                 out var cursorError,
                 scopeMismatchMessage: "Cursor scope does not match the entireSolution parameter for this request."))
         {
             return (null, cursorError);
         }
 
-        var scope = entireSolution
-            ? FindRefsScopeKind.EntireSolution
-            : FindRefsScopeKind.DependencyClosure;
-        var documents = (await FindRefsScopes.DocumentsForScopeAsync(solution, project!, scope, cancellationToken).ConfigureAwait(false))
-            .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
-            .ThenBy(d => d.Name, StringComparer.Ordinal)
-            .ThenBy(d => d.Id.Id)
-            .ToList();
+        var documents = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
+            .ConfigureAwait(false);
 
         return await PageFinderHitsAsync<CallerLocationItem>(
                 session,
@@ -256,6 +255,8 @@ public sealed partial class RoslynLanguageAdapter
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default)
     {
+        const string emptyMessage = "No references found in the selected scope.";
+        const string completeMessage = "Reference page complete.";
         var solution = session.Solution;
         var (project, symbol, error) = await TryResolveHandleAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
@@ -281,27 +282,49 @@ public sealed partial class RoslynLanguageAdapter
                 handle,
                 out var docIndex,
                 out var locOffset,
+                out var stage,
                 out var cursorError,
                 scopeMismatchMessage: "Cursor scope does not match the entireSolution parameter for this request."))
         {
             return (null, cursorError);
         }
 
-        var scope = entireSolution
-            ? FindRefsScopeKind.EntireSolution
-            : FindRefsScopeKind.DependencyClosure;
-        var documents = (await FindRefsScopes.DocumentsForScopeAsync(solution, project!, scope, cancellationToken).ConfigureAwait(false))
-            .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
-            .ThenBy(d => d.Name, StringComparer.Ordinal)
-            .ThenBy(d => d.Id.Id)
-            .ToList();
+        var xamlSource = (session as IXamlUsageSourceProvider)?.XamlUsageSource;
+        if (stage != 0)
+        {
+            // Stage-1 cursors are only issued while a XAML source is wired;
+            // anything else is stale for this session.
+            if (stage != XamlReferencesStage || xamlSource is null)
+            {
+                return (null, SoftBudgetPage.PastEnd("symbol_find_references", "the XAML usage list"));
+            }
 
-        return await PageFinderHitsAsync<ReferenceLocationItem>(
+            var scoped = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
+                .ConfigureAwait(false);
+            return await PageXamlReferenceHitsAsync(
+                    session,
+                    symbol!,
+                    handle,
+                    entireSolution,
+                    xamlSource,
+                    scoped,
+                    budget,
+                    pageLimit,
+                    locOffset,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        // One wall-clock shared by the source scan and the XAML lane: whatever
+        // the document walk already spent does not reset for stage 1.
+        var clock = Stopwatch.StartNew();
+        var documents = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
+            .ConfigureAwait(false);
+
+        var (slice, scanError) = await ScanFinderHitsAsync<ReferenceLocationItem>(
                 session,
                 handle,
                 scopeKey: entireSolution ? "refs-entire" : "refs-closure",
-                entireSolution,
-                tool: "symbol_find_references",
                 documents,
                 budget,
                 pageLimit,
@@ -321,10 +344,206 @@ public sealed partial class RoslynLanguageAdapter
 
                     return aligned;
                 },
-                emptyMessage: "No references found in the selected scope.",
-                completeMessage: "Reference page complete.",
+                tool: "symbol_find_references",
                 cancellationToken)
             .ConfigureAwait(false);
+        if (scanError is not null)
+        {
+            return (null, scanError);
+        }
+
+        if (!slice!.Exhausted)
+        {
+            return (SoftBudgetPage.Finish(
+                slice.Items,
+                moreItems: true,
+                budgetHit: slice.TruncatedByBudget,
+                () => FindRefsPageCursor.Encode(
+                    session.Epoch, entireSolution, slice.NextDoc, slice.NextLoc,
+                    "symbol_find_references", handle),
+                "symbol_find_references",
+                slice.Items.Count == 0 ? emptyMessage : completeMessage), null);
+        }
+
+        if (xamlSource is null)
+        {
+            return (SoftBudgetPage.Finish(
+                slice.Items,
+                moreItems: false,
+                budgetHit: false,
+                static () => string.Empty,
+                "symbol_find_references",
+                slice.Items.Count == 0 ? emptyMessage : completeMessage), null);
+        }
+
+        // Stage 1: Exact XAML usage points follow source hits on the same page.
+        var room = Math.Max(pageLimit - slice.Items.Count, 0);
+        var (xamlItems, xamlIncomplete) = await CollectXamlReferenceHitsAsync(
+                session,
+                symbol!,
+                xamlSource,
+                documents,
+                budget,
+                clock,
+                deliverableFloor: room - 1,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var taken = Math.Min(room, xamlItems.Count);
+        for (var i = 0; i < taken; i++)
+        {
+            slice.Items.Add(xamlItems[i]);
+        }
+
+        return (SoftBudgetPage.Finish(
+            slice.Items,
+            moreItems: xamlIncomplete || taken < xamlItems.Count,
+            budgetHit: xamlIncomplete,
+            () => FindRefsPageCursor.Encode(
+                session.Epoch, entireSolution, 0, taken,
+                "symbol_find_references", handle, stage: XamlReferencesStage),
+            "symbol_find_references",
+            slice.Items.Count == 0 ? emptyMessage : completeMessage), null);
+    }
+
+    private async Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> PageXamlReferenceHitsAsync(
+        IWorkspaceSession session,
+        ISymbol symbol,
+        string handle,
+        bool entireSolution,
+        IXamlUsageSource xamlSource,
+        IReadOnlyList<Document> documents,
+        TimeSpan budget,
+        int pageLimit,
+        int locOffset,
+        CancellationToken cancellationToken)
+    {
+        var clock = Stopwatch.StartNew();
+        var (items, incomplete) = await CollectXamlReferenceHitsAsync(
+                session,
+                symbol,
+                xamlSource,
+                documents,
+                budget,
+                clock,
+                deliverableFloor: locOffset,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (locOffset > items.Count)
+        {
+            return (null, SoftBudgetPage.PastEnd("symbol_find_references", "the XAML usage list"));
+        }
+
+        var page = items.Skip(locOffset).Take(pageLimit).ToList();
+        var next = locOffset + page.Count;
+        return (SoftBudgetPage.Finish(
+            page,
+            moreItems: next < items.Count || incomplete,
+            budgetHit: incomplete,
+            () => FindRefsPageCursor.Encode(
+                session.Epoch, entireSolution, 0, next,
+                "symbol_find_references", handle, stage: XamlReferencesStage),
+            "symbol_find_references",
+            page.Count == 0
+                ? "No references found in the selected scope."
+                : "Reference page complete."), null);
+    }
+
+    /// <summary>
+    /// Stage-1 XAML collection: scoped projects in deterministic ProjectId order,
+    /// concatenating each project's index-ordered usage points, filtered to
+    /// <see cref="XamlUsageConfidence.Exact"/> matches on the normalized
+    /// signature key, and deduplicated by normalized path/span/kind/target so a
+    /// shared or linked XAML document seen through two projects counts once.
+    /// The budget check runs at project granularity and may only cut the tail
+    /// once more than <paramref name="deliverableFloor"/> items are collected —
+    /// the same contract as the document scan finishing its in-flight document,
+    /// so a resumed page always makes progress.
+    /// </summary>
+    private static async Task<(List<ReferenceLocationItem> Items, bool Incomplete)> CollectXamlReferenceHitsAsync(
+        IWorkspaceSession session,
+        ISymbol symbol,
+        IXamlUsageSource xamlSource,
+        IReadOnlyList<Document> documents,
+        TimeSpan budget,
+        Stopwatch clock,
+        int deliverableFloor,
+        CancellationToken cancellationToken)
+    {
+        var targetKey = SymbolKey(NormalizePositionSymbol(symbol));
+        var projectIds = documents
+            .Select(static d => d.Project.Id.Id)
+            .Distinct()
+            .OrderBy(static id => id.ToString("D"), StringComparer.Ordinal)
+            .ToArray();
+
+        var items = new List<ReferenceLocationItem>();
+        var seen = new HashSet<(string Path, int Start, int Length, XamlUsageKind Kind, string SymbolKey)>();
+        var incomplete = false;
+        for (var i = 0; i < projectIds.Length; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (i > 0 && clock.Elapsed >= budget && items.Count > deliverableFloor)
+            {
+                incomplete = true;
+                break;
+            }
+
+            var usages = await xamlSource
+                .GetUsagesAsync(session, projectIds[i].ToString("D"), cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var usage in usages)
+            {
+                if (usage.Confidence != XamlUsageConfidence.Exact ||
+                    !string.Equals(usage.SymbolKey, targetKey, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var key = (PositionPaths.Key(usage.FilePath), usage.Start, usage.Length, usage.Kind, usage.SymbolKey);
+                if (!seen.Add(key))
+                {
+                    continue;
+                }
+
+                items.Add(ToXamlReferenceItem(usage));
+            }
+        }
+
+        return (items, incomplete);
+    }
+
+    private static ReferenceLocationItem ToXamlReferenceItem(XamlUsagePoint usage) =>
+        new(
+            DeclarationAvailability.InSource,
+            SymbolOrigin.Handwritten,
+            usage.FilePath,
+            usage.Start,
+            usage.Length,
+            usage.Line,
+            usage.Column,
+            usage.EndLine,
+            usage.EndColumn,
+            usage.ProjectId,
+            ReferenceLocationKind.Reference,
+            usage.Kind);
+
+    private static async Task<List<Document>> OrderedScopedDocumentsAsync(
+        Solution solution,
+        Project project,
+        bool entireSolution,
+        CancellationToken cancellationToken)
+    {
+        var scope = entireSolution
+            ? FindRefsScopeKind.EntireSolution
+            : FindRefsScopeKind.DependencyClosure;
+        var documents = await FindRefsScopes
+            .DocumentsForScopeAsync(solution, project, scope, cancellationToken)
+            .ConfigureAwait(false);
+        return documents
+            .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
+            .ThenBy(d => d.Name, StringComparer.Ordinal)
+            .ThenBy(d => d.Id.Id)
+            .ToList();
     }
 
     private async Task<(PagedResult<T>? Success, SymbolQueryError? Error)> PageFinderHitsAsync<T>(
@@ -341,6 +560,46 @@ public sealed partial class RoslynLanguageAdapter
         Func<IReadOnlyList<Document>, CancellationToken, Task<IReadOnlyList<IReadOnlyList<T>>>> findAligned,
         string emptyMessage,
         string completeMessage,
+        CancellationToken cancellationToken)
+    {
+        var (slice, error) = await ScanFinderHitsAsync<T>(
+                session,
+                handle,
+                scopeKey,
+                documents,
+                budget,
+                pageLimit,
+                docIndex,
+                locOffset,
+                findAligned,
+                tool,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (error is not null)
+        {
+            return (null, error);
+        }
+
+        return (SoftBudgetPage.Finish(
+            slice!.Items,
+            moreItems: !slice.Exhausted,
+            budgetHit: slice.TruncatedByBudget,
+            () => FindRefsPageCursor.Encode(session.Epoch, entireSolution, slice.NextDoc, slice.NextLoc, tool, handle),
+            tool,
+            slice.Items.Count == 0 ? emptyMessage : completeMessage), null);
+    }
+
+    private async Task<(FinderSlice<T>? Slice, SymbolQueryError? Error)> ScanFinderHitsAsync<T>(
+        IWorkspaceSession session,
+        string handle,
+        string scopeKey,
+        IReadOnlyList<Document> documents,
+        TimeSpan budget,
+        int pageLimit,
+        int docIndex,
+        int locOffset,
+        Func<IReadOnlyList<Document>, CancellationToken, Task<IReadOnlyList<IReadOnlyList<T>>>> findAligned,
+        string tool,
         CancellationToken cancellationToken)
     {
         if (docIndex > documents.Count || (docIndex == documents.Count && locOffset > 0))
@@ -390,15 +649,15 @@ public sealed partial class RoslynLanguageAdapter
 
         var (page, exhausted, nextDoc, nextLoc) = FinderDocumentScan.Slice(
             byDocument!, docIndex, locOffset, pageLimit, scannedThrough);
-
-        return (SoftBudgetPage.Finish(
-            page,
-            moreItems: !exhausted,
-            budgetHit: truncatedByBudget,
-            () => FindRefsPageCursor.Encode(session.Epoch, entireSolution, nextDoc, nextLoc, tool, handle),
-            tool,
-            page.Count == 0 ? emptyMessage : completeMessage), null);
+        return (new FinderSlice<T>(page, exhausted, nextDoc, nextLoc, truncatedByBudget), null);
     }
+
+    private sealed record FinderSlice<T>(
+        List<T> Items,
+        bool Exhausted,
+        int NextDoc,
+        int NextLoc,
+        bool TruncatedByBudget);
 
     private async Task<(ImplementationItem? Item, SymbolQueryError? Error)> ToImplementationItemAsync(
         IWorkspaceSession session,

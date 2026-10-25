@@ -71,6 +71,12 @@ public static class HierarchyRelationKind
 
 public sealed record HierarchyItem(string Kind, string Handle, SymbolSummary Summary);
 
+/// <summary>
+/// One find-references hit in the unified position model. XAML usage points
+/// (<c>symbol_find_references</c>, Exact confidence only) carry their
+/// <see cref="XamlUsageKind"/> in <see cref="XamlUsage"/>; source hits leave it
+/// null.
+/// </summary>
 public sealed record ReferenceLocationItem(
     string DeclarationAvailability,
     string? Origin,
@@ -82,7 +88,8 @@ public sealed record ReferenceLocationItem(
     int? EndLine,
     int? EndColumn,
     string ProjectId,
-    string Kind);
+    string Kind,
+    XamlUsageKind? XamlUsage = null);
 
 public sealed record CallerLocationItem(
     string DeclarationAvailability,

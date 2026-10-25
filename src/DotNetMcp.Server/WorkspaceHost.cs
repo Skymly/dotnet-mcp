@@ -65,6 +65,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private readonly TrustedRoots _trustedRoots;
     private readonly GeneratorQueryService? _generators;
     private readonly IAuditLogger? _audit;
+    private readonly IXamlUsageSource? _xamlUsageSource;
     private FSharpWorkspaceSnapshot? _fsharpSnapshot;
     private Solution? _publishedSolution;
     private volatile bool _disposed;
@@ -74,13 +75,15 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         WorkspaceHostOptions options,
         TrustedRoots trustedRoots,
         GeneratorQueryService? generators = null,
-        IAuditLogger? auditLogger = null)
+        IAuditLogger? auditLogger = null,
+        IXamlUsageSource? xamlUsageSource = null)
     {
         _loader = loader;
         _options = options;
         _trustedRoots = trustedRoots ?? throw new ArgumentNullException(nameof(trustedRoots));
         _generators = generators;
         _audit = auditLogger;
+        _xamlUsageSource = xamlUsageSource;
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
         if (_options.FileWatcher is not null)
         {
@@ -194,6 +197,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 compilationLru: _compilationLru,
                 findHitCache: _findHitCache,
                 xamlUsageCache: _xamlUsageCache,
+                xamlUsageSource: _xamlUsageSource,
                 solution: _publishedSolution);
             return true;
         }
@@ -1315,7 +1319,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 compilationLru: lru,
                 generatorRunCache: _generatorRunCache,
                 findHitCache: _findHitCache,
-                xamlUsageCache: _xamlUsageCache);
+                xamlUsageCache: _xamlUsageCache,
+                xamlUsageSource: _xamlUsageSource);
             foreach (var project in SelectWarmProjects(loaded.Solution, openedPath, lru.Capacity ?? 50))
             {
                 cancellationToken.ThrowIfCancellationRequested();

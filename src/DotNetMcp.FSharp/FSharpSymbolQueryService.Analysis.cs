@@ -577,6 +577,7 @@ public sealed partial class FSharpSymbolQueryService
                 handle,
                 out var stage,
                 out var locOffset,
+                out _,
                 out var cursorError,
                 scopeMismatchMessage: "Cursor scope does not match the entireSolution parameter for this request."))
         {

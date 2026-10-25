@@ -92,6 +92,8 @@ If a code-action provider throws, `diagnostics_preview_fix` and `symbol_preview_
 `project_diagnostics` without `projectId` reports a failed project as `error` plus `suggestedAction`, not as a `Severity=Error` diagnostic. Do not pass that row to `diagnostics_list_fixes`.
 On paged results (`items` / `truncated` / `nextCursor`), `message` is optional and omitted when there is nothing to add.
 
+`symbol_find_references` also merges Exact XAML usage points (bindings, `x:Class`, element types, `x:Name` fields, event handlers) for C#/VB handles. Source hits page first; XAML hits follow in the same paged stream and carry `xamlUsage` naming the usage kind — source hits omit the field. Name-matched `Unverified` points are never included, and the XAML scan covers the same scope as source references (defining project plus dependents, or every project with `entireSolution`). One soft budget covers both lanes and the cursor walks both stages.
+
 All located outputs share one position model: `line` and `column` are 1-based, columns count UTF-16 code units (a tab is one column), and `endColumn` is exclusive — the same `file(line,col)` convention the compilers print. `start`/`length` remain as UTF-16 offsets for slicing. Locations without a source position (`InMetadata`, `None`) omit the position fields, and positions in source-generated documents are coordinates inside the generated text. A position reported by one tool feeds the next tool verbatim — for example a `project_diagnostics` row's `line`/`column`/`endLine`/`endColumn` are exactly the locator arguments of `diagnostics_list_fixes` and `diagnostics_preview_fix`.
 
 An empty or whitespace `path` to `workspace_open` or an XAML tool is an empty-path error (`InvalidWorkspacePath` or `XamlDocumentNotFound`), not `PathOutsideTrustedRoots`.
@@ -122,7 +124,7 @@ These tools stop at the soft budget ([ADR-0003](docs/adr/0003-long-running-opera
 
 Document-scope Fix all applies at most 32 fixes. Project-scope Fix all also stops at a fixed application cap (default 64). Neither application cap is an environment variable.
 
-`0` means the budget is already spent — list tools return a truncated page right away (possibly empty) with `nextCursor`, and project Fix all fails the preview; `symbol_find_references` and `symbol_find_callers` still finish the current document so the cursor advances, so a page may contain items; negative or unparseable values fall back to the defaults.
+`0` means the budget is already spent — list tools return a truncated page right away (possibly empty) with `nextCursor`, and project Fix all fails the preview; `symbol_find_references` and `symbol_find_callers` still finish the current document (and `symbol_find_references` finishes the current project on its XAML lane) so the cursor advances, so a page may contain items; negative or unparseable values fall back to the defaults.
 
 `workspace_open` never blocks the MCP request. Clients that do not opt into MCP Tasks should poll `workspace_status`. `workspace_status.watcher` is `ok`, `lost`, or `off`; `lost` means file watching failed and a restart was attempted. Details: `spikes/s3-mcp-long-running/CONCLUSIONS.md`. That note separates the spike `jobId` shape from the product DTO, which has no `jobId`.
 

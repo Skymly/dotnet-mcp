@@ -27,6 +27,17 @@ internal static class PositionPaths
     private static StringComparison Comparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
+    /// <summary>
+    /// Dedup/order key under the same canonical form as <see cref="Equal"/>:
+    /// full path, case-folded on Windows. Shared/linked documents seen through
+    /// two projects collapse to one key.
+    /// </summary>
+    public static string Key(string path)
+    {
+        var normalized = Normalize(path);
+        return OperatingSystem.IsWindows() ? normalized.ToUpperInvariant() : normalized;
+    }
+
     private static string Normalize(string path)
     {
         try

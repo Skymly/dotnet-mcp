@@ -6,7 +6,7 @@ namespace DotNetMcp.Server;
 /// <summary>
 /// Request-scoped workspace snapshot implementing ADR-0002 compilation / generator APIs.
 /// </summary>
-public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCaches
+public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCaches, IXamlUsageSourceProvider
 {
     public const int DefaultCompilationLruCapacity = 50;
 
@@ -25,7 +25,8 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         FindHitCache? findHitCache = null,
         FSharpWorkspaceSnapshot? fsharpSnapshot = null,
         Solution? solution = null,
-        XamlUsageIndexCache? xamlUsageCache = null)
+        XamlUsageIndexCache? xamlUsageCache = null,
+        IXamlUsageSource? xamlUsageSource = null)
     {
         // Prefer the host-frozen F# snapshot (captured when Epoch advances). Tests that need F#
         // sources must pass a snapshot captured with trusted roots — never walk disk without roots.
@@ -36,6 +37,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         _generatorRunCache = generatorRunCache ?? new GeneratorRunCache();
         _findHits = findHitCache ?? new FindHitCache();
         _xamlUsages = xamlUsageCache ?? new XamlUsageIndexCache();
+        XamlUsageSource = xamlUsageSource;
     }
 
     public long Epoch { get; }
@@ -50,6 +52,9 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
     public FindHitCache FindHits => _findHits;
 
     public XamlUsageIndexCache XamlUsages => _xamlUsages;
+
+    /// <summary>Wired XAML usage source (ADR-0006); null when the host was built without one.</summary>
+    public IXamlUsageSource? XamlUsageSource { get; }
 
     public IReadOnlyList<ProjectSummaryDto> ListProjects() =>
         ProjectSummary.FromSolution(Solution);
