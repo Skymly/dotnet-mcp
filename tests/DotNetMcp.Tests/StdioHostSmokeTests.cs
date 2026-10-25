@@ -11,6 +11,20 @@ public class StdioHostSmokeTests
     private static readonly TimeSpan StderrLineTimeout = TimeSpan.FromSeconds(10);
 
     [Fact]
+    public async Task stdio_server_advertises_agent_instructions_on_initialize()
+    {
+        using var timeout = new CancellationTokenSource(WorkspaceReady.DefaultTimeout);
+        await using var client = await ConnectAsync(Path.GetTempPath(), timeout.Token);
+
+        var instructions = client.ServerInstructions;
+        Assert.False(string.IsNullOrWhiteSpace(instructions));
+        foreach (var tool in new[] { "workspace_open", "workspace_status", "symbol_resolve" })
+        {
+            Assert.Contains(tool, instructions, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task stdio_server_process_lists_tools()
     {
         using var timeout = new CancellationTokenSource(WorkspaceReady.DefaultTimeout);

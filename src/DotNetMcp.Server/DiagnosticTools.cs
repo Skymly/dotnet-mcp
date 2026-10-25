@@ -89,6 +89,7 @@ public sealed class DiagnosticTools
 
     [McpServerTool(Name = "diagnostics_preview_fix", ReadOnly = true, Destructive = false, Idempotent = false, OpenWorld = false), Description(
         "Preview applying one Diagnostic fix as a Workspace Edit. " +
+        "Locator positions use the unified model — 1-based line/column, endColumn exclusive — so a project_diagnostics row feeds this tool verbatim. " +
         "fixIndex must come from diagnostics_list_fixes for this locator on the current Epoch. " +
         "If that Epoch has advanced, fails with FixListEpochMismatch and does not select another action. " +
         "Returns previewId bound to the current Epoch + TTL. Does not write disk. " +

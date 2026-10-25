@@ -69,6 +69,19 @@ public static class ServerHost
         services.AddSingleton<DiagnosticTools>();
         services.AddSingleton<SymbolRefactoringTools>();
         services.AddSingleton<XamlTools>();
+
+        // Agent guidance (#527). The instructions ride the initialize result; the
+        // prompts sit in DI beside the tools so McpServerOptionsSetup collects them.
+        // Registering here — not on the IMcpServerBuilder chain — keeps every host
+        // that calls AddDotNetMcp on the same surface.
+        services.Configure<McpServerOptions>(options =>
+            options.ServerInstructions = AgentGuidance.ServerInstructions);
+        services.AddSingleton(McpServerPrompt.Create(
+            typeof(AgentPrompts).GetMethod(nameof(AgentPrompts.TraceSymbol))!,
+            target: null));
+        services.AddSingleton(McpServerPrompt.Create(
+            typeof(AgentPrompts).GetMethod(nameof(AgentPrompts.SafeRename))!,
+            target: null));
     }
 
     public static async Task<int> RunAsync(string[] args)
