@@ -75,6 +75,8 @@ stdio only. Framework-dependent .NET tool; NativeAOT is not required.
 
 Typical agent loop: `workspace_open` (returns immediately) → poll `workspace_status` until `ready` → `symbol_resolve` → navigation / attribution. Prefer a `.slnf` or a single project for a large solution.
 
+For agent setup, [`docs/agent-guidance.md`](docs/agent-guidance.md) holds a copy-paste block for a consuming repo's `AGENTS.md` / `CLAUDE.md` — the loop, the 1-based position model, and the preview → apply write rule. The server also sends the same brief in the initialize result `instructions` and ships `trace_symbol` / `safe_rename` prompts that walk an agent through the two core workflows.
+
 ## MCP tools
 
 | Group | Tools |
@@ -187,3 +189,5 @@ dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to
 ```
 
 NuGet 上架后可用：`dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo`。
+
+Agent 接入：[docs/agent-guidance.md](docs/agent-guidance.md) 提供可直接粘贴到消费方 `AGENTS.md` / `CLAUDE.md` 的片段；服务器 initialize 结果携带相同的 `instructions`，并附带 `trace_symbol` / `safe_rename` 两个 prompt。
