@@ -497,7 +497,7 @@ public class XamlUsageReferenceTests
             var body = InProcessMcpFixture.Deserialize<SymbolFindReferencesResultDto>(result);
 
             var xaml = Assert.Single(body.Items, i => i.XamlUsage == "BindingSegment");
-            Assert.Equal(axaml, xaml.FilePath);
+            Assert.Equal(PathCanonical.Of(axaml), xaml.FilePath);
             Assert.All(
                 body.Items.Where(i => i.XamlUsage is null),
                 i => Assert.False(
