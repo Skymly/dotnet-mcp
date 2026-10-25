@@ -45,6 +45,7 @@ public static class PolicyErrorCodes
     public const string GeneratedSymbolRenameRefused = "GeneratedSymbolRenameRefused";
     public const string RenameLanguageNotSupported = "RenameLanguageNotSupported";
     public const string InvalidRenameName = "InvalidRenameName";
+    public const string FSharpCrossProjectRenameUnsupported = "FSharpCrossProjectRenameUnsupported";
     public const string PreviewNotFound = "PreviewNotFound";
     public const string PreviewExpired = "PreviewExpired";
     public const string PreviewEpochMismatch = "PreviewEpochMismatch";

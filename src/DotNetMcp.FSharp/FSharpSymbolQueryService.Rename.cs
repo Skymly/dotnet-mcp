@@ -1,5 +1,6 @@
 using Microsoft.FSharp.Core;
 using DotNetMcp.Core;
+using FSharp.Compiler.CodeAnalysis;
 using FSharp.Compiler.Symbols;
 using FSharp.Compiler.Syntax;
 
@@ -21,7 +22,7 @@ public sealed partial class FSharpSymbolQueryService
                 "Pass an F# identifier (no qualification, no keywords) as newName."));
         }
 
-        var (item, _, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
+        var (item, project, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -48,6 +49,13 @@ public sealed partial class FSharpSymbolQueryService
             return (null, new CompilationUnavailableError(
                 "F# check results are unavailable for rename.",
                 "Retry after workspace_status is ready."));
+        }
+
+        if (project!.DependentProjects.Count > 0 && IsVisibleOutsideDefiningAssembly(check, item))
+        {
+            return (null, new FSharpCrossProjectRenameUnsupportedError(
+                $"F# symbol '{oldName}' is visible outside project '{project.Name}' and is referenced by {DescribeDependents(project.DependentProjects)}; the preview would only edit the defining project.",
+                "Rename only private symbols or symbols in projects without dependents; F# dependents are tracked in #526, and C#/VB dependents need cross-language rename, which is not supported."));
         }
 
         var edits = new Dictionary<string, List<(int Start, int Length)>>(StringComparer.OrdinalIgnoreCase);
@@ -129,6 +137,78 @@ public sealed partial class FSharpSymbolQueryService
         }
 
         return (new RenamePreviewDraft(handle, newName, documents, [handle]), null);
+    }
+
+    private static string DescribeDependents(IReadOnlyList<FSharpDependentProject> dependents)
+    {
+        var shown = string.Join(", ", dependents
+            .Take(5)
+            .Select(dependent => $"{dependent.Name} ({dependent.Language})"));
+        return dependents.Count > 5 ? shown + $" and {dependents.Count - 5} more" : shown;
+    }
+
+    private static bool IsVisibleOutsideDefiningAssembly(FSharpCheckProjectResults check, FSharpCatalogItem item)
+    {
+        FSharpSymbol? symbol = null;
+        foreach (var use in check.GetAllUsesOfAllSymbols(null))
+        {
+            if (use.IsFromDefinition && SameSymbol(use.Symbol, item))
+            {
+                symbol = use.Symbol;
+                break;
+            }
+        }
+
+        if (symbol is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            var sawInternal = false;
+            for (FSharpSymbol? current = symbol; current is not null; current = DeclaringEntity(current))
+            {
+                if (current.Accessibility.IsPrivate)
+                {
+                    return false;
+                }
+
+                sawInternal |= !current.Accessibility.IsPublic;
+            }
+
+            return !sawInternal || DeclaresInternalsVisibleTo(check);
+        }
+        catch (Exception)
+        {
+            return true;
+        }
+    }
+
+    private static FSharpEntity? DeclaringEntity(FSharpSymbol symbol) =>
+        symbol switch
+        {
+            FSharpMemberOrFunctionOrValue member => member.DeclaringEntity?.Value,
+            FSharpEntity entity => entity.DeclaringEntity?.Value,
+            FSharpUnionCase unionCase => unionCase.DeclaringEntity,
+            FSharpField field => field.DeclaringEntity?.Value,
+            _ => null
+        };
+
+    private static bool DeclaresInternalsVisibleTo(FSharpCheckProjectResults check)
+    {
+        try
+        {
+            return check.AssemblySignature.Attributes.Any(attribute =>
+                string.Equals(
+                    attribute.AttributeType?.FullName,
+                    "System.Runtime.CompilerServices.InternalsVisibleToAttribute",
+                    StringComparison.Ordinal));
+        }
+        catch (Exception)
+        {
+            return true;
+        }
     }
 
     private static bool IsProvided(FSharpSymbol symbol) =>

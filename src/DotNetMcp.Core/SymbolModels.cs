@@ -102,6 +102,9 @@ public sealed record RenameLanguageNotSupportedError(string Message, string Sugg
 public sealed record InvalidRenameNameError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.InvalidRenameName, Message, SuggestedAction);
 
+public sealed record FSharpCrossProjectRenameUnsupportedError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.FSharpCrossProjectRenameUnsupported, Message, SuggestedAction);
+
 public sealed record DocumentAddOrRemoveRefusedError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.DocumentAddOrRemoveRefused, Message, SuggestedAction);
 
@@ -123,6 +126,7 @@ public static class SymbolQueryErrorCodes
     public const string GeneratedSymbolRenameRefused = "GeneratedSymbolRenameRefused";
     public const string RenameLanguageNotSupported = "RenameLanguageNotSupported";
     public const string InvalidRenameName = "InvalidRenameName";
+    public const string FSharpCrossProjectRenameUnsupported = "FSharpCrossProjectRenameUnsupported";
     public const string DiagnosticNotFound = "DiagnosticNotFound";
     public const string DiagnosticAmbiguous = "DiagnosticAmbiguous";
     public const string FixLanguageNotSupported = "FixLanguageNotSupported";

@@ -832,6 +832,108 @@ public class MsBuildWorkspaceIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task workspace_open_fsharp_cross_project_rename_refuses_dependent_fsharp_projects()
+    {
+        var source = Path.Combine(FixturesRoot, "FsharpCrossProject");
+        Assert.True(Directory.Exists(source), $"Missing fixture: {source}");
+        var root = CreateTempDir("fs-cross");
+        CopyDirectory(source, root);
+        var slnx = Path.Combine(root, "FsharpCrossProject.slnx");
+        try
+        {
+            RunDotnetBuild(slnx);
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                solutionLoader: null);
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = slnx });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+            await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+
+            var list = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(list.IsError is not true, InProcessMcpFixture.TextOf(list));
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var libId = Assert.Single(projects.Projects, p =>
+                p.Name.Contains("FsLib", StringComparison.OrdinalIgnoreCase)).ProjectId;
+            var appId = Assert.Single(projects.Projects, p =>
+                p.Name.Contains("FsApp", StringComparison.OrdinalIgnoreCase)).ProjectId;
+            var onlyCsId = Assert.Single(projects.Projects, p =>
+                p.Name.Contains("FsOnlyCs", StringComparison.OrdinalIgnoreCase)).ProjectId;
+
+            var functionHandle = await ResolveHandleAsync(fx, "FsLib.Core.doubleThenBump", libId);
+            var typeHandle = await ResolveHandleAsync(fx, "FsLib.Core.Greeter", libId);
+            foreach (var handle in new[] { functionHandle, typeHandle })
+            {
+                var preview = await fx.Client.CallToolAsync(
+                    "symbol_preview_rename",
+                    new Dictionary<string, object?>
+                    {
+                        ["handle"] = handle,
+                        ["newName"] = "renamedThing"
+                    });
+                Assert.True(preview.IsError is true, InProcessMcpFixture.TextOf(preview));
+                Assert.Equal(
+                    PolicyErrorCodes.FSharpCrossProjectRenameUnsupported,
+                    InProcessMcpFixture.Deserialize<PolicyErrorDto>(preview).Error);
+            }
+
+            var onlyCsHandle = await ResolveHandleAsync(fx, "FsOnlyCs.Scaling.scale", onlyCsId);
+            var onlyCsPreview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = onlyCsHandle,
+                    ["newName"] = "renamedThing"
+                });
+            Assert.True(onlyCsPreview.IsError is true, InProcessMcpFixture.TextOf(onlyCsPreview));
+            var onlyCsError = InProcessMcpFixture.Deserialize<PolicyErrorDto>(onlyCsPreview);
+            Assert.Equal(PolicyErrorCodes.FSharpCrossProjectRenameUnsupported, onlyCsError.Error);
+            Assert.Contains("CsConsumer", onlyCsError.Message, StringComparison.Ordinal);
+
+            var privateHandle = await ResolveHandleAsync(fx, "FsLib.Core.bump", libId);
+            var privatePreview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = privateHandle,
+                    ["newName"] = "nudge"
+                });
+            Assert.True(privatePreview.IsError is not true, InProcessMcpFixture.TextOf(privatePreview));
+
+            var appHandle = await ResolveHandleAsync(fx, "FsApp.Use.own", appId);
+            var appPreview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = appHandle,
+                    ["newName"] = "mine"
+                });
+            Assert.True(appPreview.IsError is not true, InProcessMcpFixture.TextOf(appPreview));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    private static async Task<string> ResolveHandleAsync(InProcessMcpFixture fx, string name, string projectId)
+    {
+        var resolved = await fx.Client.CallToolAsync(
+            "symbol_resolve",
+            new Dictionary<string, object?>
+            {
+                ["name"] = name,
+                ["projectId"] = projectId
+            });
+        Assert.True(resolved.IsError is not true, InProcessMcpFixture.TextOf(resolved));
+        return InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+    }
+
     private static void CopyDirectory(string source, string dest)
     {
         foreach (var dir in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))

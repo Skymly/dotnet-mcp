@@ -329,7 +329,9 @@ public sealed class SymbolTools
     [McpServerTool(Name = "symbol_preview_rename", ReadOnly = true, Destructive = false, Idempotent = false, OpenWorld = false), Description(
         "Preview renaming a handwritten C# / VB / F# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
         "handles that will become invalid) and an opaque previewId bound to the current workspace Epoch + TTL. " +
-        "Does not write disk. SourceGenerator Origin is refused. There is no generic apply_edit / write / shell.")]
+        "Does not write disk. SourceGenerator Origin is refused. An F# symbol referenced by other projects " +
+        "in the workspace is refused with FSharpCrossProjectRenameUnsupported. " +
+        "There is no generic apply_edit / write / shell.")]
     public async Task<CallToolResult> SymbolPreviewRename(
         [Description("Handwritten C# / VB / F# SymbolHandle from symbol_resolve.")]
         string handle,
