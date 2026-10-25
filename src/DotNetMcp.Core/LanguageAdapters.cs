@@ -184,6 +184,69 @@ public sealed class LanguageAdapters
         CancellationToken cancellationToken = default) =>
         Dispatch(handle, adapter => adapter.GetSummaryAsync(session, handle, cancellationToken));
 
+    /// <summary>
+    /// Position entry (ADR-0001 Amendment 7): selects exactly one adapter by
+    /// the owning document's project language — an F# document routes to the
+    /// FCS adapter (its documents live in <c>session.FSharpSnapshot</c>,
+    /// Amendment 5); everything else routes to the Roslyn adapter. The adapter
+    /// re-enumerates its own document set, so multi-document matches
+    /// (linked files / multi-TFM / generated) and DocumentNotInWorkspace stay
+    /// inside the adapter.
+    /// </summary>
+    public async Task<(SymbolResolveAtSuccess? Success, SymbolQueryError? Error)> ResolveAtPositionAsync(
+        IWorkspaceSession session,
+        string path,
+        int line,
+        int column,
+        string? projectId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ILanguageAdapter? selected = null;
+        foreach (var documentId in session.Solution.GetDocumentIdsWithFilePath(path))
+        {
+            var document = session.Solution.GetDocument(documentId);
+            if (document is null)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(projectId) &&
+                !string.Equals(document.Project.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            selected = ForProject(document.Project);
+            if (selected is not null)
+            {
+                break;
+            }
+        }
+
+        if (selected is null &&
+            session.FSharpSnapshot.Projects
+                .Where(project => string.IsNullOrWhiteSpace(projectId) ||
+                                  string.Equals(project.ProjectId, projectId, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(project => project.Documents)
+                .Any(document => PositionPaths.Equal(document.Path, path)) &&
+            TryGet(FSharpLanguage, out var fsAdapter))
+        {
+            selected = fsAdapter;
+        }
+
+        selected ??= TryGet(CSharpLanguage, out var roslynAdapter) ? roslynAdapter : null;
+        if (selected is null)
+        {
+            return (null, new DocumentNotInWorkspaceError(
+                $"No document '{path}' is part of the ready workspace.",
+                "Feed filePath from project_diagnostics / symbol_find_references / symbol_goto_definition verbatim, or check workspace_list_projects for the right projectId."));
+        }
+
+        return await selected
+            .ResolveAtPositionAsync(session, path, line, column, projectId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public Task<(SymbolDefinitionSuccess? Success, SymbolQueryError? Error)> GetDefinitionAsync(
         IWorkspaceSession session,
         string handle,

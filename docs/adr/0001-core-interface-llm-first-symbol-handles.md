@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S1；2026-08-21 Amendment 3；2026-08-21 Amendment 4；2026-08-22 Amendment 5；2026-10-11 Amendment 6）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正；S1 实证细化了 FilePath 启发式与 Adhoc/反射取舍。Amendment 3 兑现 §5 的 ILanguageAdapter 接缝。Amendment 4 把 MCP tool envelope 收成一处。Amendment 5 把 F# 快照移出 Roslyn Solution。Amendment 6 把模块分解对齐到磁盘上的四个产品项目。以「决策」小节的现行内容为准。
+Accepted（2026-08-02），**Amended（2026-08-02 Amendment 1；2026-08-07 Amendment 2 / Spike S1；2026-08-21 Amendment 3；2026-08-21 Amendment 4；2026-08-22 Amendment 5；2026-10-11 Amendment 6；2026-10-25 Amendment 7）** —— 决策方向不变，但原稿的句柄格式、归因模型、模块分解与生成器归因技术路线均被修正；S1 实证细化了 FilePath 启发式与 Adhoc/反射取舍。Amendment 3 兑现 §5 的 ILanguageAdapter 接缝。Amendment 4 把 MCP tool envelope 收成一处。Amendment 5 把 F# 快照移出 Roslyn Solution。Amendment 6 把模块分解对齐到磁盘上的四个产品项目。以「决策」小节的现行内容为准。
 
 ## 上下文
 
@@ -158,3 +158,11 @@ Workspace 层职责全部由 `DotNetMcp.Server` 承载，故 Server 并非纯薄
 - **生成器物化**：`WorkspaceSession.GetGeneratorRunResultAsync` 剔除生成树后驱动 Core 的 `GeneratorDriverRunner`，产出 `DriverRunSnapshot`；生成文档随 MSBuildWorkspace 的 Solution 一并物化。
 
 Workspace Edit module 不进 Workspace：按 ADR-0005，`WorkspaceEdit`（previewId + Epoch + TTL + kind + apply）与 `WorkspaceHost` 并排放在 `DotNetMcp.Server`；切片生产（`HandwrittenDocumentDiff`、`CodeActionDocuments`、`RenameDocumentSlice`）留在 `DotNetMcp.Core`。
+
+## Amendment 7（2026-10-25）：position→handle 第二入口 `symbol_resolve_at`
+
+句柄格式与「位置不入句柄」的决定不变。新增 `symbol_resolve_at` MCP 工具，把位于 `path` + 1 基 UTF-16 `line`/`column`（CONTEXT.md `Location` 同一坐标系）的位置解析为 §3 的 `SymbolHandle`，作为除 `symbol_resolve` 标识符入口之外的第二取柄入口。任一 already-located 输出（`project_diagnostics`、`symbol_find_references`、`symbol_goto_definition`、`symbol_find_callers` 等）可原样喂回。三个取舍落笔：
+
+- **dispatch 在 `LanguageAdapters`**：Server 侧不做语言分流；`LanguageAdapters.ResolveAtPositionAsync` 按被定位文档/项目的 language（可附 `projectId`）选一次 adapter，与句柄路径同一接缝。
+- **F# 与既有 catalog 对齐签名**：FCS adapter 只读 `FSharpWorkspaceSnapshot`（Amendment 5），FCS 符号先映射回 `FlattenCatalog` 的 `FSharpCatalogItem`，句柄签名与 `symbol_resolve` 同源产出，不接受「位置独有」的签名格式。
+- **多 TFM 重复签名**：同一位置跨项目命中且签名相同时去重为单结果；签名不同（或 `projectId` 缺位时多项目命中）返回 `SymbolAmbiguous`；`projectId` 选中单个项目视图后照常解析。局部变量、参数与 F# 模块不可寻址，返回 `SymbolNotAddressable` 并附 containing member 签名；`.xaml`/`.axaml` 返回 `UnsupportedDocumentForPosition`，不引入 document-lifecycle / `didOpen` 语义。

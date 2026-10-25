@@ -252,6 +252,15 @@ public class LanguageAdapterSeamTests
             return Task.FromResult<(SymbolResolveSuccess?, SymbolQueryError?)>((success, null));
         }
 
+        public Task<(SymbolResolveAtSuccess? Success, SymbolQueryError? Error)> ResolveAtPositionAsync(
+            IWorkspaceSession session,
+            string path,
+            int line,
+            int column,
+            string? projectId = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<(SymbolResolveAtSuccess?, SymbolQueryError?)>((null, NotFound()));
+
         public Task<(SymbolDefinitionSuccess? Success, SymbolQueryError? Error)> GetDefinitionAsync(
             IWorkspaceSession session,
             string handle,

@@ -17,6 +17,7 @@ public class PathOutsideTrustedRootsCopyTests
             var tools = new[]
             {
                 "workspace_open",
+                "symbol_resolve_at",
                 "xaml_resolve_class",
                 "xaml_list_xmlns",
                 "xaml_resolve_name",
@@ -33,6 +34,8 @@ public class PathOutsideTrustedRootsCopyTests
                         ["path"] = secretPath,
                         ["name"] = "Title",
                         ["bindingPath"] = "Name",
+                        ["line"] = 1,
+                        ["column"] = 1,
                     });
                 Assert.True(result.IsError is true, tool);
                 var body = InProcessMcpFixture.Deserialize<PolicyErrorDto>(result);

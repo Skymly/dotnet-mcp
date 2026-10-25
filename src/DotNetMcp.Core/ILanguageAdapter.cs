@@ -31,6 +31,24 @@ public interface ILanguageAdapter
         string handle,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Position entry (ADR-0001 Amendment 7): resolves the symbol at a
+    /// <paramref name="line"/>/<paramref name="column"/> position inside a
+    /// workspace document to the same addressable set as
+    /// <see cref="ResolveByNameAsync"/>. Positions use the unified model
+    /// (1-based, UTF-16 code units); the adapter clamps columns past the line
+    /// end and may also match the identifier immediately left of the position.
+    /// The adapter owns its own document enumeration (regular + generated
+    /// documents for Roslyn; the F# snapshot for FCS).
+    /// </summary>
+    Task<(SymbolResolveAtSuccess? Success, SymbolQueryError? Error)> ResolveAtPositionAsync(
+        IWorkspaceSession session,
+        string path,
+        int line,
+        int column,
+        string? projectId = null,
+        CancellationToken cancellationToken = default);
+
     Task<(SymbolDefinitionSuccess? Success, SymbolQueryError? Error)> GetDefinitionAsync(
         IWorkspaceSession session,
         string handle,

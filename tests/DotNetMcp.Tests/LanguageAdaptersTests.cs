@@ -282,6 +282,15 @@ public class LanguageAdaptersTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<(SymbolResolveAtSuccess? Success, SymbolQueryError? Error)> ResolveAtPositionAsync(
+            IWorkspaceSession session,
+            string path,
+            int line,
+            int column,
+            string? projectId = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<(SymbolDefinitionSuccess? Success, SymbolQueryError? Error)> GetDefinitionAsync(
             IWorkspaceSession session,
             string handle,

@@ -72,6 +72,11 @@ public static class PolicyErrorCodes
     public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
     public const string RefactoringApplyFailed = "RefactoringApplyFailed";
     public const string DocumentAddOrRemoveRefused = "DocumentAddOrRemoveRefused";
+    public const string DocumentNotInWorkspace = "DocumentNotInWorkspace";
+    public const string UnsupportedDocumentForPosition = "UnsupportedDocumentForPosition";
+    public const string InvalidPosition = "InvalidPosition";
+    public const string NoSymbolAtPosition = "NoSymbolAtPosition";
+    public const string SymbolNotAddressable = "SymbolNotAddressable";
 }
 
 public sealed record XamlBindingSegmentDto
@@ -156,6 +161,24 @@ public sealed record SymbolResolveResultDto
 {
     public required string Handle { get; init; }
     public required SymbolSummaryDto Summary { get; init; }
+}
+
+public sealed record MatchedIdentifierDto
+{
+    public required int Line { get; init; }
+    public required int Column { get; init; }
+    public required int EndLine { get; init; }
+    public required int EndColumn { get; init; }
+    public required string Text { get; init; }
+}
+
+public sealed record SymbolResolveAtResultDto
+{
+    public required string Handle { get; init; }
+    public required SymbolSummaryDto Summary { get; init; }
+    public required MatchedIdentifierDto Matched { get; init; }
+    public required string ResolvedFrom { get; init; }
+    public string? CandidateReason { get; init; }
 }
 
 public sealed record SymbolLocationDto

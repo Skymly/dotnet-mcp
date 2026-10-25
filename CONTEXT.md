@@ -94,7 +94,7 @@ _Avoid_: MetadataGenerated, COM-in-Origin
 _Avoid_: treating dynamic as SymbolAttribution
 
 **Location**:
-所有带位置的工具输出共用同一套坐标：`line`/`column`/`endLine`/`endColumn`（外加 `start`/`length` 偏移）。行与列均为 1 基；列按 UTF-16 code unit 计，tab 记 1 列，与 `csc` / MSBuild `file(line,col)` 一致；`endColumn` 指向最后一个字符之后（不含）。`InMetadata`/`None` 无源位置时四个字段缺席（JSON 省略）；源生成文档按生成文本计列。任一工具输出的位置可原样喂给 `diagnostics_list_fixes` / `diagnostics_preview_fix` 等消费方。
+所有带位置的工具输出共用同一套坐标：`line`/`column`/`endLine`/`endColumn`（外加 `start`/`length` 偏移）。行与列均为 1 基；列按 UTF-16 code unit 计，tab 记 1 列，与 `csc` / MSBuild `file(line,col)` 一致；`endColumn` 指向最后一个字符之后（不含）。`InMetadata`/`None` 无源位置时四个字段缺席（JSON 省略）；源生成文档按生成文本计列。任一工具输出的位置可原样喂给 `diagnostics_list_fixes` / `diagnostics_preview_fix` / `symbol_resolve_at` 等消费方。
 _Avoid_: 0-based columns, startCharacter-style per-tool field names, `#line`-mapped locations
 
 **Diagnostic fix**:

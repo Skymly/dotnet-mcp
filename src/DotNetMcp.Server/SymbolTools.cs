@@ -11,17 +11,20 @@ public sealed class SymbolTools
     private readonly WorkspaceHost _workspaceHost;
     private readonly WorkspaceEdit _workspaceEdit;
     private readonly LanguageAdapters _languages;
+    private readonly TrustedRoots _trustedRoots;
     private readonly IAuditLogger _audit;
 
     public SymbolTools(
         WorkspaceHost workspaceHost,
         WorkspaceEdit workspaceEdit,
         LanguageAdapters languages,
+        TrustedRoots trustedRoots,
         IAuditLogger audit)
     {
         _workspaceHost = workspaceHost;
         _workspaceEdit = workspaceEdit;
         _languages = languages;
+        _trustedRoots = trustedRoots;
         _audit = audit;
     }
 
@@ -53,6 +56,67 @@ public sealed class SymbolTools
         }
 
         return McpToolEnvelope.OkResult(ToDto(success!));
+    }
+
+    [McpServerTool(Name = "symbol_resolve_at", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
+        "Resolve the symbol at a source position to a verifiable SymbolHandle plus summary — the position entry of " +
+        "the same addressable set symbol_resolve returns (ADR-0001 Amendment 7). Positions use the unified model " +
+        "(1-based line/column, UTF-16 code units, tab = one column, endColumn exclusive): filePath + line + column " +
+        "emitted by project_diagnostics, symbol_find_references, symbol_find_callers, symbol_goto_definition or a " +
+        "grep-style hit feed this tool verbatim. Returns the matched identifier span/text and resolvedFrom " +
+        "(Declaration or Reference); when overload resolution fails but a single candidate remains, candidateReason " +
+        "says why. Optional projectId disambiguates linked / multi-TFM documents. .axaml/.xaml documents return " +
+        "UnsupportedDocumentForPosition — a XAML position entry arrives with a later XAML ticket (use xaml_* tools). " +
+        "Does not open buffers and never writes disk.")]
+    public async Task<CallToolResult> SymbolResolveAt(
+        [Description("Source file path under a trusted root (regular or source-generated document).")]
+        string path,
+        [Description("1-based line number.")]
+        int line,
+        [Description("1-based column in UTF-16 code units; a column past the line end clamps to the line end.")]
+        int column,
+        [Description("Optional projectId GUID string from workspace_list_projects.")]
+        string? projectId = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_resolve_at", path);
+
+        if (McpToolEnvelope.TryRejectBlankPath(path, "symbol_resolve_at", xaml: false, out var blankPath))
+        {
+            return blankPath;
+        }
+
+        if (!_trustedRoots.Contains(path))
+        {
+            _audit.PathPolicyDenied("symbol_resolve_at", path);
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
+        }
+
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        if (path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
+        {
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(
+                new UnsupportedDocumentForPositionError(
+                    "XAML documents do not have a position-based symbol surface yet; a XAML position entry arrives with a later XAML ticket.",
+                    "Use the xaml_* tools (xaml_resolve_class, xaml_list_xmlns, xaml_resolve_name, xaml_resolve_binding, xaml_diagnostics) for XAML documents.")));
+        }
+
+        var (success, error) = await _languages
+            .ResolveAtPositionAsync(session!, path, line, column, projectId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
+        }
+
+        return McpToolEnvelope.OkResult(ToResolveAtDto(success!));
     }
 
     [McpServerTool(Name = "symbol_summary", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
@@ -421,6 +485,22 @@ public sealed class SymbolTools
     {
         Handle = success.Handle,
         Summary = ToSummaryDto(success.Summary)
+    };
+
+    private static SymbolResolveAtResultDto ToResolveAtDto(SymbolResolveAtSuccess success) => new()
+    {
+        Handle = success.Handle,
+        Summary = ToSummaryDto(success.Summary),
+        Matched = new MatchedIdentifierDto
+        {
+            Line = success.Matched.Line,
+            Column = success.Matched.Column,
+            EndLine = success.Matched.EndLine,
+            EndColumn = success.Matched.EndColumn,
+            Text = success.Matched.Text
+        },
+        ResolvedFrom = success.ResolvedFrom,
+        CandidateReason = success.CandidateReason
     };
 
     private static SymbolDefinitionResultDto ToDefinitionDto(SymbolDefinitionSuccess success) => new()

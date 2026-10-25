@@ -18,6 +18,31 @@ public sealed record SymbolSummary(
 
 public sealed record SymbolResolveSuccess(string Handle, SymbolSummary Summary);
 
+public static class SymbolResolveFrom
+{
+    public const string Declaration = "Declaration";
+    public const string Reference = "Reference";
+}
+
+/// <summary>
+/// The identifier the position actually matched (ADR-0001 Amendment 7), in the
+/// unified position model: 1-based line/column, UTF-16 code units, endColumn
+/// exclusive (CONTEXT.md "Location").
+/// </summary>
+public sealed record MatchedIdentifier(
+    int Line,
+    int Column,
+    int EndLine,
+    int EndColumn,
+    string Text);
+
+public sealed record SymbolResolveAtSuccess(
+    string Handle,
+    SymbolSummary Summary,
+    MatchedIdentifier Matched,
+    string ResolvedFrom,
+    string? CandidateReason);
+
 public sealed record SymbolLocation(
     string DeclarationAvailability,
     string? Origin,
@@ -120,6 +145,21 @@ public sealed record FSharpCrossProjectRenameUnsupportedError(string Message, st
 public sealed record DocumentAddOrRemoveRefusedError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.DocumentAddOrRemoveRefused, Message, SuggestedAction);
 
+public sealed record DocumentNotInWorkspaceError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.DocumentNotInWorkspace, Message, SuggestedAction);
+
+public sealed record UnsupportedDocumentForPositionError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.UnsupportedDocumentForPosition, Message, SuggestedAction);
+
+public sealed record InvalidPositionError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.InvalidPosition, Message, SuggestedAction);
+
+public sealed record NoSymbolAtPositionError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.NoSymbolAtPosition, Message, SuggestedAction);
+
+public sealed record SymbolNotAddressableError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.SymbolNotAddressable, Message, SuggestedAction);
+
 public static class SymbolQueryErrorCodes
 {
     public const string InvalidSymbolHandle = "InvalidSymbolHandle";
@@ -155,6 +195,11 @@ public static class SymbolQueryErrorCodes
     public const string GeneratedDocumentRefactoringRefused = "GeneratedDocumentRefactoringRefused";
     public const string RefactoringApplyFailed = "RefactoringApplyFailed";
     public const string DocumentAddOrRemoveRefused = "DocumentAddOrRemoveRefused";
+    public const string DocumentNotInWorkspace = "DocumentNotInWorkspace";
+    public const string UnsupportedDocumentForPosition = "UnsupportedDocumentForPosition";
+    public const string InvalidPosition = "InvalidPosition";
+    public const string NoSymbolAtPosition = "NoSymbolAtPosition";
+    public const string SymbolNotAddressable = "SymbolNotAddressable";
 }
 
 public static class DeclarationAvailability
