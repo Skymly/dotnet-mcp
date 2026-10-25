@@ -469,7 +469,7 @@ public class FSharpSymbolQueryServiceTests
     }
 
     [Fact]
-    public async Task find_references_message_discloses_defining_project_scope_both_modes()
+    public async Task find_references_no_foreign_dependents_adds_no_scope_note_both_modes()
     {
         using var session = Session(RenameSnapshot());
         var adapter = Adapter();
@@ -478,15 +478,18 @@ public class FSharpSymbolQueryServiceTests
 
         var (scoped, scopedError) = await adapter.FindReferencesAsync(session, resolved!.Handle);
         Assert.Null(scopedError);
-        Assert.Contains("F# search covers only the defining project", scoped!.Message, StringComparison.Ordinal);
+        Assert.NotEmpty(scoped!.Items);
+        Assert.DoesNotContain("were not searched", scoped.Message, StringComparison.Ordinal);
 
         var (entire, entireError) = await adapter.FindReferencesAsync(session, resolved.Handle, entireSolution: true);
         Assert.Null(entireError);
-        Assert.Contains("entireSolution does not widen F# search", entire!.Message, StringComparison.Ordinal);
+        Assert.NotEmpty(entire!.Items);
+        Assert.DoesNotContain("were not searched", entire.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("entireSolution does not widen F# search", entire.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task find_callers_message_discloses_defining_project_scope_both_modes()
+    public async Task find_callers_no_foreign_dependents_adds_no_scope_note_both_modes()
     {
         using var session = Session(RenameSnapshot());
         var adapter = Adapter();
@@ -495,11 +498,12 @@ public class FSharpSymbolQueryServiceTests
 
         var (scoped, scopedError) = await adapter.FindCallersAsync(session, resolved!.Handle);
         Assert.Null(scopedError);
-        Assert.Contains("F# search covers only the defining project", scoped!.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("were not searched", scoped!.Message, StringComparison.Ordinal);
 
         var (entire, entireError) = await adapter.FindCallersAsync(session, resolved.Handle, entireSolution: true);
         Assert.Null(entireError);
-        Assert.Contains("entireSolution does not widen F# search", entire!.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("were not searched", entire!.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("entireSolution does not widen F# search", entire.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -548,7 +552,7 @@ public class FSharpSymbolQueryServiceTests
         Assert.Null(error);
         Assert.NotNull(page);
         Assert.Contains(page!.Items, i => i.Summary.DisplayName == "MarkerA");
-        Assert.Contains("F# search covers only types in the defining project.", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("were not searched", page.Message, StringComparison.Ordinal);
 
         var (plain, plainError) = await adapter.ResolveByNameAsync(session, "Plain");
         Assert.Null(plainError);
@@ -557,7 +561,7 @@ public class FSharpSymbolQueryServiceTests
         Assert.NotNull(empty);
         Assert.Empty(empty!.Items);
         Assert.Equal(
-            "No implementations were found in the defining F# project; other projects were not searched.",
+            "No implementations were found in the searched F# projects.",
             empty.Message);
     }
 
@@ -828,7 +832,7 @@ public class FSharpSymbolQueryServiceTests
     }
 
     [Fact]
-    public async Task find_references_entire_solution_stays_in_defining_project()
+    public async Task find_references_entire_solution_matches_symbol_identity_not_same_names()
     {
         var snapshot = new FSharpWorkspaceSnapshot(1, [
             SnapshotProject(FsProjectId, "DupA", DupAPath, DupASource),
@@ -843,10 +847,12 @@ public class FSharpSymbolQueryServiceTests
         var (page, error) = await adapter.FindReferencesAsync(session, resolved!.Handle, entireSolution: true);
         Assert.Null(error);
         Assert.NotNull(page);
+        // DupB.ping is a different logical symbol — the widened scan must not
+        // surface it just because the signature collides.
         Assert.Equal(2, page!.Items.Count);
         Assert.All(page.Items, r =>
             Assert.Contains("DupA", r.FilePath ?? string.Empty, StringComparison.OrdinalIgnoreCase));
-        Assert.Contains("entireSolution does not widen F# search", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("entireSolution does not widen F# search", page.Message, StringComparison.Ordinal);
     }
 
     [Fact]

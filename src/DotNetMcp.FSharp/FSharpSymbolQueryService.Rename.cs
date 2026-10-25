@@ -51,60 +51,80 @@ public sealed partial class FSharpSymbolQueryService
                 "Retry after workspace_status is ready."));
         }
 
-        if (project!.DependentProjects.Count > 0 && IsVisibleOutsideDefiningAssembly(check, item))
+        // Only F# dependents are covered by the preview. A visible symbol with
+        // C#/VB dependents still refuses — cross-language rename is out of scope.
+        var foreignDependents = project!.DependentProjects
+            .Where(d => !string.Equals(d.Language, LanguageAdapters.FSharpLanguage, StringComparison.Ordinal))
+            .ToList();
+        if (foreignDependents.Count > 0 && IsVisibleOutsideDefiningAssembly(check, item))
         {
             return (null, new FSharpCrossProjectRenameUnsupportedError(
-                $"F# symbol '{oldName}' is visible outside project '{project.Name}' and is referenced by {DescribeDependents(project.DependentProjects)}; the preview would only edit the defining project.",
-                "Rename only private symbols or symbols in projects without dependents; F# dependents are tracked in #526, and C#/VB dependents need cross-language rename, which is not supported."));
+                $"F# symbol '{oldName}' is visible outside project '{project.Name}' and is referenced by {DescribeDependents(foreignDependents)}; the preview would only edit the defining project and its F# dependents.",
+                "Rename only private symbols or symbols without C#/VB dependents; cross-language rename is not supported."));
         }
 
+        var target = DefiningUse(check, item)?.Symbol;
         var edits = new Dictionary<string, List<(int Start, int Length)>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var use in check.GetAllUsesOfAllSymbols(null))
+        foreach (var scanned in ScanScope(session.FSharpSnapshot, project, entireSolution: false))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!SameSymbol(use.Symbol, item))
+            var scannedCheck = ReferenceEquals(scanned, project)
+                ? check
+                : (await CheckProjectAsync(
+                        session.FSharpSnapshot, scanned, session.FSharpSnapshot.Epoch, cancellationToken)
+                    .ConfigureAwait(false)).Check;
+            if (scannedCheck is null)
             {
                 continue;
             }
 
-            if (IsProvided(use.Symbol) || IsGeneratedPath(use.FileName))
+            foreach (var use in scannedCheck.GetAllUsesOfAllSymbols(null))
             {
-                return (null, new GeneratedSymbolRenameRefusedError(
-                    "Type-provider or generated F# declarations cannot be renamed.",
-                    "Rename the handwritten input instead of the generated/provided symbol."));
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!SameSymbolUse(use.Symbol, item, target))
+                {
+                    continue;
+                }
 
-            if (!TryGetSnapshot(session.FSharpSnapshot.Epoch, use.FileName, out var path, out var text))
-            {
-                continue;
-            }
+                if (IsProvided(use.Symbol) || IsGeneratedPath(use.FileName))
+                {
+                    return (null, new GeneratedSymbolRenameRefusedError(
+                        "Type-provider or generated F# declarations cannot be renamed.",
+                        "Rename the handwritten input instead of the generated/provided symbol."));
+                }
 
-            var (start, length) = ToSpan(text, use.Range);
-            if (length <= 0 || start + length > text.Length)
-            {
-                return (null, new InvalidRenameNameError(
-                    "An F# use site is not a simple identifier span.",
-                    "Choose a handwritten identifier; operators and active patterns are refused."));
-            }
+                if (!TryGetSnapshot(session.FSharpSnapshot.Epoch, use.FileName, out var path, out var text))
+                {
+                    continue;
+                }
 
-            var slice = text.Substring(start, length);
-            if (!IsSimpleIdentifierUse(slice, oldName))
-            {
-                return (null, new InvalidRenameNameError(
-                    $"Use site '{slice}' is not a simple identifier rename of '{oldName}'.",
-                    "Choose a handwritten identifier; operators and active patterns are refused."));
-            }
+                var (start, length) = ToSpan(text, use.Range);
+                if (length <= 0 || start + length > text.Length)
+                {
+                    return (null, new InvalidRenameNameError(
+                        "An F# use site is not a simple identifier span.",
+                        "Choose a handwritten identifier; operators and active patterns are refused."));
+                }
 
-            if (!edits.TryGetValue(path, out var list))
-            {
-                list = [];
-                edits[path] = list;
-            }
+                var slice = text.Substring(start, length);
+                if (!IsSimpleIdentifierUse(slice, oldName))
+                {
+                    return (null, new InvalidRenameNameError(
+                        $"Use site '{slice}' is not a simple identifier rename of '{oldName}'.",
+                        "Choose a handwritten identifier; operators and active patterns are refused."));
+                }
 
-            var replaceStart = slice.EndsWith(oldName, StringComparison.Ordinal)
-                ? start + slice.Length - oldName.Length
-                : start;
-            list.Add((replaceStart, oldName.Length));
+                if (!edits.TryGetValue(path, out var list))
+                {
+                    list = [];
+                    edits[path] = list;
+                }
+
+                var replaceStart = slice.EndsWith(oldName, StringComparison.Ordinal)
+                    ? start + slice.Length - oldName.Length
+                    : start;
+                list.Add((replaceStart, oldName.Length));
+            }
         }
 
         if (edits.Count == 0)

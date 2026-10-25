@@ -834,7 +834,7 @@ public class MsBuildWorkspaceIntegrationTests
     }
 
     [Fact]
-    public async Task workspace_open_fsharp_cross_project_rename_refuses_dependent_fsharp_projects()
+    public async Task workspace_open_fsharp_cross_project_rename_edits_fsharp_dependents_but_refuses_csharp()
     {
         var source = Path.Combine(FixturesRoot, "FsharpCrossProject");
         Assert.True(Directory.Exists(source), $"Missing fixture: {source}");
@@ -866,22 +866,42 @@ public class MsBuildWorkspaceIntegrationTests
             var onlyCsId = Assert.Single(projects.Projects, p =>
                 p.Name.Contains("FsOnlyCs", StringComparison.OrdinalIgnoreCase)).ProjectId;
 
+            // FsLib's dependents are all F# (FsApp, and FsTop transitively): the
+            // preview collects edits across the whole chain, including qualified uses.
             var functionHandle = await ResolveHandleAsync(fx, "FsLib.Core.doubleThenBump", libId);
-            var typeHandle = await ResolveHandleAsync(fx, "FsLib.Core.Greeter", libId);
-            foreach (var handle in new[] { functionHandle, typeHandle })
-            {
-                var preview = await fx.Client.CallToolAsync(
-                    "symbol_preview_rename",
-                    new Dictionary<string, object?>
-                    {
-                        ["handle"] = handle,
-                        ["newName"] = "renamedThing"
-                    });
-                Assert.True(preview.IsError is true, InProcessMcpFixture.TextOf(preview));
-                Assert.Equal(
-                    PolicyErrorCodes.FSharpCrossProjectRenameUnsupported,
-                    InProcessMcpFixture.Deserialize<PolicyErrorDto>(preview).Error);
-            }
+            var preview = await fx.Client.CallToolAsync(
+                "symbol_preview_rename",
+                new Dictionary<string, object?>
+                {
+                    ["handle"] = functionHandle,
+                    ["newName"] = "bumpedTwice"
+                });
+            Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
+            var previewBody = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.Contains(previewBody.Documents, d =>
+                d.Path.EndsWith("Library.fs", StringComparison.OrdinalIgnoreCase) &&
+                d.NewText.Contains("bumpedTwice", StringComparison.Ordinal));
+            Assert.Contains(previewBody.Documents, d =>
+                d.Path.EndsWith("Use.fs", StringComparison.OrdinalIgnoreCase) &&
+                d.NewText.Contains("FsLib.Core.bumpedTwice", StringComparison.Ordinal));
+            Assert.Contains(previewBody.Documents, d =>
+                d.Path.EndsWith("Top.fs", StringComparison.OrdinalIgnoreCase) &&
+                d.NewText.Contains("bumpedTwice", StringComparison.Ordinal));
+
+            var apply = await fx.Client.CallToolAsync(
+                "symbol_apply_rename",
+                new Dictionary<string, object?> { ["previewId"] = previewBody.PreviewId });
+            Assert.True(apply.IsError is not true, InProcessMcpFixture.TextOf(apply));
+            RunDotnetBuild(slnx);
+
+            var renamed = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?>
+                {
+                    ["name"] = "FsLib.Core.bumpedTwice",
+                    ["projectId"] = libId
+                });
+            Assert.True(renamed.IsError is not true, InProcessMcpFixture.TextOf(renamed));
 
             var onlyCsHandle = await ResolveHandleAsync(fx, "FsOnlyCs.Scaling.scale", onlyCsId);
             var onlyCsPreview = await fx.Client.CallToolAsync(

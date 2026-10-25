@@ -22,7 +22,7 @@ Package id on NuGet: **`Skymly.DotNetMcp`** (CLI command remains `dotnet-mcp`). 
 - Shell, process, HTTP, or package-download tools
 - WPF / WinUI XAML
 - F# source-generator attribution (`symbol_attribution` on an F# handle returns `GeneratorLanguageNotSupported`), generator queries, dynamic invocation queries, diagnostic fix, or code refactoring
-- Cross-project F# references / callers / implementations / type hierarchy — F# handles search only the defining project
+- Cross-language F# reads and writes — F# handles search the defining project plus its F# dependents (or every F# project with `entireSolution`), but C#/VB consumers are named, not searched, and a visible F# symbol with C#/VB dependents cannot be renamed
 - Extract-method / change-signature UIs
 - Opening untrusted repositories safely — `workspace_open` **runs MSBuild evaluation and project analyzers/generators**
 
@@ -110,7 +110,7 @@ See [ADR-0004](docs/adr/0004-security-and-path-policy.md).
 
 ## Soft budgets and long-running load
 
-These tools stop at the soft budget ([ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)) and return partial results + `nextCursor` instead of hanging past the common ~60s client `tools/call` cap: `project_diagnostics`, `xaml_diagnostics`, `project_list_dynamic_invocations`, `symbol_find_references`, `symbol_find_callers`. For F# projects the budget only bounds work after the full FCS project check. These run to completion (or to the client timeout) without a budget: `symbol_members`, `symbol_type_hierarchy`, `symbol_find_implementations`, `project_list_generated_sources`, `project_list_generator_diagnostics`. `symbol_resolve` is bounded by the same budget, but a budget hit fails with `SoftBudgetExceeded` rather than a partial page. Progress notifications are **not** a keepalive.
+These tools stop at the soft budget ([ADR-0003](docs/adr/0003-long-running-operations-session-concurrency.md)) and return partial results + `nextCursor` instead of hanging past the common ~60s client `tools/call` cap: `project_diagnostics`, `xaml_diagnostics`, `project_list_dynamic_invocations`, `symbol_find_references`, `symbol_find_callers`. For F# handles the budget is checked between project scans — a spent budget yields the partial page plus a `nextCursor` that resumes at the next project in the scope; the per-project FCS check itself is not budgeted. These run to completion (or to the client timeout) without a budget: `symbol_members`, `symbol_type_hierarchy`, `symbol_find_implementations`, `project_list_generated_sources`, `project_list_generator_diagnostics`. `symbol_resolve` is bounded by the same budget, but a budget hit fails with `SoftBudgetExceeded` rather than a partial page. Progress notifications are **not** a keepalive.
 
 | Environment variable | Default | Use |
 |----------------------|---------|-----|

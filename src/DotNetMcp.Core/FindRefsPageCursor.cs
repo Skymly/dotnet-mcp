@@ -4,11 +4,13 @@ using System.Text.Json;
 namespace DotNetMcp.Core;
 
 /// <summary>
-/// Opaque find-references page cursor: workspace epoch + scope + document walk + tool + query identity + TTL.
+/// Opaque find-references page cursor: workspace epoch + scope + document/project-stage
+/// walk + tool + query identity + TTL. v4: the F# adapter reuses DocIndex as the index
+/// into the scoped project list, so v3 F# cursors must fail decode (StaleCursorError).
 /// </summary>
 public static class FindRefsPageCursor
 {
-    private const string Version = "v3";
+    private const string Version = "v4";
     public static readonly TimeSpan DefaultTtl = TimeSpan.FromMinutes(30);
 
     private sealed record Payload(

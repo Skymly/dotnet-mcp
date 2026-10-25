@@ -118,7 +118,7 @@ public class FsharpReadNoDiskWriteSeamTests
     }
 
     [Fact]
-    public async Task fsharp_injected_soft_budget_truncates_find_refs_and_callers_as_continuable()
+    public async Task fsharp_zero_budget_completes_single_project_scope_and_truncates_wider_scopes()
     {
         var root = CreateTempDir("budget");
         try
@@ -141,14 +141,23 @@ public class FsharpReadNoDiskWriteSeamTests
             Assert.Null(resolveError);
             Assert.NotNull(resolved);
 
+            // Project-stage paging (issue #526): the budget is checked before scanning
+            // the NEXT project, so the single-project default scope completes even at
+            // zero budget. Multi-project scopes still truncate with a resumable cursor.
             var (refs, refsError) = await service.FindReferencesAsync(session, resolved!.Handle);
             Assert.Null(refsError);
             Assert.NotNull(refs);
-            Assert.True(refs!.Truncated);
-            Assert.False(string.IsNullOrWhiteSpace(refs.NextCursor));
-            Assert.Contains("Soft budget", refs.Message, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("do not retry from scratch", refs.Message, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Page complete.", refs.Message, StringComparison.Ordinal);
+            Assert.False(refs!.Truncated);
+            Assert.Null(refs.NextCursor);
+            Assert.NotEmpty(refs.Items);
+
+            var (entire, entireError) = await service.FindReferencesAsync(
+                session,
+                resolved.Handle,
+                entireSolution: true);
+            Assert.Null(entireError);
+            Assert.NotNull(entire);
+            Assert.False(entire!.Truncated);
 
             var (ping, pingError) = await service.ResolveByNameAsync(
                 session,
@@ -160,10 +169,8 @@ public class FsharpReadNoDiskWriteSeamTests
             var (callers, callersError) = await service.FindCallersAsync(session, ping!.Handle);
             Assert.Null(callersError);
             Assert.NotNull(callers);
-            Assert.True(callers!.Truncated);
-            Assert.False(string.IsNullOrWhiteSpace(callers.NextCursor));
-            Assert.Contains("Soft budget", callers.Message, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("Page complete.", callers.Message, StringComparison.Ordinal);
+            Assert.False(callers!.Truncated);
+            Assert.Null(callers.NextCursor);
         }
         finally
         {

@@ -300,7 +300,8 @@ public sealed class SymbolTools
         "pass entireSolution=true to search the whole solution. Soft time budget may truncate with nextCursor " +
         "(do not restart from scratch). Cursors bind to the workspace epoch. A source-generated location that " +
         "cannot be reconciled fails the page with CompilationUnavailable instead of being reported as Handwritten. " +
-        "F# handles search only the defining project; entireSolution does not widen F# search, and the message says so.")]
+        "F# handles search the defining project plus its F# dependents (entireSolution widens to every F# project); " +
+        "C#/VB dependents are never searched and the message names them.")]
     public async Task<CallToolResult> SymbolFindReferences(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
         string handle,
@@ -342,7 +343,8 @@ public sealed class SymbolTools
     [McpServerTool(Name = "symbol_find_implementations", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Find types and members that implement or derive from a SymbolHandle (interfaces, abstract/virtual " +
         "members, and class inheritance). Results are paginated; cursors bind to the workspace epoch. " +
-        "F# handles search only the defining project.")]
+        "F# handles search the defining project plus its F# dependents; C#/VB dependents are never searched " +
+        "and the message names them.")]
     public async Task<CallToolResult> SymbolFindImplementations(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
         string handle,
@@ -375,8 +377,8 @@ public sealed class SymbolTools
     [McpServerTool(Name = "symbol_type_hierarchy", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Return a type SymbolHandle's base-type chain (immediate to root) then implemented interfaces, " +
         "paginated. Cursors bind to the workspace epoch and become stale when the workspace generation advances. " +
-        "For F# handles the chain covers only types in the same project and stops at the first external base type, " +
-        "which the message names.")]
+        "For F# handles the chain covers the defining project plus the F# projects it transitively references " +
+        "and stops at the first external base type, which the message names.")]
     public async Task<CallToolResult> SymbolTypeHierarchy(
         [Description("Type SymbolHandle from symbol_resolve.")]
         string handle,
@@ -411,7 +413,8 @@ public sealed class SymbolTools
         "Default scope is the defining project plus projects that depend on it; pass entireSolution=true to search the whole solution. " +
         "Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch. A source-generated " +
         "caller location that cannot be reconciled fails the page with CompilationUnavailable instead of being reported as Handwritten. " +
-        "F# handles search only the defining project; entireSolution does not widen F# search, and the message says so.")]
+        "F# handles search the defining project plus its F# dependents (entireSolution widens to every F# project); " +
+        "C#/VB dependents are never searched and the message names them.")]
     public async Task<CallToolResult> SymbolFindCallers(
         [Description("Method SymbolHandle from symbol_resolve.")]
         string handle,
@@ -446,8 +449,9 @@ public sealed class SymbolTools
     [McpServerTool(Name = "symbol_preview_rename", ReadOnly = true, Destructive = false, Idempotent = false, OpenWorld = false), Description(
         "Preview renaming a handwritten C# / VB / F# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
         "handles that will become invalid) and an opaque previewId bound to the current workspace Epoch + TTL. " +
-        "Does not write disk. SourceGenerator Origin is refused. An F# symbol referenced by other projects " +
-        "in the workspace is refused with FSharpCrossProjectRenameUnsupported. " +
+        "Does not write disk. SourceGenerator Origin is refused. An F# preview covers the defining project plus " +
+        "its F# dependents; a visible F# symbol with C#/VB dependents is refused with " +
+        "FSharpCrossProjectRenameUnsupported. " +
         "There is no generic apply_edit / write / shell.")]
     public async Task<CallToolResult> SymbolPreviewRename(
         [Description("Handwritten C# / VB / F# SymbolHandle from symbol_resolve.")]

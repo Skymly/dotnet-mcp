@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="FsLib/FsLib.fsproj" />
   <Project Path="FsApp/FsApp.fsproj" />
+  <Project Path="FsTop/FsTop.fsproj" />
   <Project Path="FsOnlyCs/FsOnlyCs.fsproj" />
   <Project Path="CsConsumer/CsConsumer.csproj" />
 </Solution>

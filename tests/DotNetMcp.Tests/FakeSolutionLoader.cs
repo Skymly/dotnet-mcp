@@ -355,6 +355,135 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
     }
 
 
+    public static FakeSolutionLoader ImmediateWithFsharpCrossProject(string root) =>
+        new(TimeSpan.Zero, () => CreateFsharpCrossProjectLoaded(root));
+
+    /// <summary>
+    /// FsLib ← FsApp ← FsTop (transitive F# chain with an interface implemented
+    /// across the boundary) plus FsOnlyCs ← CsConsumer (C#-only dependent for
+    /// cross-language refusal / gap-message assertions).
+    /// </summary>
+    public static LoadedSolution CreateFsharpCrossProjectLoaded(string root)
+    {
+        var workspace = new AdhocWorkspace();
+        var libId = ProjectId.CreateNewId();
+        var appId = ProjectId.CreateNewId();
+        var topId = ProjectId.CreateNewId();
+        var onlyId = ProjectId.CreateNewId();
+        var csId = ProjectId.CreateNewId();
+        var libDoc = DocumentId.CreateNewId(libId);
+        var appDoc = DocumentId.CreateNewId(appId);
+        var topDoc = DocumentId.CreateNewId(topId);
+        var onlyDoc = DocumentId.CreateNewId(onlyId);
+        var csDoc = DocumentId.CreateNewId(csId);
+
+        var libDir = Path.Combine(root, "FsLib");
+        var appDir = Path.Combine(root, "FsApp");
+        var topDir = Path.Combine(root, "FsTop");
+        var onlyDir = Path.Combine(root, "FsOnlyCs");
+        var csDir = Path.Combine(root, "CsConsumer");
+        foreach (var dir in new[] { libDir, appDir, topDir, onlyDir, csDir })
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var libPath = Path.Combine(libDir, "Library.fs");
+        var appPath = Path.Combine(appDir, "Use.fs");
+        var topPath = Path.Combine(topDir, "Top.fs");
+        var onlyPath = Path.Combine(onlyDir, "Library.fs");
+        var csPath = Path.Combine(csDir, "Use.cs");
+
+        const string libSource = """
+            module FsLib.Core
+
+            let private bump (n: int) = n + 1
+
+            let doubleThenBump (n: int) = bump (n + n)
+
+            type Greeter =
+                static member Greet (name: string) = "hi " + name
+
+            type IShape =
+                abstract member Area: float
+            """;
+        const string appSource = """
+            module FsApp.Use
+
+            let doubled (n: int) = FsLib.Core.doubleThenBump n
+
+            let viaParam (f: int -> int) (n: int) = FsLib.Core.doubleThenBump (f n)
+
+            let greeting (name: string) = FsLib.Core.Greeter.Greet name
+
+            type Coin (r: float) =
+                interface FsLib.Core.IShape with
+                    member _.Area = System.Math.PI * r * r
+
+            let own (n: int) = n * 3
+            """;
+        const string topSource = """
+            module FsTop.Top
+
+            let run (n: int) = FsApp.Use.doubled n + FsLib.Core.doubleThenBump n
+            """;
+        const string onlySource = """
+            module FsOnlyCs.Scaling
+
+            let scale (n: int) = n * 2
+            """;
+        const string csSource = """
+            namespace CsConsumer;
+
+            public static class Use
+            {
+                public static int Apply(int n) => FsOnlyCs.Scaling.scale(n);
+            }
+            """;
+
+        File.WriteAllText(libPath, libSource);
+        File.WriteAllText(appPath, appSource);
+        File.WriteAllText(topPath, topSource);
+        File.WriteAllText(onlyPath, onlySource);
+        File.WriteAllText(csPath, csSource);
+
+        var solution = workspace.CurrentSolution;
+        solution = solution.AddProject(ProjectInfo.Create(
+            libId, VersionStamp.Create(), "FsLib", "FsLib", LanguageNames.FSharp,
+            filePath: Path.Combine(libDir, "FsLib.fsproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            appId, VersionStamp.Create(), "FsApp", "FsApp", LanguageNames.FSharp,
+            filePath: Path.Combine(appDir, "FsApp.fsproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            topId, VersionStamp.Create(), "FsTop", "FsTop", LanguageNames.FSharp,
+            filePath: Path.Combine(topDir, "FsTop.fsproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            onlyId, VersionStamp.Create(), "FsOnlyCs", "FsOnlyCs", LanguageNames.FSharp,
+            filePath: Path.Combine(onlyDir, "FsOnlyCs.fsproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            csId, VersionStamp.Create(), "CsConsumer", "CsConsumer", LanguageNames.CSharp,
+            filePath: Path.Combine(csDir, "CsConsumer.csproj")));
+
+        solution = solution.AddDocument(libDoc, "Library.fs", SourceText.From(libSource), filePath: libPath);
+        solution = solution.AddDocument(appDoc, "Use.fs", SourceText.From(appSource), filePath: appPath);
+        solution = solution.AddDocument(topDoc, "Top.fs", SourceText.From(topSource), filePath: topPath);
+        solution = solution.AddDocument(onlyDoc, "Library.fs", SourceText.From(onlySource), filePath: onlyPath);
+        solution = solution.AddDocument(csDoc, "Use.cs", SourceText.From(csSource), filePath: csPath);
+
+        solution = solution.AddProjectReference(appId, new ProjectReference(libId));
+        solution = solution.AddProjectReference(topId, new ProjectReference(appId));
+        solution = solution.AddProjectReference(csId, new ProjectReference(onlyId));
+        solution = solution.WithProjectCompilationOptions(
+            csId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace F# cross-project fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithFsharpCollidingFileNames(string root) =>
         new(TimeSpan.Zero, () => CreateFsharpCollidingFileNamesLoaded(root));
 
