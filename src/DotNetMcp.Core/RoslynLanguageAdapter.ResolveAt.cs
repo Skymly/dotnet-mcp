@@ -39,6 +39,29 @@ public sealed partial class RoslynLanguageAdapter
             documents.Add(document);
         }
 
+        // The file-path index compares lexically; a stored path that differs only
+        // by symlinked ancestors (macOS /var vs /private/var) still owns the
+        // position, so fall back to a canonical comparison scan when it misses.
+        if (documents.Count == 0)
+        {
+            foreach (var project in solution.Projects)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!IsSupportedRoslynLanguage(project.Language) || !MatchesProjectId(project, projectId))
+                {
+                    continue;
+                }
+
+                foreach (var document in project.Documents)
+                {
+                    if (PositionPaths.Equal(document.FilePath, path) && seen.Add(document.Id))
+                    {
+                        documents.Add(document);
+                    }
+                }
+            }
+        }
+
         foreach (var project in solution.Projects)
         {
             cancellationToken.ThrowIfCancellationRequested();

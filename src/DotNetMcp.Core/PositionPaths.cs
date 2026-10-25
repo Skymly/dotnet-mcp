@@ -14,7 +14,14 @@ internal static class PositionPaths
             return false;
         }
 
-        return string.Equals(Normalize(left), Normalize(right), Comparison);
+        if (string.Equals(Normalize(left), Normalize(right), Comparison))
+        {
+            return true;
+        }
+
+        // Stored paths and caller input can differ by a symlinked ancestor
+        // (macOS /var -> /private/var); canonical comparison settles identity.
+        return string.Equals(Canonical(left), Canonical(right), Comparison);
     }
 
     private static StringComparison Comparison =>
@@ -29,6 +36,18 @@ internal static class PositionPaths
         catch (Exception)
         {
             return path.Trim();
+        }
+    }
+
+    private static string Canonical(string path)
+    {
+        try
+        {
+            return PathCanonical.Of(path.Trim());
+        }
+        catch (Exception)
+        {
+            return Normalize(path);
         }
     }
 }
