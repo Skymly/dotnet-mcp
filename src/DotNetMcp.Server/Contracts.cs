@@ -363,11 +363,36 @@ public sealed record ProjectListGeneratorDiagnosticsResultDto
     public long Epoch { get; init; }
 }
 
+/// <summary>
+/// One handwritten construct that caused a generated member to exist
+/// (issue #524). kind: PartialDefinition | Attribute | XamlElement;
+/// confidence: Exact | Convention. Positions follow the unified model:
+/// 1-based line/column in UTF-16 code units, endColumn exclusive;
+/// start/length are raw offsets of the same span. handle is present for
+/// code triggers and re-resolves via symbol_summary / symbol_resolve.
+/// </summary>
+public sealed record GenerationTriggerDto
+{
+    public required string Kind { get; init; }
+    public required string Confidence { get; init; }
+    public string? Handle { get; init; }
+    public string? Path { get; init; }
+    public int? Start { get; init; }
+    public int? Length { get; init; }
+    public int? Line { get; init; }
+    public int? Column { get; init; }
+    public int? EndLine { get; init; }
+    public int? EndColumn { get; init; }
+    public string? Detail { get; init; }
+}
+
 public sealed record SymbolAttributionDto
 {
     public required string DeclarationAvailability { get; init; }
     public required string OriginKind { get; init; }
     public GeneratorIdentityDto? Generator { get; init; }
+    public required IReadOnlyList<GenerationTriggerDto> Triggers { get; init; }
+    public string? TriggerMessage { get; init; }
 }
 
 public sealed record SymbolAttributionResultDto
@@ -375,6 +400,8 @@ public sealed record SymbolAttributionResultDto
     public required string DeclarationAvailability { get; init; }
     public required string OriginKind { get; init; }
     public GeneratorIdentityDto? Generator { get; init; }
+    public required IReadOnlyList<GenerationTriggerDto> Triggers { get; init; }
+    public string? TriggerMessage { get; init; }
     public required IReadOnlyDictionary<string, SymbolAttributionDto> Members { get; init; }
 }
 

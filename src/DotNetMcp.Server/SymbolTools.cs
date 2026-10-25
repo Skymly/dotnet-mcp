@@ -209,8 +209,10 @@ public sealed class SymbolTools
     }
 
     [McpServerTool(Name = "symbol_attribution", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
-        "Two-axis symbol attribution for a C# / VB SymbolHandle: declaration availability plus Handwritten vs " +
-        "SourceGenerator(identity) via public GeneratorDriver reconciliation (not FilePath heuristics). " +
+        "Three-axis symbol attribution for a C# / VB SymbolHandle: declaration availability, Handwritten vs " +
+        "SourceGenerator(identity) via public GeneratorDriver reconciliation (not FilePath heuristics), plus " +
+        "triggers[] locating the handwritten code to edit for generated members (partial pair definitions, " +
+        "trigger attributes, or XAML elements). Handwritten symbols always return triggers: []. " +
         "Named types also return a members map keyed by signature-qualified name (partial/overload safe). " +
         "F# handles return GeneratorLanguageNotSupported.")]
     public async Task<CallToolResult> SymbolAttribution(
@@ -699,6 +701,8 @@ public sealed class SymbolTools
                 TypeFullName = success.Attribution.Generator.TypeFullName,
                 Version = success.Attribution.Generator.Version
             },
+        Triggers = success.Attribution.Triggers.Select(ToTriggerDto).ToArray(),
+        TriggerMessage = success.Attribution.TriggerMessage,
         Members = success.Members.ToDictionary(
             kv => kv.Key,
             kv => new SymbolAttributionDto
@@ -712,9 +716,26 @@ public sealed class SymbolTools
                         AssemblyName = kv.Value.Generator.AssemblyName,
                         TypeFullName = kv.Value.Generator.TypeFullName,
                         Version = kv.Value.Generator.Version
-                    }
+                    },
+                Triggers = kv.Value.Triggers.Select(ToTriggerDto).ToArray(),
+                TriggerMessage = kv.Value.TriggerMessage
             },
             StringComparer.Ordinal)
+    };
+
+    private static GenerationTriggerDto ToTriggerDto(GenerationTrigger trigger) => new()
+    {
+        Kind = trigger.Kind,
+        Confidence = trigger.Confidence,
+        Handle = trigger.Handle,
+        Path = trigger.Path,
+        Start = trigger.Start,
+        Length = trigger.Length,
+        Line = trigger.Line,
+        Column = trigger.Column,
+        EndLine = trigger.EndLine,
+        EndColumn = trigger.EndColumn,
+        Detail = trigger.Detail
     };
 
     private static SymbolSourceResultDto ToSourceDto(SymbolSourceSuccess success) => new()

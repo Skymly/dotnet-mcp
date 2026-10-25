@@ -10,6 +10,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Test material only (GenerationTriggers fixture): pinned for the trigger rule table,
+         see spikes/s9-generation-triggers/CONCLUSIONS.md. -->
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="FSharp.Compiler.Service" Version="43.12.402" />
     <!-- Stays on 1.9.1. From 1.10 on, the package fails the build with MSBL001 because
          Microsoft.CodeAnalysis.Workspaces.MSBuild brings Microsoft.Build.Framework in as a runtime asset.

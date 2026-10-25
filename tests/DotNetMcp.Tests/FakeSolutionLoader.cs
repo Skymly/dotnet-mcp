@@ -1446,6 +1446,11 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
                     Public Function Format(x As String) As String
                         Return x
                     End Function
+
+                    ' Handwritten implementation of the generated partial declaration
+                    ' (generation-trigger seam, issue #524).
+                    Private Sub VbCallback()
+                    End Sub
                 End Class
             End Namespace
             """;
@@ -1495,17 +1500,62 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             filePath: projectFilePath));
 
         const string source = """
-            namespace GeneratorHost;
+            using System;
 
-            public static class Host
+            [assembly: Avalonia.Metadata.XmlnsDefinition("https://github.com/avaloniaui", "SampleControls")]
+
+            namespace Avalonia.Metadata
             {
-                public static string Name => "host";
+                [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+                public sealed class XmlnsDefinitionAttribute : Attribute
+                {
+                    public XmlnsDefinitionAttribute(string xmlNamespace, string clrNamespace)
+                    {
+                    }
+                }
             }
 
-            public partial class PartialThing
+            namespace SampleControls
             {
-                public string Format() => "hw";
-                public string Format(string x) => x;
+                public class Window
+                {
+                }
+
+                public class TextBlock
+                {
+                }
+            }
+
+            namespace SampleApp
+            {
+                // Code-behind part; Avalonia.NameGenerator adds the x:Name'd fields.
+                public partial class MainWindow
+                {
+                }
+            }
+
+            namespace GeneratorHost
+            {
+                public static class Host
+                {
+                    public static string Name => "host";
+                }
+
+                public partial class PartialThing
+                {
+                    public string Format() => "hw";
+                    public string Format(string x) => x;
+
+                    // Handwritten implementation of the generated partial definition
+                    // (generation-trigger seam, issue #524).
+                    partial void OnValueChanged(int value)
+                    {
+                    }
+
+                    // Handwritten *definition* of the generated partial implementation
+                    // (the GeneratedRegex shape — the trigger side of the pair).
+                    partial void GeneratedImpl();
+                }
             }
             """;
 

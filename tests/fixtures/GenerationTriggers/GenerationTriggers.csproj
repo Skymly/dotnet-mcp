@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)CommunityToolkit.Mvvm.dll')">
+    <!-- The test project copies tests/fixtures/** to its output directory without obj/,
+         where NuGet restore artifacts are absent, and drops the pinned toolkit binaries
+         next to this project. In that layout the library and the source-generator
+         analyzer come from the side-by-side DLLs. -->
+    <Reference Include="$(MSBuildThisFileDirectory)CommunityToolkit.Mvvm.dll" />
+    <Analyzer Include="$(MSBuildThisFileDirectory)CommunityToolkit.Mvvm.SourceGenerators.dll" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)CommunityToolkit.Mvvm.dll')">
+    <!-- Pinned on purpose: the rule table is keyed on the generator (assembly, type)
+         identity; the package version is only display metadata. -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+</Project>

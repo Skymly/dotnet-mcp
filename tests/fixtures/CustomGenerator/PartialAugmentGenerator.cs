@@ -5,7 +5,9 @@ using Microsoft.CodeAnalysis.Text;
 namespace CustomGenerator;
 
 /// <summary>
-/// Augments handwritten <c>GeneratorHost.PartialThing</c> with a generated member for attribution tests.
+/// Augments handwritten <c>GeneratorHost.PartialThing</c> with generated members for attribution tests.
+/// Also emits a generated partial method *definition* (the CommunityToolkit OnXxx callback shape) and a
+/// MAUI-shaped <c>InitializeComponent</c> for generation-trigger (issue #524) coverage.
 /// </summary>
 [Generator(LanguageNames.CSharp)]
 public sealed class PartialAugmentGenerator : IIncrementalGenerator
@@ -24,6 +26,23 @@ public sealed class PartialAugmentGenerator : IIncrementalGenerator
                 public partial class PartialThing
                 {
                     public int GeneratedValue => 99;
+
+                    // Generated *definition* part: the handwritten implementation pairs
+                    // back through IMethodSymbol.PartialImplementationPart (S9 Q1).
+                    partial void OnValueChanged(int value);
+
+                    // Generated *implementation* part (the GeneratedRegex shape): the
+                    // handwritten definition is the trigger, reached through
+                    // IMethodSymbol.PartialDefinitionPart.
+                    partial void GeneratedImpl()
+                    {
+                    }
+
+                    // MAUI/Xamarin XamlGenerator shape: generated code-behind entry point
+                    // whose trigger is the XAML document root carrying x:Class.
+                    public void InitializeComponent()
+                    {
+                    }
                 }
                 """,
                 Encoding.UTF8));
