@@ -247,8 +247,11 @@ public class SymbolAttributionTriggerSeamTests
     private static void AssertTriggerQuad(GenerationTriggerDto trigger, string text)
     {
         // Unified position model: start/length raw offsets, 1-based line/column,
-        // endColumn exclusive — both describe the same span.
-        var lines = text.Replace("\r\n", "\n").Split('\n');
+        // endColumn exclusive — both describe the same span. Split only on '\n'
+        // so a kept '\r' still counts toward the line's length: the document may
+        // be checked out CRLF on some platforms, and the index reports offsets
+        // into the verbatim text.
+        var lines = text.Split('\n');
         var start = 0;
         for (var i = 0; i < trigger.Line!.Value - 1; i++)
         {
