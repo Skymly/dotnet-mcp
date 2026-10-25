@@ -127,6 +127,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         TrustedRoots? trustedRoots)
     {
         var projects = new List<FSharpProjectSnapshot>();
+        var dependencyGraph = solution.GetProjectDependencyGraph();
         foreach (var project in solution.Projects)
         {
             if (!IsFSharpProject(project))
@@ -139,6 +140,15 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                 ? Array.Empty<string>()
                 : FSharpProjectFile.ReadDefines(project.FilePath);
             var references = ReadCompilerReferences(project);
+            var dependents = dependencyGraph
+                .GetProjectsThatTransitivelyDependOnThisProject(project.Id)
+                .Select(id => solution.GetProject(id))
+                .Where(dependent => dependent is not null)
+                .Select(dependent => new FSharpDependentProject(
+                    dependent!.Id.Id.ToString("D"),
+                    dependent.Name,
+                    RoslynLanguageAdapter.LanguageToken(dependent.Language)))
+                .ToArray();
             projects.Add(new FSharpProjectSnapshot(
                 project.Id.Id.ToString("D"),
                 project.Name,
@@ -146,7 +156,8 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                 documents,
                 defines,
                 references.Paths,
-                references.MissingOutputs));
+                references.MissingOutputs,
+                dependents));
         }
 
         return new FSharpWorkspaceSnapshot(epoch, projects);
