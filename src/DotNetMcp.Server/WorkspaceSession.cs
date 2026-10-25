@@ -13,6 +13,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
     private readonly CompilationLru _compilationLru;
     private readonly GeneratorRunCache _generatorRunCache;
     private readonly FindHitCache _findHits;
+    private readonly XamlUsageIndexCache _xamlUsages;
     private bool _disposed;
 
     public WorkspaceSession(
@@ -23,7 +24,8 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         CompilationLru? compilationLru = null,
         FindHitCache? findHitCache = null,
         FSharpWorkspaceSnapshot? fsharpSnapshot = null,
-        Solution? solution = null)
+        Solution? solution = null,
+        XamlUsageIndexCache? xamlUsageCache = null)
     {
         // Prefer the host-frozen F# snapshot (captured when Epoch advances). Tests that need F#
         // sources must pass a snapshot captured with trusted roots — never walk disk without roots.
@@ -33,6 +35,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         _compilationLru = compilationLru ?? new CompilationLru(compilationLruCapacity);
         _generatorRunCache = generatorRunCache ?? new GeneratorRunCache();
         _findHits = findHitCache ?? new FindHitCache();
+        _xamlUsages = xamlUsageCache ?? new XamlUsageIndexCache();
     }
 
     public long Epoch { get; }
@@ -45,6 +48,8 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
     public CompilationLru CompilationCache => _compilationLru;
 
     public FindHitCache FindHits => _findHits;
+
+    public XamlUsageIndexCache XamlUsages => _xamlUsages;
 
     public IReadOnlyList<ProjectSummaryDto> ListProjects() =>
         ProjectSummary.FromSolution(Solution);

@@ -349,7 +349,7 @@ public sealed class XamlDocumentService
             .ConfigureAwait(false);
     }
 
-    private async Task<(IReadOnlyList<XamlXmlnsMapping>? Success, XamlQueryError? Error, bool Stopped)> MapDeclaredXmlnsAsync(
+    internal async Task<(IReadOnlyList<XamlXmlnsMapping>? Success, XamlQueryError? Error, bool Stopped)> MapDeclaredXmlnsAsync(
         IWorkspaceSession session,
         XamlDocumentRoot root,
         IReadOnlyList<(string Prefix, string XmlNamespace)> declarations,
@@ -455,6 +455,21 @@ public sealed class XamlDocumentService
                 "Confirm the document path is a workspace XAML document under a trusted root, then retry."));
         }
 
+        return ParseDocumentRoot(path, text, projectId);
+    }
+
+    /// <summary>
+    /// Root-element parse shared with the usage index (ADR-0006): extension
+    /// gate has already run — .axaml is Avalonia, .xaml must declare the MAUI
+    /// default xmlns or the document is not a registered XAML document.
+    /// </summary>
+    internal static (XamlDocumentRoot? Root, XamlQueryError? Error) ParseDocumentRoot(
+        string path,
+        string text,
+        string? projectId)
+    {
+        var maybeMaui = string.Equals(
+            Path.GetExtension(path), MauiDocumentExtension, StringComparison.OrdinalIgnoreCase);
         try
         {
             using var reader = CreateReader(text, ignoreWhitespace: true);
@@ -517,7 +532,7 @@ public sealed class XamlDocumentService
         }
     }
 
-    private Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveNameInDocumentProjectAsync(
+    internal Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveNameInDocumentProjectAsync(
         IWorkspaceSession session,
         XamlDocumentRoot root,
         string name,
@@ -596,7 +611,7 @@ public sealed class XamlDocumentService
         return (clr, assembly);
     }
 
-    private async Task<(string? TypeName, SymbolQueryError? Error)> TryResolveStaticDataContextTypeAsync(
+    internal async Task<(string? TypeName, SymbolQueryError? Error)> TryResolveStaticDataContextTypeAsync(
         IWorkspaceSession session,
         XamlDocumentRoot root,
         CancellationToken cancellationToken)
@@ -801,7 +816,7 @@ public sealed class XamlDocumentService
         return null;
     }
 
-    private static string ResolveTypeName(string dataType, IReadOnlyList<XamlXmlnsMapping> xmlns)
+    internal static string ResolveTypeName(string dataType, IReadOnlyList<XamlXmlnsMapping> xmlns)
     {
         var colon = dataType.IndexOf(':');
         if (colon <= 0)
@@ -1014,7 +1029,7 @@ public sealed class XamlDocumentService
         return (items, stoppedEarly);
     }
 
-    private async Task<INamedTypeSymbol?> ResolveElementTypeAsync(
+    internal async Task<INamedTypeSymbol?> ResolveElementTypeAsync(
         IWorkspaceSession session,
         string prefix,
         string localName,
@@ -1079,17 +1094,17 @@ public sealed class XamlDocumentService
         return false;
     }
 
-    private static bool IsXamlNamespace(string namespaceUri) =>
+    internal static bool IsXamlNamespace(string namespaceUri) =>
         string.Equals(namespaceUri, XamlXmlns.Xaml, StringComparison.Ordinal);
 
-    private static bool IsPropertyElementName(string localName) =>
+    internal static bool IsPropertyElementName(string localName) =>
         localName.Contains('.', StringComparison.Ordinal);
 
-    private static bool IsAttachedPropertyName(string localName, string qualifiedName) =>
+    internal static bool IsAttachedPropertyName(string localName, string qualifiedName) =>
         localName.Contains('.', StringComparison.Ordinal) ||
         qualifiedName.Contains('.', StringComparison.Ordinal);
 
-    private static bool IsSkippableAttribute(string prefix, string namespaceUri, string name) =>
+    internal static bool IsSkippableAttribute(string prefix, string namespaceUri, string name) =>
         name.StartsWith("xmlns", StringComparison.Ordinal) ||
         IsXamlNamespace(namespaceUri) ||
         string.Equals(prefix, "xml", StringComparison.Ordinal);
@@ -1156,10 +1171,10 @@ public sealed class XamlDocumentService
     }
 
 
-    private static bool IsRoslynProject(Project project) =>
+    internal static bool IsRoslynProject(Project project) =>
         project.Language is LanguageNames.CSharp or LanguageNames.VisualBasic;
 
-    private static Project? FindRoslynProject(IWorkspaceSession session, string? projectId)
+    internal static Project? FindRoslynProject(IWorkspaceSession session, string? projectId)
     {
         if (string.IsNullOrWhiteSpace(projectId))
         {
@@ -1171,7 +1186,7 @@ public sealed class XamlDocumentService
             string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static XmlReader CreateReader(string text, bool ignoreWhitespace = false) =>
+    internal static XmlReader CreateReader(string text, bool ignoreWhitespace = false) =>
         XmlReader.Create(new StringReader(text), new XmlReaderSettings
         {
             DtdProcessing = DtdProcessing.Prohibit,
