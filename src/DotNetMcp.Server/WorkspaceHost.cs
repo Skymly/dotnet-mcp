@@ -491,7 +491,10 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     {
         if (loaded.TryGetDocumentId(path, out var documentId))
         {
-            var document = loaded.Solution.GetDocument(documentId);
+            // The path index covers regular and AdditionalDocuments alike
+            // (registered XAML lives in the latter) — mirror TryGetTrackedText.
+            var document = (TextDocument?)loaded.Solution.GetDocument(documentId)
+                ?? loaded.Solution.GetAdditionalDocument(documentId);
             if (document is not null)
             {
                 text = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult().ToString();

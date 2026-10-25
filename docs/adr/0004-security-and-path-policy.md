@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-08-20 Amendment 2 Diagnostic fix；2026-08-20 Amendment 3 Code Refactoring；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁；2026-10-09 Amendment 7 现行写面；2026-10-11 Amendment 8 受信根并集）**
+Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-08-20 Amendment 2 Diagnostic fix；2026-08-20 Amendment 3 Code Refactoring；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁；2026-10-09 Amendment 7 现行写面；2026-10-11 Amendment 8 受信根并集；2026-10-25 Amendment 9 Rename preview 写集合含已注册 XAML 文档）**
 
 ## 上下文
 
@@ -124,3 +124,9 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 证据：2026-09-22 全仓审核发现 SEC1-4。§1 原文「启动参数 `--roots` 或环境变量 `DOTNET_MCP_TRUSTED_ROOTS`」的「或」没有说明两者同时存在时的合并语义。本 Amendment 不改该句。
 
 `TrustedRoots.FromStartup` 在两者都非空时取并集：命令行根与环境变量根都进入受信集合，规范化后去重。任一侧为空则只用另一侧。两侧都空仍 fail-closed，不回落进程工作目录。
+
+## Amendment 9（2026-10-25）：Rename preview 写集合纳入已注册 XAML 文档
+
+证据：#525、ADR-0005 Amendment 1、ADR-0006。
+
+§3/Amendment 7 的「已存在解决方案文档」写集合扩为「解决方案手写文档 + Rename preview 切片覆盖的、受信根内已注册 XAML 文档（`AdditionalDocuments`）」。允许名单不变——仍是 Amendment 7 列出的 8 个 Workspace Edit 工具加 `workspace_check_drift`；不新增写工具。XAML 切片走同一 apply 管线：写前根校验、`PreviewTargetMissing`、编码/BOM 保持、`SourceEncodingRefused`、`WriteSuppression` 与 Epoch 推进规则原样适用；不增删文件（类型改名不改文件名）。

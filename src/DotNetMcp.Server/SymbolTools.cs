@@ -471,7 +471,12 @@ public sealed class SymbolTools
     [McpServerTool(Name = "symbol_preview_rename", ReadOnly = true, Destructive = false, Idempotent = false, OpenWorld = false), Description(
         "Preview renaming a handwritten C# / VB / F# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
         "handles that will become invalid) and an opaque previewId bound to the current workspace Epoch + TTL. " +
-        "Does not write disk. SourceGenerator Origin is refused. An F# preview covers the defining project plus " +
+        "Does not write disk. Registered XAML documents (Avalonia .axaml, MAUI .xaml) join the edit as ordinary " +
+        "slices: Exact usage points — x:Class, element types, property/event attributes, x:DataType, markup type " +
+        "refs, binding segments, x:Name values, event-handler values — are rewritten; name-matched Unverified " +
+        "mentions are reported under unverifiedXamlMentions without being changed. A generated x:Name field is " +
+        "renamed through its XAML value plus handwritten references; other SourceGenerator Origin is refused. " +
+        "An F# preview covers the defining project plus " +
         "its F# dependents; a visible F# symbol with C#/VB dependents is refused with " +
         "FSharpCrossProjectRenameUnsupported. " +
         "There is no generic apply_edit / write / shell.")]
@@ -515,12 +520,24 @@ public sealed class SymbolTools
             OldHandle = draft.OldHandle,
             NewName = draft.NewName,
             Documents = ToDocumentDtos(held.Value.Documents),
-            InvalidatedHandles = held.Value.InvalidatedHandles
+            InvalidatedHandles = held.Value.InvalidatedHandles,
+            UnverifiedXamlMentions = draft.UnverifiedXamlMentions is { Count: > 0 } mentions
+                ? mentions.Select(static m => new UnverifiedXamlMentionDto
+                {
+                    Path = m.Path,
+                    Line = m.Line,
+                    Column = m.Column,
+                    EndLine = m.EndLine,
+                    EndColumn = m.EndColumn,
+                    Text = m.Text
+                }).ToArray()
+                : null
         });
     }
 
     [McpServerTool(Name = "symbol_apply_rename", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false), Description(
-        "Apply a still-valid C# / VB / F# rename preview. Writes only the documents listed in that preview, all of which " +
+        "Apply a still-valid C# / VB / F# rename preview. Writes only the documents listed in that preview — " +
+        "handwritten sources plus any registered XAML documents the preview sliced — all of which " +
         "must already exist inside a trusted root. Uses WriteSuppression and advances the workspace Epoch. " +
         "There is no apply path that skips preview. Refuses with SourceEncodingRefused, and writes nothing, when a listed document has no BOM and is not valid UTF-8. Not a generic write / patch / shell tool.")]
     public Task<CallToolResult> SymbolApplyRename(

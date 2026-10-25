@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-20）
+Accepted（2026-08-20），**Amended（2026-10-25 Amendment 1 Rename preview 的 XAML 切片）**
 
 ## 上下文
 
@@ -45,3 +45,9 @@ Architecture review #125 第 1 项 grilling 后结晶。不重开 ADR-0004 的�
 - ADR-0001：Core 是查询 / draft facade，不持有写盘与 TTL 字典
 - ADR-0002：intentional apply 仍是 WriteSuppression + 回填 + 推进 Epoch 一次；preview 生命周期不再属于 Host
 - ADR-0004：三个命名写工具族仍是允许名单，不是一个通用写工具
+
+## Amendment 1（2026-10-25）：Rename preview 的切片可含已注册 XAML 文档
+
+证据：#525；ADR-0006 的 `IXamlUsageSource` 索引。
+
+Rename preview 产出的文档切片不再只含解决方案手写文档：`symbol_preview_rename` 把受信根内已注册 XAML 文档（Avalonia `.axaml`、根默认 xmlns 为 MAUI URI 的 `.xaml`）的旧/新文本并入同一份 Workspace Edit——索引里 `Exact` 使用点按符号键匹配改写，`Unverified` 同名提及只经 `unverifiedXamlMentions` 报告、不写入。改写规则与 Roslyn Renamer 同级：每个使用点只替换符号简单名在 span 内的一处出现，span 不落在简单名上的 `Exact` 使用点跳过而非猜测。`x:Name` 生成字段是唯一例外入口：定义项目内存在匹配 `XName` 使用点时允许改名——XAML 值 + 手写引用一起改，生成声明本身不写入（下次生成器运行重新产出）。Diagnostic fix 与 Code Refactoring 的 preview 不碰 XAML 文档；store、previewId、kind、Epoch/TTL 语义不变。
