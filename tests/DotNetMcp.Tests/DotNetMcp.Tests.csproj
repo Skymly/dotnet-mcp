@@ -8,6 +8,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The GenerationTriggers fixture runs the MVVM Toolkit generators under
+         MSBuildWorkspace. GeneratePathProperty feeds the DLL copies below. -->
+    <PackageReference Include="CommunityToolkit.Mvvm" GeneratePathProperty="true" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
     <PackageReference Include="Microsoft.CodeAnalysis.VisualBasic.Workspaces" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
@@ -33,6 +36,15 @@
     <None Include="..\fixtures\**\*"
           Exclude="..\fixtures\**\bin\**;..\fixtures\**\obj\**;..\fixtures\.gitignore"
           Link="fixtures\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+    <!-- Fixture copies land without obj/, so NuGet package/analyzer resolution cannot
+         run there. The GenerationTriggers csproj falls back to these side-by-side DLLs
+         (Reference + Analyzer items) when they exist next to it. -->
+    <None Include="$(PkgCommunityToolkit_Mvvm)\lib\net8.0\CommunityToolkit.Mvvm.dll"
+          Link="fixtures\GenerationTriggers\CommunityToolkit.Mvvm.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(PkgCommunityToolkit_Mvvm)\analyzers\dotnet\roslyn5.0\cs\CommunityToolkit.Mvvm.SourceGenerators.dll"
+          Link="fixtures\GenerationTriggers\CommunityToolkit.Mvvm.SourceGenerators.dll"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

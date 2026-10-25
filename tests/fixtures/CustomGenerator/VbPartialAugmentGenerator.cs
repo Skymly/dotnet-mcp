@@ -21,6 +21,11 @@ public sealed class VbPartialAugmentGenerator : IIncrementalGenerator
                         Public Function GeneratedValue() As Integer
                             Return 99
                         End Function
+
+                        ' Generated *declaration* part: the handwritten implementation
+                        ' pairs back through IMethodSymbol.PartialImplementationPart (S9 Q1).
+                        Private Partial Sub VbCallback()
+                        End Sub
                     End Class
                 End Namespace
                 """,

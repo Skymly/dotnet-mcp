@@ -36,6 +36,10 @@ _Avoid_: SourceKind as a catch-all enum for COM/dynamic/generators
 符号或成员归属于哪个源生成器（或手写声明）的对应关系。
 _Avoid_: "generated" boolean without generator identity
 
+**Generation trigger**:
+生成成员所对应的手写编辑点——partial 配对另一侧、触发特性声明或 XAML 元素；Attribution 的第三轴，带 Exact/Convention 置信度。
+_Avoid_: "cause" / "reason" free-text without a located span
+
 **Drift**:
 工作区快照相对磁盘源文件可能已过期的状态。
 _Avoid_: stale cache (without the drift/check semantics)

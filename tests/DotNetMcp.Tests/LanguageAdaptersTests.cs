@@ -350,10 +350,10 @@ public class LanguageAdaptersTests
             CancellationToken cancellationToken = default)
         {
             AttributionCalls++;
-            var attribution = new SymbolAttribution(
+            var attribution = SymbolAttribution.WithoutTriggers(
                 DeclarationAvailability.InSource,
                 SymbolOrigin.Handwritten,
-                Generator: null);
+                generator: null);
             return Task.FromResult<(SymbolAttributionSuccess?, SymbolQueryError?)>(
                 (new SymbolAttributionSuccess(attribution, new Dictionary<string, SymbolAttribution>()), null));
         }

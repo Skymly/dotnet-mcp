@@ -76,6 +76,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         TrustedRoots trustedRoots,
         GeneratorQueryService? generators = null,
         IAuditLogger? auditLogger = null,
+        RoslynLanguageAdapter? roslynAdapter = null,
         IXamlUsageSource? xamlUsageSource = null)
     {
         _loader = loader;
@@ -84,6 +85,13 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         _generators = generators;
         _audit = auditLogger;
         _xamlUsageSource = xamlUsageSource;
+        // Optional ADR-0006 seam for generation triggers (issue #524): wiring it
+        // here rather than in LanguageAdapters keeps the XamlUsageIndex →
+        // LanguageAdapters → RoslynLanguageAdapter graph acyclic.
+        if (roslynAdapter is not null)
+        {
+            roslynAdapter.XamlUsageSource = xamlUsageSource;
+        }
         _compilationLru = new CompilationLru(_options.CompilationLruCapacity);
         if (_options.FileWatcher is not null)
         {

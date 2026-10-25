@@ -55,7 +55,10 @@ public sealed partial class RoslynLanguageAdapter
         return (new SymbolAttributionSuccess(attribution!, members), null);
     }
 
-    private async Task<(SymbolAttribution? Attribution, SymbolQueryError? Error)> AttributeSymbolAsync(
+    // internal for tests: the trigger-resolution seam lets tests feed symbols
+    // (for example generated partial implementation parts) that handles cannot
+    // name directly.
+    internal async Task<(SymbolAttribution? Attribution, SymbolQueryError? Error)> AttributeSymbolAsync(
         IWorkspaceSession session,
         Project project,
         ISymbol symbol,
@@ -63,12 +66,14 @@ public sealed partial class RoslynLanguageAdapter
     {
         if (symbol.Locations.Length == 0)
         {
-            return (new SymbolAttribution(DeclarationAvailability.None, SymbolOrigin.Handwritten, null), null);
+            return (SymbolAttribution.WithoutTriggers(
+                DeclarationAvailability.None, SymbolOrigin.Handwritten, null), null);
         }
 
         if (symbol.Locations.All(l => l.IsInMetadata))
         {
-            return (new SymbolAttribution(DeclarationAvailability.InMetadata, SymbolOrigin.Handwritten, null), null);
+            return (SymbolAttribution.WithoutTriggers(
+                DeclarationAvailability.InMetadata, SymbolOrigin.Handwritten, null), null);
         }
 
         var trees = symbol.DeclaringSyntaxReferences
@@ -80,7 +85,8 @@ public sealed partial class RoslynLanguageAdapter
             .ToList();
         if (trees.Count == 0)
         {
-            return (new SymbolAttribution(DeclarationAvailability.None, SymbolOrigin.Handwritten, null), null);
+            return (SymbolAttribution.WithoutTriggers(
+                DeclarationAvailability.None, SymbolOrigin.Handwritten, null), null);
         }
 
         SymbolAttribution? handwritten = null;
@@ -121,10 +127,19 @@ public sealed partial class RoslynLanguageAdapter
 
         if (generated is not null)
         {
-            return (generated, null);
+            if (generated.Generator is null)
+            {
+                return (generated, null);
+            }
+
+            var (triggers, triggerMessage) = await ResolveTriggersAsync(
+                    session, project, symbol, generated.Generator, cancellationToken)
+                .ConfigureAwait(false);
+            return (generated with { Triggers = triggers, TriggerMessage = triggerMessage }, null);
         }
 
-        return (new SymbolAttribution(DeclarationAvailability.InSource, SymbolOrigin.Handwritten, null), null);
+        return (SymbolAttribution.WithoutTriggers(
+            DeclarationAvailability.InSource, SymbolOrigin.Handwritten, null), null);
     }
 
     private static SymbolAttribution ToAttribution(string availability, string? originLabel)
@@ -133,10 +148,11 @@ public sealed partial class RoslynLanguageAdapter
             originLabel.StartsWith(SymbolOrigin.SourceGenerator + "(", StringComparison.Ordinal) &&
             TryParseSourceGeneratorOrigin(originLabel, out var identity))
         {
-            return new SymbolAttribution(availability, SymbolOrigin.SourceGenerator, identity);
+            return new SymbolAttribution(
+                availability, SymbolOrigin.SourceGenerator, identity, [], null);
         }
 
-        return new SymbolAttribution(availability, SymbolOrigin.Handwritten, null);
+        return SymbolAttribution.WithoutTriggers(availability, SymbolOrigin.Handwritten, null);
     }
 
     private static bool TryParseSourceGeneratorOrigin(string origin, out GeneratorIdentity identity)

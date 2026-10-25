@@ -37,10 +37,67 @@ public sealed record DriverRunSnapshot(
 /// </summary>
 public readonly record struct GeneratorTreeMatch(GeneratorIdentity? Identity, bool Ambiguous);
 
+/// <summary>
+/// What produced a generated symbol — the kind of handwritten construct the
+/// caller should edit (spike S9, issue #524).
+/// </summary>
+public static class GenerationTriggerKind
+{
+    /// <summary>A symbol-level partial pair: the counterpart declaration bound by the compiler.</summary>
+    public const string PartialDefinition = "PartialDefinition";
+
+    /// <summary>A declaration carrying the attribute that triggered the generator.</summary>
+    public const string Attribute = "Attribute";
+
+    /// <summary>A XAML document element (<c>x:Name</c> or the document root).</summary>
+    public const string XamlElement = "XamlElement";
+}
+
+/// <summary>
+/// How strongly a <see cref="GenerationTrigger"/> is verified: compiler-bound
+/// symbol relationships and attribute syntax nodes are Exact; name-inverse
+/// lookups with attribute disambiguation are Convention.
+/// </summary>
+public static class GenerationTriggerConfidence
+{
+    public const string Exact = "Exact";
+    public const string Convention = "Convention";
+}
+
+/// <summary>
+/// One handwritten location that caused a generated member to exist, in the
+/// unified position model: 1-based line/column in UTF-16 code units,
+/// <see cref="EndColumn"/> exclusive; <see cref="Start"/>/<see cref="Length"/>
+/// are raw text offsets of the same span. <see cref="Handle"/> is present for
+/// code triggers and re-resolves via symbol_summary / symbol_resolve.
+/// </summary>
+public sealed record GenerationTrigger(
+    string Kind,
+    string Confidence,
+    string? Handle,
+    string? Path,
+    int? Start,
+    int? Length,
+    int? Line,
+    int? Column,
+    int? EndLine,
+    int? EndColumn,
+    string? Detail);
+
 public sealed record SymbolAttribution(
     string DeclarationAvailability,
     string OriginKind,
-    GeneratorIdentity? Generator);
+    GeneratorIdentity? Generator,
+    IReadOnlyList<GenerationTrigger> Triggers,
+    string? TriggerMessage)
+{
+    /// <summary>Shorthand for an attribution with no generation triggers.</summary>
+    public static SymbolAttribution WithoutTriggers(
+        string declarationAvailability,
+        string originKind,
+        GeneratorIdentity? generator) =>
+        new(declarationAvailability, originKind, generator, [], null);
+}
 
 public sealed record SymbolAttributionSuccess(
     SymbolAttribution Attribution,
