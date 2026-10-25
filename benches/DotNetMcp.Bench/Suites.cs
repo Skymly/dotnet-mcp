@@ -441,8 +441,10 @@ internal static class Suites
                 ["projectId"] = projectId,
                 ["diagnosticId"] = first.Id,
                 ["filePath"] = first.FilePath,
-                ["startLine"] = first.StartLine,
-                ["startCharacter"] = first.StartCharacter,
+                ["line"] = first.Line,
+                ["column"] = first.Column,
+                ["endLine"] = first.EndLine,
+                ["endColumn"] = first.EndColumn,
             },
             required: false).ConfigureAwait(false);
     }

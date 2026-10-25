@@ -5,10 +5,10 @@ public sealed record DiagnosticItem(
     string Severity,
     string Message,
     string? FilePath,
-    int? StartLine,
-    int? StartCharacter,
+    int? Line,
+    int? Column,
     int? EndLine,
-    int? EndCharacter,
+    int? EndColumn,
     string ProjectId,
     string? Error = null,
     string? SuggestedAction = null);

@@ -283,10 +283,10 @@ public sealed class XamlTools
                 Severity = i.Severity,
                 Message = i.Message,
                 FilePath = i.FilePath,
-                StartLine = i.StartLine,
-                StartCharacter = i.StartCharacter,
+                Line = i.Line,
+                Column = i.Column,
                 EndLine = i.EndLine,
-                EndCharacter = i.EndCharacter,
+                EndColumn = i.EndColumn,
                 ProjectId = i.ProjectId
             }).ToArray(),
             Truncated = success.Truncated,

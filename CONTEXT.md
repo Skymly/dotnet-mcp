@@ -93,6 +93,10 @@ _Avoid_: MetadataGenerated, COM-in-Origin
 `dynamic` 调用点（IOperation），带可选的静态接收者/参数类型；不是符号归因。
 _Avoid_: treating dynamic as SymbolAttribution
 
+**Location**:
+所有带位置的工具输出共用同一套坐标：`line`/`column`/`endLine`/`endColumn`（外加 `start`/`length` 偏移）。行与列均为 1 基；列按 UTF-16 code unit 计，tab 记 1 列，与 `csc` / MSBuild `file(line,col)` 一致；`endColumn` 指向最后一个字符之后（不含）。`InMetadata`/`None` 无源位置时四个字段缺席（JSON 省略）；源生成文档按生成文本计列。任一工具输出的位置可原样喂给 `diagnostics_list_fixes` / `diagnostics_preview_fix` 等消费方。
+_Avoid_: 0-based columns, startCharacter-style per-tool field names, `#line`-mapped locations
+
 **Diagnostic fix**:
 针对一条 `project_diagnostics` 出现的、由 Microsoft.CodeAnalysis C# / VB Features 内置 CodeFixProvider 提供的修复动作，不含项目分析器程序集。`fixIndex` 只对列出时的 Epoch 有效。
 _Avoid_: invented patch, generic apply_edit, analyzer downloaded just-in-time, reusing fixIndex after Epoch advances

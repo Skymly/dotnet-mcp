@@ -483,6 +483,10 @@ public sealed partial class RoslynLanguageAdapter
                     mapped.FilePath,
                     mapped.Start,
                     mapped.Length,
+                    mapped.Line,
+                    mapped.Column,
+                    mapped.EndLine,
+                    mapped.EndColumn,
                     document.Project.Id.Id.ToString("D"),
                     success.Handle,
                     success.Summary));
@@ -585,6 +589,10 @@ public sealed partial class RoslynLanguageAdapter
             mapped.FilePath,
             mapped.Start,
             mapped.Length,
+            mapped.Line,
+            mapped.Column,
+            mapped.EndLine,
+            mapped.EndColumn,
             document.Project.Id.Id.ToString("D"),
             kind);
     }

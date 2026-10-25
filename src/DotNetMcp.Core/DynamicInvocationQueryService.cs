@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Operations;
+using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Core;
 
@@ -94,8 +95,8 @@ public sealed class DynamicInvocationQueryService
                         items.Add(ToItem(
                             "Invocation",
                             document.FilePath,
-                            invoke.Syntax.Span.Start,
-                            invoke.Syntax.Span.Length,
+                            tree,
+                            invoke.Syntax.Span,
                             projectIdString,
                             StaticType(invoke.Operation),
                             invoke.Arguments.Select(a => StaticType(a is IArgumentOperation arg ? arg.Value : a)).ToArray()));
@@ -104,8 +105,8 @@ public sealed class DynamicInvocationQueryService
                         items.Add(ToItem(
                             "Member",
                             document.FilePath,
-                            member.Syntax.Span.Start,
-                            member.Syntax.Span.Length,
+                            tree,
+                            member.Syntax.Span,
                             projectIdString,
                             StaticType(member.Instance),
                             []));
@@ -114,8 +115,8 @@ public sealed class DynamicInvocationQueryService
                         items.Add(ToItem(
                             "Indexer",
                             document.FilePath,
-                            indexer.Syntax.Span.Start,
-                            indexer.Syntax.Span.Length,
+                            tree,
+                            indexer.Syntax.Span,
                             projectIdString,
                             StaticType(indexer.Operation),
                             indexer.Arguments.Select(a => StaticType(a is IArgumentOperation arg ? arg.Value : a)).ToArray()));
@@ -193,12 +194,15 @@ public sealed class DynamicInvocationQueryService
     private static DynamicInvocationItem ToItem(
         string kind,
         string? path,
-        int start,
-        int length,
+        SyntaxTree tree,
+        TextSpan span,
         string projectId,
         string? receiver,
-        IReadOnlyList<string?> args) =>
-        new(kind, path, start, length, projectId, receiver, args);
+        IReadOnlyList<string?> args)
+    {
+        var (line, column, endLine, endColumn) = SourcePositions.FromLineSpan(tree.GetLineSpan(span));
+        return new(kind, path, span.Start, span.Length, line, column, endLine, endColumn, projectId, receiver, args);
+    }
 
     private static string? StaticType(IOperation? operation)
     {

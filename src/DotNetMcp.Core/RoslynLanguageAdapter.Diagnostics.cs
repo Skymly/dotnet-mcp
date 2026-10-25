@@ -90,8 +90,8 @@ public sealed partial class RoslynLanguageAdapter
             .Select(d => ToDiagnosticItem(d, projectIdString))
             .OrderBy(d => d.Id, StringComparer.Ordinal)
             .ThenBy(d => d.FilePath ?? string.Empty, StringComparer.Ordinal)
-            .ThenBy(d => d.StartLine ?? -1)
-            .ThenBy(d => d.StartCharacter ?? -1)
+            .ThenBy(d => d.Line ?? -1)
+            .ThenBy(d => d.Column ?? -1)
             .ThenBy(d => d.Message, StringComparer.Ordinal)
             .ToList();
 
@@ -111,20 +111,17 @@ public sealed partial class RoslynLanguageAdapter
     private static DiagnosticItem ToDiagnosticItem(Diagnostic diagnostic, string projectId)
     {
         string? filePath = null;
-        int? startLine = null;
-        int? startCharacter = null;
+        int? line = null;
+        int? column = null;
         int? endLine = null;
-        int? endCharacter = null;
+        int? endColumn = null;
 
         var location = diagnostic.Location;
         if (location.IsInSource)
         {
             var span = location.GetLineSpan();
             filePath = span.Path;
-            startLine = span.StartLinePosition.Line + 1;
-            startCharacter = span.StartLinePosition.Character;
-            endLine = span.EndLinePosition.Line + 1;
-            endCharacter = span.EndLinePosition.Character;
+            (line, column, endLine, endColumn) = SourcePositions.FromLineSpan(span);
         }
 
         return new DiagnosticItem(
@@ -132,10 +129,10 @@ public sealed partial class RoslynLanguageAdapter
             Severity: diagnostic.Severity.ToString(),
             Message: diagnostic.GetMessage(),
             FilePath: filePath,
-            StartLine: startLine,
-            StartCharacter: startCharacter,
+            Line: line,
+            Column: column,
             EndLine: endLine,
-            EndCharacter: endCharacter,
+            EndColumn: endColumn,
             ProjectId: projectId);
     }
 

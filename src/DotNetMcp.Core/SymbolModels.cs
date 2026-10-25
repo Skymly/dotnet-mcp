@@ -23,7 +23,11 @@ public sealed record SymbolLocation(
     string? Origin,
     string? FilePath,
     int? Start,
-    int? Length);
+    int? Length,
+    int? Line,
+    int? Column,
+    int? EndLine,
+    int? EndColumn);
 
 public sealed record SymbolDefinitionSuccess(IReadOnlyList<SymbolLocation> Locations);
 
@@ -48,6 +52,10 @@ public sealed record ReferenceLocationItem(
     string? FilePath,
     int? Start,
     int? Length,
+    int? Line,
+    int? Column,
+    int? EndLine,
+    int? EndColumn,
     string ProjectId,
     string Kind);
 
@@ -57,6 +65,10 @@ public sealed record CallerLocationItem(
     string? FilePath,
     int? Start,
     int? Length,
+    int? Line,
+    int? Column,
+    int? EndLine,
+    int? EndColumn,
     string ProjectId,
     string CallerHandle,
     SymbolSummary CallerSummary);

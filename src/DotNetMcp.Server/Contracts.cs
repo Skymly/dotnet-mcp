@@ -165,6 +165,10 @@ public sealed record SymbolLocationDto
     public string? FilePath { get; init; }
     public int? Start { get; init; }
     public int? Length { get; init; }
+    public int? Line { get; init; }
+    public int? Column { get; init; }
+    public int? EndLine { get; init; }
+    public int? EndColumn { get; init; }
 }
 
 public sealed record SymbolDefinitionResultDto
@@ -193,6 +197,10 @@ public sealed record ReferenceLocationItemDto
     public string? FilePath { get; init; }
     public int? Start { get; init; }
     public int? Length { get; init; }
+    public int? Line { get; init; }
+    public int? Column { get; init; }
+    public int? EndLine { get; init; }
+    public int? EndColumn { get; init; }
     public required string ProjectId { get; init; }
     public required string Kind { get; init; }
 }
@@ -212,6 +220,10 @@ public sealed record CallerLocationItemDto
     public string? FilePath { get; init; }
     public int? Start { get; init; }
     public int? Length { get; init; }
+    public int? Line { get; init; }
+    public int? Column { get; init; }
+    public int? EndLine { get; init; }
+    public int? EndColumn { get; init; }
     public required string ProjectId { get; init; }
     public required string CallerHandle { get; init; }
     public required SymbolSummaryDto CallerSummary { get; init; }
@@ -261,10 +273,10 @@ public sealed record DiagnosticItemDto
     public required string Severity { get; init; }
     public required string Message { get; init; }
     public string? FilePath { get; init; }
-    public int? StartLine { get; init; }
-    public int? StartCharacter { get; init; }
+    public int? Line { get; init; }
+    public int? Column { get; init; }
     public int? EndLine { get; init; }
-    public int? EndCharacter { get; init; }
+    public int? EndColumn { get; init; }
     public required string ProjectId { get; init; }
     public string? Error { get; init; }
     public string? SuggestedAction { get; init; }
@@ -392,6 +404,10 @@ public sealed record DynamicInvocationItemDto
     public string? FilePath { get; init; }
     public int? Start { get; init; }
     public int? Length { get; init; }
+    public int? Line { get; init; }
+    public int? Column { get; init; }
+    public int? EndLine { get; init; }
+    public int? EndColumn { get; init; }
     public required string ProjectId { get; init; }
     public string? ReceiverStaticType { get; init; }
     public IReadOnlyList<string?> ArgumentStaticTypes { get; init; } = [];

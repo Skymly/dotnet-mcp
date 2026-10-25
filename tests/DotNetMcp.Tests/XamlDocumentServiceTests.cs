@@ -452,9 +452,9 @@ public class XamlDocumentServiceTests
         Assert.Null(symbolError);
         Assert.NotNull(page);
         var unknownProperty = Assert.Single(page!.Items, i => i.Id == "XAML0002" && i.Message.Contains("NotAPropRoot", StringComparison.Ordinal));
-        Assert.NotNull(unknownProperty.StartCharacter);
-        Assert.Equal(unknownProperty.StartLine, unknownProperty.EndLine);
-        Assert.Equal(unknownProperty.StartCharacter + "NotAPropRoot".Length, unknownProperty.EndCharacter);
+        Assert.NotNull(unknownProperty.Column);
+        Assert.Equal(unknownProperty.Line, unknownProperty.EndLine);
+        Assert.Equal(unknownProperty.Column + "NotAPropRoot".Length, unknownProperty.EndColumn);
         Assert.DoesNotContain(page.Items, i => i.Id == "XAML0001" && i.Message.Contains("Window", StringComparison.Ordinal));
         Assert.DoesNotContain(page.Items, i => i.Id == "XAML0002" && i.Message.Contains("Title", StringComparison.Ordinal));
     }

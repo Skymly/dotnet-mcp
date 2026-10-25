@@ -25,14 +25,14 @@ public sealed class DiagnosticFixService
         string projectId,
         string diagnosticId,
         string? filePath,
-        int? startLine,
-        int? startCharacter,
+        int? line,
+        int? column,
         int? endLine,
-        int? endCharacter,
+        int? endColumn,
         CancellationToken cancellationToken = default)
     {
         var (document, diagnostic, error) = await ResolveOccurrenceAsync(
-                session, projectId, diagnosticId, filePath, startLine, startCharacter, endLine, endCharacter, cancellationToken)
+                session, projectId, diagnosticId, filePath, line, column, endLine, endColumn, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -44,7 +44,7 @@ public sealed class DiagnosticFixService
             .Select((action, index) => new DiagnosticFixItem(index, action.Title, action.EquivalenceKey))
             .ToArray();
         _listedEpochs.Remember(
-            FixLocator(projectId, diagnosticId, filePath, startLine, startCharacter, endLine, endCharacter),
+            FixLocator(projectId, diagnosticId, filePath, line, column, endLine, endColumn),
             session.Epoch);
         return (new DiagnosticFixListSuccess(items), null);
     }
@@ -54,10 +54,10 @@ public sealed class DiagnosticFixService
         string projectId,
         string diagnosticId,
         string? filePath,
-        int? startLine,
-        int? startCharacter,
+        int? line,
+        int? column,
         int? endLine,
-        int? endCharacter,
+        int? endColumn,
         int fixIndex,
         string? scope = null,
         CancellationToken cancellationToken = default)
@@ -69,7 +69,7 @@ public sealed class DiagnosticFixService
         }
 
         var (document, diagnostic, error) = await ResolveOccurrenceAsync(
-                session, projectId, diagnosticId, filePath, startLine, startCharacter, endLine, endCharacter, cancellationToken)
+                session, projectId, diagnosticId, filePath, line, column, endLine, endColumn, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -77,7 +77,7 @@ public sealed class DiagnosticFixService
         }
 
         if (_listedEpochs.SnapshotMoved(
-                FixLocator(projectId, diagnosticId, filePath, startLine, startCharacter, endLine, endCharacter),
+                FixLocator(projectId, diagnosticId, filePath, line, column, endLine, endColumn),
                 session.Epoch))
         {
             return (null, new FixListEpochMismatchError(
@@ -171,29 +171,29 @@ public sealed class DiagnosticFixService
         string projectId,
         string diagnosticId,
         string? filePath,
-        int? startLine,
-        int? startCharacter,
+        int? line,
+        int? column,
         int? endLine,
-        int? endCharacter) =>
+        int? endColumn) =>
         string.Join(
             '\u001f',
             projectId,
             diagnosticId,
             filePath ?? string.Empty,
-            startLine?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
-            startCharacter?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            line?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            column?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
             endLine?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
-            endCharacter?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
+            endColumn?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
 
     private async Task<(Document? Document, Diagnostic? Diagnostic, SymbolQueryError? Error)> ResolveOccurrenceAsync(
         IWorkspaceSession session,
         string projectId,
         string diagnosticId,
         string? filePath,
-        int? startLine,
-        int? startCharacter,
+        int? line,
+        int? column,
         int? endLine,
-        int? endCharacter,
+        int? endColumn,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(projectId))
@@ -248,7 +248,7 @@ public sealed class DiagnosticFixService
 
         var matches = compilation.GetDiagnostics()
             .Where(d => string.Equals(d.Id, diagnosticId, StringComparison.Ordinal))
-            .Where(d => MatchesLocator(d, filePath, startLine, startCharacter, endLine, endCharacter))
+            .Where(d => MatchesLocator(d, filePath, line, column, endLine, endColumn))
             .ToList();
 
         if (matches.Count == 0)
@@ -262,7 +262,7 @@ public sealed class DiagnosticFixService
         {
             return (null, null, new DiagnosticAmbiguousError(
                 $"Diagnostic '{diagnosticId}' matched {matches.Count} occurrences; pass a tighter filePath/span.",
-                "Include filePath and startLine/startCharacter from project_diagnostics to disambiguate."));
+                "Include filePath and line/column from project_diagnostics to disambiguate."));
         }
 
         var diagnostic = matches[0];
@@ -289,10 +289,10 @@ public sealed class DiagnosticFixService
     private static bool MatchesLocator(
         Diagnostic diagnostic,
         string? filePath,
-        int? startLine,
-        int? startCharacter,
+        int? line,
+        int? column,
         int? endLine,
-        int? endCharacter)
+        int? endColumn)
     {
         if (!diagnostic.Location.IsInSource)
         {
@@ -305,17 +305,15 @@ public sealed class DiagnosticFixService
             return false;
         }
 
-        var actualStartLine = span.StartLinePosition.Line + 1;
-        var actualStartChar = span.StartLinePosition.Character;
-        var actualEndLine = span.EndLinePosition.Line + 1;
-        var actualEndChar = span.EndLinePosition.Character;
+        var (actualLine, actualColumn, actualEndLine, actualEndColumn) =
+            SourcePositions.FromLineSpan(span);
 
-        if (startLine is not null && startLine.Value != actualStartLine)
+        if (line is not null && line.Value != actualLine)
         {
             return false;
         }
 
-        if (startCharacter is not null && startCharacter.Value != actualStartChar)
+        if (column is not null && column.Value != actualColumn)
         {
             return false;
         }
@@ -325,7 +323,7 @@ public sealed class DiagnosticFixService
             return false;
         }
 
-        if (endCharacter is not null && endCharacter.Value != actualEndChar)
+        if (endColumn is not null && endColumn.Value != actualEndColumn)
         {
             return false;
         }

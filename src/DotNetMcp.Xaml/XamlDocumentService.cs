@@ -1140,18 +1140,18 @@ public sealed class XamlDocumentService
         int spanLength,
         string projectId)
     {
-        int? startLine = lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LineNumber : null;
-        int? startCharacter = lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LinePosition : null;
+        int? line = lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LineNumber : null;
+        int? column = lineInfo is not null && lineInfo.HasLineInfo() ? lineInfo.LinePosition : null;
         var width = Math.Max(spanLength, 1);
         return new DiagnosticItem(
             id,
             severity,
             message,
             path,
-            startLine,
-            startCharacter,
-            startLine,
-            startCharacter is int start ? start + width : null,
+            line,
+            column,
+            line,
+            column is int start ? start + width : null,
             projectId);
     }
 
