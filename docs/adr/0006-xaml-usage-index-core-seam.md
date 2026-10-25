@@ -8,7 +8,7 @@ Accepted（2026-10-25）
 
 XAML 侧已经能解析 `x:Class` / `x:Name` / `x:DataType` / binding path（`XamlDocumentService`），但每次都只对单点问题做一次性的「读文档 → 找符号」。`find_references` 和 `symbol_resolve_at` 要消费 XAML 使用点时，需要一张按项目扫描出来的 usage 清单：位置四元组 + 目标符号句柄 + 解析强度。若由每个工具各自复扫 XAML，namespace 规则与 DataContext 规则会在多处漂移。
 
-XAML 仍是「Core 内层 API 的调用者」，不是 `ILanguageAdapter`（ADR-0001 §5）。本决策只建立接缝、索引、缓存与测试；消费侧（`find_references` merge、`symbol_resolve_at` XAML 入口）在后续 chunk 落地，本票不改工具行为。
+XAML 仍是「Core 内层 API 的调用者」，不是 `ILanguageAdapter`（ADR-0001 §5）。本决策只建立接缝、索引、缓存与测试；消费侧随后分 chunk 落地——`symbol_find_references` 把 Exact 使用点并入同一分页流（cursor stage 1），`symbol_resolve_at` 对 `.axaml`/`.xaml` 位置经 `FindAtPositionAsync` 反查覆盖使用点。
 
 ## 决策
 
@@ -18,7 +18,7 @@ XAML 仍是「Core 内层 API 的调用者」，不是 `ILanguageAdapter`（ADR-
 
 3. **缓存按 `(Epoch, ProjectId)`，host 拥有**。`XamlUsageIndexCache` 仿 `FindHitCache`：同 epoch 替换、有界、线程安全；`IWorkspaceSessionCaches` 增 `XamlUsages`；`WorkspaceSession` / `WorkspaceHost`（含 warm session）共享同一个 cache，`AdvanceEpochUnlocked` 清空。索引实现通过 `session as IWorkspaceSessionCaches` soft-cast 取缓存——`IWorkspaceSession` 合同不变，不带缓存的 session 照常工作，只是每次重建。
 
-4. **`DotNetMcp.Server` 接线但不消费。** `ServerHost.AddDotNetMcp` 把 `XamlUsageIndex` 以 `IXamlUsageSource` 注册为 singleton；现有工具一律不调用它。未接线的 Core 行为与 4.0 完全一致。
+4. **`DotNetMcp.Server` 接线。** `ServerHost.AddDotNetMcp` 把 `XamlUsageIndex` 以 `IXamlUsageSource` 注册为 singleton；消费侧经会话 `IXamlUsageSourceProvider` soft-cast 取用（`symbol_find_references`、`symbol_resolve_at`），不经 `LanguageAdapters` 分流。未接线的 Core 行为与 4.0 完全一致。
 
 5. **细化 ADR-0001 §3 而非推翻**：使用点索引不是 adapter 上的新方法，是 Core 定义、Xaml 项目实现的可选接缝；依赖方向仍是 Xaml → Core。分页仍归 Core（ADR-0001 §4），索引返回完整 `IReadOnlyList`，分页游标留给消费侧。
 
@@ -34,7 +34,7 @@ XAML 仍是「Core 内层 API 的调用者」，不是 `ILanguageAdapter`（ADR-
 
 ## 后果
 
-- 使用点语义（kind、confidence、位置四元组）在 `XamlUsageIndexTests` 锁定；后续消费 chunk 只做 merge / dispatch。
+- 使用点语义（kind、confidence、位置四元组）在 `XamlUsageIndexTests` 锁定；消费侧只做 merge / dispatch——`symbol_find_references` 并入分页流（`XamlUsageReferenceTests`），`symbol_resolve_at` 反查使用点后复用同一「句柄→summary」路径，XAML 使用点恒为 `resolvedFrom=Reference`（`XamlResolveAtTests`）。
 - `IWorkspaceSessionCaches` 增一员；`IWorkspaceSession` 不变。
 - 未接线时 Core 与 4.0 行为一致，无回归面。
 
