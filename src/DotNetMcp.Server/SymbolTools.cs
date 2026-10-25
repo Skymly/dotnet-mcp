@@ -87,7 +87,22 @@ public sealed class SymbolTools
             return blankPath;
         }
 
-        if (!_trustedRoots.Contains(path))
+        // Document paths stored in the workspace/snapshots are canonical, so the
+        // input must be canonicalized the same way TrustedRoots does — otherwise a
+        // path through a symlinked ancestor (macOS /var -> /private/var) misses
+        // every stored document. Unresolvable paths fail closed as outside roots.
+        string canonicalPath;
+        try
+        {
+            canonicalPath = PathPolicy.Normalize(path);
+        }
+        catch (Exception ex) when (ex is PathPolicyException or ArgumentException)
+        {
+            _audit.PathPolicyDenied("symbol_resolve_at", path);
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
+        }
+
+        if (!_trustedRoots.ContainsNormalized(canonicalPath))
         {
             _audit.PathPolicyDenied("symbol_resolve_at", path);
             return McpToolEnvelope.ErrorResult(McpToolEnvelope.PathOutsideTrustedRoots());
@@ -108,7 +123,7 @@ public sealed class SymbolTools
         }
 
         var (success, error) = await _languages
-            .ResolveAtPositionAsync(session!, path, line, column, projectId, cancellationToken)
+            .ResolveAtPositionAsync(session!, canonicalPath, line, column, projectId, cancellationToken)
             .ConfigureAwait(false);
 
         if (error is not null)
