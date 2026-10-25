@@ -19,7 +19,7 @@ public sealed partial class FSharpSymbolQueryService
         CancellationToken cancellationToken = default)
     {
         using var epochHold = EnterRequest(session.FSharpSnapshot.Epoch);
-        var (item, _, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
+        var (item, project, check, error) = await TryResolveWithCheckAsync(session, handle, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -32,53 +32,51 @@ public sealed partial class FSharpSymbolQueryService
         var budget = softBudget ?? (entireSolution
             ? _softBudgets.FindRefsEntireSolution
             : _softBudgets.FindRefsScoped);
-        var clock = Stopwatch.StartNew();
+        var target = DefiningUse(check, item!)?.Symbol;
 
-        var hits = new List<ReferenceLocationItem>();
-        var truncatedByBudget = false;
-        if (check is not null)
-        {
-            foreach (var use in check.GetAllUsesOfAllSymbols(null))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (clock.Elapsed >= budget)
-                {
-                    truncatedByBudget = true;
-                    break;
-                }
-
-                if (!SameSymbol(use.Symbol, item!))
-                {
-                    continue;
-                }
-
-                hits.Add(ToReference(
-                    session.FSharpSnapshot.Epoch,
-                    item!.ProjectId,
-                    use.FileName,
-                    use.Range,
-                    use.IsFromDefinition
-                        ? ReferenceLocationKind.Definition
-                        : ReferenceLocationKind.Reference));
-            }
-        }
-
-        var (page, pageError) = Page(
-            hits,
-            session.Epoch,
+        return await ScanProjectsAsync<ReferenceLocationItem>(
+            session,
+            handle,
+            project!,
             entireSolution,
             pageLimit,
             cursor,
+            budget,
             "symbol_find_references",
-            handle,
-            truncatedByBudget);
-        return (page is null ? null : page with { Message = page.Message + ScopeNote(entireSolution) }, pageError);
+            entireSolution ? "refs-entire" : "refs-closure",
+            (scannedCheck, _, scanned) => ReferenceHits(
+                scannedCheck, scanned, item!, target, session.FSharpSnapshot.Epoch),
+            "No references were found.",
+            cancellationToken).ConfigureAwait(false);
     }
 
-    private static string ScopeNote(bool entireSolution) =>
-        entireSolution
-            ? " entireSolution does not widen F# search; only the defining project was searched."
-            : " F# search covers only the defining project; projects that reference it were not searched.";
+    private List<ReferenceLocationItem> ReferenceHits(
+        FSharpCheckProjectResults check,
+        FSharpProjectSnapshot scanned,
+        FSharpCatalogItem item,
+        FSharpSymbol? target,
+        long epoch)
+    {
+        var hits = new List<ReferenceLocationItem>();
+        foreach (var use in check.GetAllUsesOfAllSymbols(null))
+        {
+            if (!SameSymbolUse(use.Symbol, item, target))
+            {
+                continue;
+            }
+
+            hits.Add(ToReference(
+                epoch,
+                scanned.ProjectId,
+                use.FileName,
+                use.Range,
+                use.IsFromDefinition
+                    ? ReferenceLocationKind.Definition
+                    : ReferenceLocationKind.Reference));
+        }
+
+        return hits;
+    }
 
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
         IWorkspaceSession session,
@@ -101,7 +99,15 @@ public sealed partial class FSharpSymbolQueryService
                 "Call symbol_resolve for a type name/FQN, then call symbol_find_implementations with that handle."));
         }
 
-        var catalog = await CatalogAsync(project!, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false);
+        var catalog = new List<FSharpCatalogItem>();
+        foreach (var scanned in ScanScope(session.FSharpSnapshot, project!, entireSolution: false))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            catalog.AddRange(await CatalogAsync(
+                    session.FSharpSnapshot, scanned, session.FSharpSnapshot.Epoch, cancellationToken)
+                .ConfigureAwait(false));
+        }
+
         var impls = catalog
             .Where(candidate => candidate.IsContainer && candidate.SignatureQualifiedName != item.SignatureQualifiedName)
             .Where(candidate =>
@@ -116,15 +122,10 @@ public sealed partial class FSharpSymbolQueryService
             .ToList();
 
         var (page, pageError) = Page(impls, session.Epoch, pageLimit: limit, cursor, "symbol_find_implementations", handle,
-            emptyMessage: "No implementations were found.");
+            emptyMessage: "No implementations were found in the searched F# projects.");
         if (page is not null)
         {
-            page = page with
-            {
-                Message = page.Items.Count == 0
-                    ? "No implementations were found in the defining F# project; other projects were not searched."
-                    : page.Message + " F# search covers only types in the defining project."
-            };
+            page = page with { Message = page.Message + ForeignDependentsNote(project!) };
         }
 
         return (page, pageError);
@@ -151,9 +152,24 @@ public sealed partial class FSharpSymbolQueryService
                 "Call symbol_resolve for a type name/FQN, then call symbol_type_hierarchy with that handle."));
         }
 
-        var catalog = await CatalogAsync(project!, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false);
-        var byName = catalog.Where(c => c.IsContainer)
-            .ToDictionary(c => c.SignatureQualifiedName, StringComparer.Ordinal);
+        // Ancestors live upstream: merge the catalogs of the defining project and
+        // the F# projects it transitively references so base types/interfaces in
+        // another F# project keep resolving instead of reporting as external.
+        var catalog = new List<FSharpCatalogItem>();
+        foreach (var scanned in DependencyScope(session.FSharpSnapshot, project!))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            catalog.AddRange(await CatalogAsync(
+                    session.FSharpSnapshot, scanned, session.FSharpSnapshot.Epoch, cancellationToken)
+                .ConfigureAwait(false));
+        }
+
+        var byName = new Dictionary<string, FSharpCatalogItem>(StringComparer.Ordinal);
+        foreach (var candidate in catalog.Where(c => c.IsContainer))
+        {
+            byName.TryAdd(candidate.SignatureQualifiedName, candidate);
+        }
+
         var chain = new List<HierarchyItem>();
 
         var current = item.BaseTypeName;
@@ -192,7 +208,7 @@ public sealed partial class FSharpSymbolQueryService
                   string.Join(", ", outsideNames);
             var verb = outsideNames.Count == 1 ? "is" : "are";
             var note =
-                $"{head}, which {verb} outside the defining F# project; " +
+                $"{head}, which {verb} outside the searched F# projects; " +
                 "external base types and interfaces are not returned.";
             page = page with { Message = page.Items.Count == 0 ? note : page.Message + " " + note };
         }
@@ -224,62 +240,80 @@ public sealed partial class FSharpSymbolQueryService
                 "Call symbol_resolve for a method name/FQN, then call symbol_find_callers with that handle."));
         }
 
+        var pageLimit = limit is null or < 1
+            ? LanguageAdapters.DefaultMemberPageLimit
+            : Math.Min(limit.Value, LanguageAdapters.MaxMemberPageLimit);
         var budget = softBudget ?? (entireSolution
             ? _softBudgets.FindRefsEntireSolution
             : _softBudgets.FindRefsScoped);
-        var clock = Stopwatch.StartNew();
+        var target = DefiningUse(check, item)?.Symbol;
+
+        return await ScanProjectsAsync<CallerLocationItem>(
+            session,
+            handle,
+            project!,
+            entireSolution,
+            pageLimit,
+            cursor,
+            budget,
+            "symbol_find_callers",
+            entireSolution ? "callers-entire" : "callers-closure",
+            (scannedCheck, catalog, scanned) => CallerHits(
+                scannedCheck, catalog, scanned, item!, target, session.FSharpSnapshot.Epoch),
+            "No callers were found.",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private List<CallerLocationItem> CallerHits(
+        FSharpCheckProjectResults check,
+        IReadOnlyList<FSharpCatalogItem> items,
+        FSharpProjectSnapshot scanned,
+        FSharpCatalogItem item,
+        FSharpSymbol? target,
+        long epoch)
+    {
+        var catalog = FlattenCatalog(items).ToList();
+        var uses = check.GetAllUsesOfAllSymbols(null).ToList();
+        // Only definitions that bind to this project's own catalog can be callers —
+        // filtering before FindEnclosingDefinition keeps a parameter or local def-use
+        // from intercepting the enclosing member and dropping the caller (S10 finding).
+        var definitions = uses
+            .Where(u => u.IsFromDefinition)
+            .Where(u => catalog.Any(c => SameSymbol(u.Symbol, c)))
+            .ToList();
         var hits = new List<CallerLocationItem>();
-        var truncatedByBudget = false;
-        if (check is not null)
+        foreach (var use in uses)
         {
-            var catalog = project is null
-                ? []
-                : FlattenCatalog(await CatalogAsync(project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false)).ToList();
-            var uses = check.GetAllUsesOfAllSymbols(null).ToList();
-            var definitions = uses.Where(static u => u.IsFromDefinition).ToList();
-
-            foreach (var use in uses)
+            if (use.IsFromDefinition || !SameSymbolUse(use.Symbol, item, target))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (clock.Elapsed >= budget)
-                {
-                    truncatedByBudget = true;
-                    break;
-                }
-
-                if (use.IsFromDefinition || !SameSymbol(use.Symbol, item))
-                {
-                    continue;
-                }
-
-                var enclosing = FindEnclosingDefinition(definitions, use, item);
-                var callerItem = enclosing is null ? null : MatchCatalog(catalog, enclosing.Symbol);
-                if (callerItem is null || SameSymbol(enclosing!.Symbol, item))
-                {
-                    continue;
-                }
-
-                var success = ToSuccess(callerItem);
-                var loc = ToLocation(session.FSharpSnapshot.Epoch, use.FileName, use.Range);
-                hits.Add(new CallerLocationItem(
-                    loc.DeclarationAvailability,
-                    loc.Origin,
-                    loc.FilePath,
-                    loc.Start,
-                    loc.Length,
-                    loc.Line,
-                    loc.Column,
-                    loc.EndLine,
-                    loc.EndColumn,
-                    callerItem.ProjectId,
-                    success.Handle,
-                    success.Summary));
+                continue;
             }
+
+            var enclosing = FindEnclosingDefinition(definitions, use, item);
+            var callerItem = enclosing is null ? null : MatchCatalog(catalog, enclosing.Symbol);
+            if (callerItem is null)
+            {
+                continue;
+            }
+
+            var success = ToSuccess(callerItem);
+            var loc = ToLocation(epoch, use.FileName, use.Range);
+            hits.Add(new CallerLocationItem(
+                loc.DeclarationAvailability,
+                loc.Origin,
+                loc.FilePath,
+                loc.Start,
+                loc.Length,
+                loc.Line,
+                loc.Column,
+                loc.EndLine,
+                loc.EndColumn,
+                scanned.ProjectId,
+                success.Handle,
+                success.Summary));
         }
 
-        var (page, pageError) = Page(
-            hits, session.Epoch, limit, cursor, "symbol_find_callers", handle, "No callers were found.", truncatedByBudget);
-        return (page is null ? null : page with { Message = page.Message + ScopeNote(entireSolution) }, pageError);
+        return hits;
     }
 
     private async Task<(FSharpCatalogItem? Item, FSharpProjectSnapshot? Project, FSharpCheckProjectResults? Check, SymbolQueryError? Error)>
@@ -307,7 +341,7 @@ public sealed partial class FSharpSymbolQueryService
                 "Call workspace_list_projects, then symbol_resolve for an F# symbol."));
         }
 
-        var (catalog, check, _) = await CheckProjectAsync(project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false);
+        var (catalog, check, _) = await CheckProjectAsync(session.FSharpSnapshot, project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false);
         catalog = FlattenCatalog(catalog).ToList();
         var hit = catalog.FirstOrDefault(item =>
             string.Equals(item.SignatureQualifiedName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
@@ -385,7 +419,6 @@ public sealed partial class FSharpSymbolQueryService
 
         return false;
     }
-
 
     private static FSharpSymbolUse? FindEnclosingDefinition(
         IReadOnlyList<FSharpSymbolUse> definitions,
@@ -515,27 +548,198 @@ public sealed partial class FSharpSymbolQueryService
             scanIncomplete: truncatedByBudget);
     }
 
-    private static (PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error) Page(
-        IReadOnlyList<ReferenceLocationItem> items,
-        long epoch,
+    /// <summary>
+    /// Cross-project scan with project-stage paging: the cursor's document index is
+    /// the index into the ordered scope project list, its location offset pages the
+    /// hits of that project. The budget is checked before scanning the next project —
+    /// the project at the resumed stage always completes so the cursor advances.
+    /// Completed scans are cached per (epoch, handle, scope) like the Roslyn finder.
+    /// </summary>
+    private async Task<(PagedResult<T>? Success, SymbolQueryError? Error)> ScanProjectsAsync<T>(
+        IWorkspaceSession session,
+        string handle,
+        FSharpProjectSnapshot defining,
         bool entireSolution,
         int pageLimit,
         string? cursor,
+        TimeSpan budget,
         string tool,
-        string queryId,
-        bool truncatedByBudget = false)
+        string scopeKey,
+        Func<FSharpCheckProjectResults, IReadOnlyList<FSharpCatalogItem>, FSharpProjectSnapshot, IReadOnlyList<T>> collect,
+        string emptyMessage,
+        CancellationToken cancellationToken)
     {
-        return SoftBudgetPage.PageFindRefs(
-            items,
-            epoch,
-            entireSolution,
-            truncatedByBudget,
-            cursor,
-            pageLimit,
+        if (!SoftBudgetPage.TryReadFindRefs(
+                cursor,
+                session.Epoch,
+                entireSolution,
+                tool,
+                handle,
+                out var stage,
+                out var locOffset,
+                out var cursorError,
+                scopeMismatchMessage: "Cursor scope does not match the entireSolution parameter for this request."))
+        {
+            return (null, cursorError);
+        }
+
+        var scope = ScanScope(session.FSharpSnapshot, defining, entireSolution);
+        if (stage > scope.Count || (stage == scope.Count && locOffset > 0))
+        {
+            return (null, new StaleCursorError(
+                "Cursor project index is past the end of the scoped project list.",
+                $"Call {tool} again without a cursor to start a fresh page."));
+        }
+
+        var epoch = session.FSharpSnapshot.Epoch;
+        var cache = session as IWorkspaceSessionCaches;
+        var truncatedByBudget = false;
+        var scannedThrough = scope.Count;
+        if (cache?.FindHits.TryGetByDocument(session.Epoch, handle, scopeKey, out IReadOnlyList<IReadOnlyList<T>>? byProject) != true ||
+            byProject is null)
+        {
+            var filled = new IReadOnlyList<T>[scope.Count];
+            for (var i = 0; i < filled.Length; i++)
+            {
+                filled[i] = [];
+            }
+
+            var clock = Stopwatch.StartNew();
+            var index = stage;
+            for (; index < scope.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (index > stage && clock.Elapsed >= budget)
+                {
+                    truncatedByBudget = true;
+                    break;
+                }
+
+                var scanned = scope[index];
+                var (items, scannedCheck, _) = await CheckProjectAsync(
+                        session.FSharpSnapshot, scanned, epoch, cancellationToken)
+                    .ConfigureAwait(false);
+                filled[index] = scannedCheck is null
+                    ? []
+                    : collect(scannedCheck, items, scanned);
+            }
+
+            scannedThrough = index;
+            byProject = filled;
+            if (!truncatedByBudget && stage == 0 && locOffset == 0)
+            {
+                cache?.FindHits.SetByDocument(session.Epoch, handle, scopeKey, byProject);
+            }
+        }
+        else
+        {
+            scannedThrough = scope.Count;
+        }
+
+        if (stage < scannedThrough && locOffset > byProject![stage].Count)
+        {
+            return (null, new StaleCursorError(
+                "Cursor location offset is past the end of hits for a project stage.",
+                $"Call {tool} again without a cursor to start a fresh page."));
+        }
+
+        var (page, exhausted, nextStage, nextLoc) = FinderDocumentScan.Slice(
+            byProject!, stage, locOffset, pageLimit, scannedThrough);
+        var result = SoftBudgetPage.Finish(
+            page,
+            moreItems: !exhausted,
+            budgetHit: truncatedByBudget,
+            () => FindRefsPageCursor.Encode(session.Epoch, entireSolution, nextStage, nextLoc, tool, handle),
             tool,
-            queryId,
-            "No references were found.",
-            "Page complete.",
-            scanIncomplete: truncatedByBudget);
+            page.Count == 0 ? emptyMessage : "Page complete.");
+        return (result with { Message = result.Message + ForeignDependentsNote(defining) }, null);
     }
+
+    /// <summary>
+    /// Ordered scan list: default scope is the defining project then its F#
+    /// dependents (transitive, alphabetical); entireSolution is every F# project.
+    /// Ordering is deterministic so a cursor's project index survives across calls.
+    /// </summary>
+    private static IReadOnlyList<FSharpProjectSnapshot> ScanScope(
+        FSharpWorkspaceSnapshot snapshot,
+        FSharpProjectSnapshot defining,
+        bool entireSolution)
+    {
+        if (entireSolution)
+        {
+            return snapshot.Projects
+                .OrderBy(p => p.Name, StringComparer.Ordinal)
+                .ThenBy(p => p.ProjectId, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        return
+        [
+            defining,
+            .. FSharpDependents(snapshot, defining)
+        ];
+    }
+
+    private static IEnumerable<FSharpProjectSnapshot> FSharpDependents(
+        FSharpWorkspaceSnapshot snapshot,
+        FSharpProjectSnapshot defining) =>
+        defining.DependentProjects
+            .Where(d => string.Equals(d.Language, LanguageAdapters.FSharpLanguage, StringComparison.Ordinal))
+            .Select(d => snapshot.FindProject(d.ProjectId))
+            .OfType<FSharpProjectSnapshot>()
+            .OrderBy(p => p.Name, StringComparer.Ordinal)
+            .ThenBy(p => p.ProjectId, StringComparer.Ordinal);
+
+    /// <summary>The transitive F# project-reference closure of the defining project
+    /// (where base types and interfaces live), defining project first.</summary>
+    private static IReadOnlyList<FSharpProjectSnapshot> DependencyScope(
+        FSharpWorkspaceSnapshot snapshot,
+        FSharpProjectSnapshot defining)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { defining.ProjectId };
+        var scope = new List<FSharpProjectSnapshot> { defining };
+        var frontier = new Queue<FSharpProjectSnapshot>();
+        frontier.Enqueue(defining);
+        while (frontier.Count > 0)
+        {
+            foreach (var reference in frontier.Dequeue().ProjectReferences)
+            {
+                if (!seen.Add(reference.ProjectId))
+                {
+                    continue;
+                }
+
+                var dep = snapshot.FindProject(reference.ProjectId);
+                if (dep is not null)
+                {
+                    scope.Add(dep);
+                    frontier.Enqueue(dep);
+                }
+            }
+        }
+
+        return scope;
+    }
+
+    /// <summary>Dependent projects that are not F# can never be searched — name the gap.</summary>
+    private static string ForeignDependentsNote(FSharpProjectSnapshot project)
+    {
+        var foreign = project.DependentProjects
+            .Where(d => !string.Equals(d.Language, LanguageAdapters.FSharpLanguage, StringComparison.Ordinal))
+            .ToList();
+        return foreign.Count == 0
+            ? string.Empty
+            : $" C#/VB dependent projects were not searched: {DescribeDependents(foreign)}.";
+    }
+
+    private static FSharpSymbolUse? DefiningUse(FSharpCheckProjectResults? check, FSharpCatalogItem item) =>
+        check?.GetAllUsesOfAllSymbols(null)
+            .FirstOrDefault(use => use.IsFromDefinition && SameSymbol(use.Symbol, item));
+
+    /// <summary>Route-A checks hand the defining symbol across projects: logical
+    /// identity is the primary match, the fully-qualified catalog signature is the
+    /// fallback — property uses bind accessor symbols which are not
+    /// IsEffectivelySameAs-equal to the resolved property.</summary>
+    private static bool SameSymbolUse(FSharpSymbol symbol, FSharpCatalogItem item, FSharpSymbol? target) =>
+        (target is not null && symbol.IsEffectivelySameAs(target)) || SameSymbol(symbol, item);
 }

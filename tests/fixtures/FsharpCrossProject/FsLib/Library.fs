@@ -6,3 +6,6 @@ let doubleThenBump (n: int) = bump (n + n)
 
 type Greeter =
     static member Greet (name: string) = "hi " + name
+
+type IShape =
+    abstract member Area: float

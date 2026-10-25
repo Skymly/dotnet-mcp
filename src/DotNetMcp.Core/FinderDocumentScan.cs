@@ -5,12 +5,12 @@ namespace DotNetMcp.Core;
 /// Budget cancellation does not treat the table as exhausted; it keeps the
 /// next cursor on the first unfinished document.
 /// </summary>
-internal static class FinderDocumentScan
+public static class FinderDocumentScan
 {
     public static TimeSpan ResolveBudget(TimeSpan requested, TimeSpan defaultBudget) =>
         requested < TimeSpan.Zero ? defaultBudget : requested;
 
-    public static async Task<Result<THit>> ScanAsync<TDoc, THit>(
+    internal static async Task<Result<THit>> ScanAsync<TDoc, THit>(
         IReadOnlyList<TDoc> documents,
         int startIndex,
         TimeSpan budget,

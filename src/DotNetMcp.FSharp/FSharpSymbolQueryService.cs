@@ -16,6 +16,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     private readonly SoftBudgetOptions _softBudgets;
     private readonly ConcurrentDictionary<(long Epoch, string Path), string> _snapshotTexts = new(EpochPathComparer.Instance);
     private readonly ConcurrentDictionary<(long Epoch, string Path), string> _notifiedTexts = new(EpochPathComparer.Instance);
+    private readonly ConcurrentDictionary<(long Epoch, string Path), FSharpProjectOptions> _projectOptions = new(EpochPathComparer.Instance);
     private readonly ConcurrentDictionary<long, int> _epochsInFlight = new();
     private readonly AsyncLocal<long?> _currentEpoch = new();
     private readonly FSharpChecker _checker;
@@ -81,7 +82,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            var catalog = FlattenCatalog(await CatalogAsync(project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false));
+            var catalog = FlattenCatalog(await CatalogAsync(session.FSharpSnapshot, project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false));
             matches.AddRange(catalog.Where(item => Matches(item, query)));
         }
 
@@ -249,7 +250,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 "Call workspace_list_projects, then symbol_resolve for an F# symbol."));
         }
 
-        var catalog = FlattenCatalog(await CatalogAsync(project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false));
+        var catalog = FlattenCatalog(await CatalogAsync(session.FSharpSnapshot, project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false));
         var hit = catalog.FirstOrDefault(item =>
             string.Equals(item.SignatureQualifiedName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
             string.Equals(item.DisplayName, parsed.SignatureQualifiedName, StringComparison.Ordinal) ||
@@ -297,15 +298,17 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     }
 
     private async Task<IReadOnlyList<FSharpCatalogItem>> CatalogAsync(
+        FSharpWorkspaceSnapshot snapshot,
         FSharpProjectSnapshot project,
         long epoch,
         CancellationToken cancellationToken)
     {
-        var (items, _, _) = await CheckProjectAsync(project, epoch, cancellationToken).ConfigureAwait(false);
+        var (items, _, _) = await CheckProjectAsync(snapshot, project, epoch, cancellationToken).ConfigureAwait(false);
         return items;
     }
 
     private async Task<(IReadOnlyList<FSharpCatalogItem> Items, FSharpCheckProjectResults? Check, IReadOnlyList<(string Path, string Text)> Sources)> CheckProjectAsync(
+        FSharpWorkspaceSnapshot snapshot,
         FSharpProjectSnapshot project,
         long epoch,
         CancellationToken cancellationToken)
@@ -315,7 +318,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         _currentEpoch.Value = epoch;
         try
         {
-            return await CheckProjectCoreAsync(project, epoch, cancellationToken).ConfigureAwait(false);
+            return await CheckProjectCoreAsync(snapshot, project, epoch, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -325,6 +328,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     }
 
     private async Task<(IReadOnlyList<FSharpCatalogItem> Items, FSharpCheckProjectResults? Check, IReadOnlyList<(string Path, string Text)> Sources)> CheckProjectCoreAsync(
+        FSharpWorkspaceSnapshot snapshot,
         FSharpProjectSnapshot project,
         long epoch,
         CancellationToken cancellationToken)
@@ -341,14 +345,15 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             return ([], null, sources);
         }
 
-        PublishSnapshots(epoch, sources);
+        // Route-A dependent checks read dependency sources through DocumentSource,
+        // so every snapshot document must be publishable before any project check —
+        // not only the files of the project being checked.
+        PublishSnapshots(epoch, snapshot.Projects
+            .SelectMany(p => p.Documents)
+            .Select(d => (d.Path, d.Text))
+            .ToArray());
 
-        var projectFile = project.FilePath ?? Path.Combine(
-            Path.GetDirectoryName(sources[0].Path) ?? Path.GetTempPath(),
-            project.Name + ".fsproj");
-        var dllName = Path.ChangeExtension(projectFile, ".dll");
-        var argv = BuildCompilerArgs(dllName, sources.Select(s => s.Path), project.Defines, project.References);
-        var options = _checker.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
+        var options = OptionsFor(snapshot, project, epoch);
         foreach (var (path, sourceText) in sources)
         {
             var key = (epoch, path);
@@ -377,6 +382,126 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         var items = new List<FSharpCatalogItem>();
         WalkEntities(projectId, check.AssemblySignature.Entities, sources, items);
         return (items, check, sources);
+    }
+
+    /// <summary>
+    /// Options memoized per (epoch, projectId): FCS caches checks by options instance,
+    /// so dependent scans and the FSharpReferencedProject graph must share one instance.
+    /// F# project references attach as in-memory references (route A, S10); the `-r:`
+    /// text for each only keys the map — the dll is not required to exist.
+    /// </summary>
+    private FSharpProjectOptions OptionsFor(
+        FSharpWorkspaceSnapshot snapshot,
+        FSharpProjectSnapshot project,
+        long epoch,
+        HashSet<string>? visiting = null)
+    {
+        var key = (epoch, project.ProjectId);
+        if (_projectOptions.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        visiting ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!visiting.Add(project.ProjectId))
+        {
+            // msbuild graphs are DAGs; a cycle reaching here is defensive only —
+            // bare options (no referenced-project map) break the recursion.
+            return CommandLineOptions(project);
+        }
+
+        try
+        {
+            var options = BuildOptions(snapshot, project, epoch, visiting);
+            _projectOptions[key] = options;
+            return options;
+        }
+        finally
+        {
+            visiting.Remove(project.ProjectId);
+        }
+    }
+
+    private FSharpProjectOptions BuildOptions(
+        FSharpWorkspaceSnapshot snapshot,
+        FSharpProjectSnapshot project,
+        long epoch,
+        HashSet<string> visiting)
+    {
+        // Transitive F# project-reference closure — mirrors the msbuild reference
+        // flattening so every F# `-r:` arg has a matching in-memory reference.
+        // `seen` is local to this project: `visiting` only guards the recursion
+        // path, so a diamond dependency still keeps its own referenced projects.
+        var closure = new List<(string OutputFile, FSharpProjectSnapshot Project)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { project.ProjectId };
+        var frontier = new List<FSharpProjectSnapshot> { project };
+        while (frontier.Count > 0)
+        {
+            var next = new List<FSharpProjectSnapshot>();
+            foreach (var node in frontier)
+            {
+                foreach (var reference in node.ProjectReferences)
+                {
+                    if (!seen.Add(reference.ProjectId))
+                    {
+                        continue;
+                    }
+
+                    var dep = snapshot.FindProject(reference.ProjectId);
+                    if (dep is null)
+                    {
+                        continue;
+                    }
+
+                    closure.Add((reference.OutputFile, dep));
+                    next.Add(dep);
+                }
+            }
+
+            frontier = next;
+        }
+
+        var options = CommandLineOptions(
+            project,
+            project.References.Concat(closure.Select(c => c.OutputFile)));
+        if (closure.Count == 0)
+        {
+            return options;
+        }
+
+        var referenced = closure
+            .Select(c => FSharpReferencedProject.NewFSharpReference(
+                c.OutputFile,
+                OptionsFor(snapshot, c.Project, epoch, visiting)))
+            .ToArray();
+        return new FSharpProjectOptions(
+            options.ProjectFileName,
+            options.ProjectId,
+            options.SourceFiles,
+            options.OtherOptions,
+            referenced,
+            options.IsIncompleteTypeCheckEnvironment,
+            options.UseScriptResolutionRules,
+            options.LoadTime,
+            options.UnresolvedReferences,
+            options.OriginalLoadReferences,
+            options.Stamp);
+    }
+
+    private FSharpProjectOptions CommandLineOptions(
+        FSharpProjectSnapshot project,
+        IEnumerable<string>? extraReferences = null)
+    {
+        var projectFile = project.FilePath ?? Path.Combine(
+            Path.GetDirectoryName(project.Documents.FirstOrDefault()?.Path ?? string.Empty) ?? Path.GetTempPath(),
+            project.Name + ".fsproj");
+        var dllName = Path.ChangeExtension(projectFile, ".dll");
+        var argv = BuildCompilerArgs(
+            dllName,
+            project.Documents.Select(d => d.Path),
+            project.Defines,
+            extraReferences ?? project.References);
+        return _checker.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
     }
 
     private static void WalkEntities(
@@ -930,6 +1055,14 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             if (key.Epoch < epoch && !_epochsInFlight.ContainsKey(key.Epoch))
             {
                 _notifiedTexts.TryRemove(key, out _);
+            }
+        }
+
+        foreach (var key in _projectOptions.Keys)
+        {
+            if (key.Epoch < epoch && !_epochsInFlight.ContainsKey(key.Epoch))
+            {
+                _projectOptions.TryRemove(key, out _);
             }
         }
     }

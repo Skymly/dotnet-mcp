@@ -69,7 +69,7 @@ _Avoid_: code-behind-only DataContext walk
 _Avoid_: treating non-csharp handles as a blanket reject
 
 **P3 F#**:
-工作区可加载 SDK 风格 `.fsproj` / 混合解决方案；语言标记为 `fsharp`。F# 符号使用独立 FCS 栈上的 `fsharp:` SymbolHandle，导航/诊断与 C# 同级；references/callers/implementations/type hierarchy 只覆盖定义项目，跨项目外部基类型在页面消息中具名。F# 源生成器归因不在本分期。
+工作区可加载 SDK 风格 `.fsproj` / 混合解决方案；语言标记为 `fsharp`。F# 符号使用独立 FCS 栈上的 `fsharp:` SymbolHandle，导航/诊断与 C# 同级；references/callers 的默认范围是定义项目加其传递 F# 依赖方（entireSolution 扩到全部 F# 项目），implementations/type hierarchy 跨 F# 项目合并目录，C#/VB 依赖方不搜索但在页面消息中具名；超出 F# 范围的外部基类型也在页面消息中具名。F# rename 覆盖定义项目与全部 F# 依赖方；对 C#/VB 依赖方仍返回 FSharpCrossProjectRenameUnsupported。F# 源生成器归因不在本分期。
 _Avoid_: LSP proxy, stuffing F# into Roslyn ISymbol
 
 

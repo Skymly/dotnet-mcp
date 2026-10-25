@@ -64,7 +64,7 @@ public sealed partial class FSharpSymbolQueryService
         var fcsColumn = Math.Min(column - 1, LineLengthOf(text, line));
 
         var (items, check, _) = await CheckProjectAsync(
-                project, session.FSharpSnapshot.Epoch, cancellationToken)
+                session.FSharpSnapshot, project, session.FSharpSnapshot.Epoch, cancellationToken)
             .ConfigureAwait(false);
         if (check is null)
         {

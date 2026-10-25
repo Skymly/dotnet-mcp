@@ -154,6 +154,13 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                     dependent.Name,
                     RoslynLanguageAdapter.LanguageToken(dependent.Language)))
                 .ToArray();
+            var projectReferences = project.ProjectReferences
+                .Select(reference => solution.GetProject(reference.ProjectId))
+                .Where(other => other is not null && IsFSharpProject(other))
+                .Select(other => new FSharpProjectReference(
+                    other!.Id.Id.ToString("D"),
+                    FSharpReferenceOutputKey(other)))
+                .ToArray();
             projects.Add(new FSharpProjectSnapshot(
                 project.Id.Id.ToString("D"),
                 project.Name,
@@ -162,7 +169,8 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
                 defines,
                 references.Paths,
                 references.MissingOutputs,
-                dependents));
+                dependents,
+                projectReferences));
         }
 
         return new FSharpWorkspaceSnapshot(epoch, projects);
@@ -211,6 +219,13 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         foreach (var reference in project.ProjectReferences)
         {
             var other = project.Solution.GetProject(reference.ProjectId);
+            if (other is not null && IsFSharpProject(other))
+            {
+                // F# project references resolve through the in-memory
+                // FSharpReferencedProject map (ProjectReferences), not a -r: file.
+                continue;
+            }
+
             var before = paths.Count;
             Add(other?.OutputFilePath);
             Add(FindBuiltOutput(other));
@@ -228,7 +243,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
 
         foreach (var other in project.Solution.Projects)
         {
-            if (other.Id == project.Id)
+            if (other.Id == project.Id || IsFSharpProject(other))
             {
                 continue;
             }
@@ -238,6 +253,39 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         }
 
         return new CompilerReferenceSet(paths, missing);
+    }
+
+    /// <summary>The `-r:` / FSharpReferencedProject key for a referenced F# project. The
+    /// file need not exist — route A replaces the path with in-memory project options.</summary>
+    private static string FSharpReferenceOutputKey(Project project)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(project.OutputFilePath))
+            {
+                return Path.GetFullPath(project.OutputFilePath);
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+        }
+
+        var built = FindBuiltOutput(project);
+        if (built is not null)
+        {
+            return built;
+        }
+
+        try
+        {
+            return string.IsNullOrWhiteSpace(project.FilePath)
+                ? project.Name + ".dll"
+                : Path.ChangeExtension(Path.GetFullPath(project.FilePath), ".dll");
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return project.Name + ".dll";
+        }
     }
 
     private static string? FindBuiltOutput(Project? project)

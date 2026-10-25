@@ -31,7 +31,8 @@ public sealed class FSharpProjectSnapshot
         IReadOnlyList<string>? defines = null,
         IReadOnlyList<string>? references = null,
         IReadOnlyList<string>? missingDependencyOutputs = null,
-        IReadOnlyList<FSharpDependentProject>? dependentProjects = null)
+        IReadOnlyList<FSharpDependentProject>? dependentProjects = null,
+        IReadOnlyList<FSharpProjectReference>? projectReferences = null)
     {
         ProjectId = projectId;
         Name = name;
@@ -41,6 +42,7 @@ public sealed class FSharpProjectSnapshot
         References = references ?? [];
         MissingDependencyOutputs = missingDependencyOutputs ?? [];
         DependentProjects = dependentProjects ?? [];
+        ProjectReferences = projectReferences ?? [];
     }
 
     public string ProjectId { get; }
@@ -59,9 +61,17 @@ public sealed class FSharpProjectSnapshot
 
     /// <summary>Projects that directly or transitively reference this project.</summary>
     public IReadOnlyList<FSharpDependentProject> DependentProjects { get; }
+
+    /// <summary>
+    /// F# projects this project references directly. <see cref="FSharpProjectReference.OutputFile"/>
+    /// is the stable `-r:` / FSharpReferencedProject map key; the file need not exist.
+    /// </summary>
+    public IReadOnlyList<FSharpProjectReference> ProjectReferences { get; }
 }
 
 public sealed record FSharpDependentProject(string ProjectId, string Name, string Language);
+
+public sealed record FSharpProjectReference(string ProjectId, string OutputFile);
 
 public sealed class FSharpDocumentSnapshot
 {
