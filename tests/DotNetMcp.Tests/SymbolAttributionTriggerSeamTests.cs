@@ -1,3 +1,4 @@
+using DotNetMcp.Core;
 using DotNetMcp.Server;
 
 namespace DotNetMcp.Tests;
@@ -110,7 +111,7 @@ public class SymbolAttributionTriggerSeamTests
             Assert.Equal("SourceGenerator", body.OriginKind);
             var trigger = Assert.Single(body.Triggers);
             Assert.Equal("XamlElement", trigger.Kind);
-            Assert.Equal(Path.GetFullPath(axamlPath), Path.GetFullPath(trigger.Path!));
+            Assert.Equal(PathCanonical.Of(axamlPath), trigger.Path);
             Assert.Null(trigger.Handle);
             Assert.Contains("TitleText", trigger.Detail, StringComparison.Ordinal);
             Assert.Equal("TitleText", axaml.Substring(trigger.Start!.Value, trigger.Length!.Value));
@@ -150,7 +151,7 @@ public class SymbolAttributionTriggerSeamTests
             Assert.Equal("SourceGenerator", body.OriginKind);
             var trigger = Assert.Single(body.Triggers);
             Assert.Equal("XamlElement", trigger.Kind);
-            Assert.Equal(Path.GetFullPath(axamlPath), Path.GetFullPath(trigger.Path!));
+            Assert.Equal(PathCanonical.Of(axamlPath), trigger.Path);
             // Anchored at the document root element name (the first ElementType
             // usage in the document), not merely at the file.
             Assert.Equal("Window", axaml.Substring(trigger.Start!.Value, trigger.Length!.Value));
@@ -274,7 +275,10 @@ public class SymbolAttributionTriggerSeamTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-{label}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-        return path;
+        // macOS temp dirs are /var symlinks into /private/var; documents and the
+        // index report the canonical path, so anchor the fixture at the canonical
+        // form like the integration-test helper does.
+        return PathCanonical.Of(path);
     }
 
     private static void TryDelete(string path)
