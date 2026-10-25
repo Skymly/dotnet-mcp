@@ -58,8 +58,25 @@ public sealed partial class RoslynLanguageAdapter
             return (null, attrError);
         }
 
+        var xamlSource = (session as IXamlUsageSourceProvider)?.XamlUsageSource;
+
         if (attribution!.Attribution.OriginKind == SymbolOrigin.SourceGenerator)
         {
+            // Escape hatch (ADR-0006): a generated field that an x:Name usage in
+            // its defining project points at is renamed through the XAML value
+            // plus handwritten references — the generated declaration
+            // regenerates. Every other generated declaration stays refused.
+            if (xamlSource is not null &&
+                symbol is IFieldSymbol &&
+                await HasMatchingXNameUsageAsync(
+                        session, project!, symbol, xamlSource, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return await BuildXNameFieldRenameDraftAsync(
+                        session, handle, symbol, newName, xamlSource, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             return (null, new GeneratedSymbolRenameRefusedError(
                 "SourceGenerator declarations cannot be renamed.",
                 "Change the generator input (handwritten partial / attribute) and call symbol_preview_rename on that symbol."));
@@ -118,7 +135,17 @@ public sealed partial class RoslynLanguageAdapter
             }
         }
 
-        return (new RenamePreviewDraft(handle, newName, slices, invalidated), null);
+        // Registered XAML documents join the preview as ordinary slices
+        // (ADR-0005 Amendment 1); Unverified name matches are reported only.
+        // Unwired sessions collect nothing and the draft is unchanged.
+        var xaml = await CollectXamlRenameAsync(
+                session, symbol!, newName, xamlSource, cancellationToken)
+            .ConfigureAwait(false);
+        var documents = xaml.Slices.Count == 0
+            ? slices
+            : slices.Concat(xaml.Slices).ToArray();
+
+        return (new RenamePreviewDraft(handle, newName, documents, invalidated, xaml.Mentions), null);
     }
 
     private static bool IsValidIdentifier(string language, string newName)

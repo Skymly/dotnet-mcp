@@ -1299,6 +1299,142 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
     }
 
 
+    public static FakeSolutionLoader ImmediateWithAvaloniaRenameOnDisk(string projectDir) =>
+        new(TimeSpan.Zero, () => CreateAvaloniaRenameLoadedOnDisk(projectDir));
+
+    /// <summary>
+    /// On-disk Avalonia-shaped rename fixture (#525): one project whose
+    /// code-behind carries a handwritten reference to the generated
+    /// <c>x:Name</c> field plus the view-model and control types the XAML
+    /// usages resolve to. The <c>.axaml</c> document is attached by
+    /// <see cref="AttachWorkspaceXamlDocuments"/> from the opened solution's
+    /// directory, so the test writes it (and controls its encoding).
+    /// </summary>
+    public static LoadedSolution CreateAvaloniaRenameLoadedOnDisk(string projectDir)
+    {
+        Directory.CreateDirectory(projectDir);
+        var projectFilePath = Path.Combine(projectDir, "AvaloniaApp.csproj");
+        var codeBehindPath = Path.Combine(projectDir, "MainWindow.axaml.cs");
+        var controlsPath = Path.Combine(projectDir, "Controls.cs");
+        File.WriteAllText(projectFilePath, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        File.WriteAllText(codeBehindPath, """
+            namespace SampleApp;
+
+            public partial class MainWindow
+            {
+                public MainWindow()
+                {
+                }
+
+                // Handwritten reference to the generated x:Name field — renames with it.
+                public object Named() => TitleText;
+
+                public void OnSave() { }
+            }
+
+            public class Address
+            {
+                public string City { get; set; } = "";
+            }
+
+            public class Customer
+            {
+                public Address Home { get; set; } = new();
+                public string Name { get; set; } = "";
+            }
+
+            public class Vm
+            {
+                public string Title { get; set; } = "";
+            }
+            """);
+        File.WriteAllText(controlsPath, """
+            using System;
+            using Avalonia.Metadata;
+
+            [assembly: XmlnsDefinition("https://github.com/avaloniaui", "SampleControls")]
+
+            namespace Avalonia.Metadata
+            {
+                [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+                public sealed class XmlnsDefinitionAttribute : Attribute
+                {
+                    public XmlnsDefinitionAttribute(string xmlNamespace, string clrNamespace)
+                    {
+                        XmlNamespace = xmlNamespace;
+                        ClrNamespace = clrNamespace;
+                    }
+
+                    public string XmlNamespace { get; }
+                    public string ClrNamespace { get; }
+                }
+            }
+
+            namespace SampleControls
+            {
+                public class Window
+                {
+                    public string HandwrittenTitle { get; set; } = "";
+                }
+
+                public class FancyButton
+                {
+                    public object DataContext { get; set; } = new();
+
+                    public string Label { get; set; } = "";
+
+                    public event EventHandler Click;
+                }
+
+                public class TextBlock
+                {
+                    public object Tag { get; set; } = new();
+
+                    public string Text { get; set; } = "";
+                }
+            }
+            """);
+
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "AvaloniaApp",
+            "AvaloniaApp",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(projectId),
+            "MainWindow.axaml.cs",
+            SourceText.From(File.ReadAllText(codeBehindPath)),
+            filePath: codeBehindPath);
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(projectId),
+            "Controls.cs",
+            SourceText.From(File.ReadAllText(controlsPath)),
+            filePath: controlsPath);
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        var generatorAssemblyPath = typeof(Avalonia.NameGenerator.NameGenerator).Assembly.Location;
+        solution = solution.AddAnalyzerReference(
+            projectId,
+            new AnalyzerFileReference(generatorAssemblyPath, TestAnalyzerAssemblyLoader.Instance));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace Avalonia rename fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static LoadedSolution CreateRenameLoadedOnDisk(string projectDir)
     {
         Directory.CreateDirectory(projectDir);

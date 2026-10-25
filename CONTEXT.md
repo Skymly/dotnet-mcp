@@ -53,15 +53,15 @@ _Avoid_: treating the whole server as read-only after 2.0; apply_edit / patch_fi
 _Avoid_: apply_edit, patch_file, generic write; applying a preview under a different kind; RenamePreviewStore as the contract
 
 **Rename preview**:
-针对手写符号的 Workspace Edit 预览（`symbol_preview_rename`）。带 Epoch + TTL 的不透明 previewId；`Origin = SourceGenerator` 拒绝。apply 走自写抑制并推进 Epoch。
-_Avoid_: renaming generated members; writing disk from preview
+针对手写符号的 Workspace Edit 预览（`symbol_preview_rename`）。带 Epoch + TTL 的不透明 previewId；`Origin = SourceGenerator` 拒绝——唯一定义项目内存在匹配 `XName` 使用点的 `x:Name` 生成字段除外（改 XAML 值 + 手写引用，生成声明不写入）。已注册 XAML 文档作为普通切片并入同一 preview（ADR-0005 Amendment 1），`Unverified` 同名提及只经 `unverifiedXamlMentions` 报告。apply 走自写抑制并推进 Epoch，编码/BOM 保持。
+_Avoid_: renaming generated members; writing disk from preview; editing Unverified XAML mentions
 
 **XAML document**:
 已注册框架的 UI 文档：Avalonia `.axaml`，或根 xmlns 为 MAUI URI 的 `.xaml`。工具名不分裂。
 _Avoid_: generic XML file, WPF/WinUI document
 
 **XAML usage**:
-XAML 文档内一处指向符号的使用点：`x:Class`、element 类型、属性/事件 attribute、`x:DataType`、markup 类型引用、binding 路径段、`x:Name` 生成字段、事件 handler。每个使用点带 `Location` 四元组、`SignatureQualified` 符号键与可重解析句柄；经 `x:DataType` / `x:Class` / 静态 DataContext 解析为 Exact，仅同名匹配为 Unverified。索引按 `(Epoch, ProjectId)` 缓存，Core 接缝为 `IXamlUsageSource`（ADR-0006），会话经 `IXamlUsageSourceProvider` 可选暴露。`symbol_find_references` 已接入：源码命中之后同一分页流追加 Exact 使用点（cursor stage 1，Unverified 不进入），`xamlUsage` 标注种类。`symbol_resolve_at` 亦已接入：已注册文档内的位置反查覆盖使用点，`resolvedFrom=Reference`、`matched` 为使用点 span；落在使用点之外报 `NoSymbolAtPosition`，未接线会话保持 `UnsupportedDocumentForPosition`。
+XAML 文档内一处指向符号的使用点：`x:Class`、element 类型、属性/事件 attribute、`x:DataType`、markup 类型引用、binding 路径段、`x:Name` 生成字段、事件 handler。每个使用点带 `Location` 四元组、`SignatureQualified` 符号键与可重解析句柄；经 `x:DataType` / `x:Class` / 静态 DataContext 解析为 Exact，仅同名匹配为 Unverified。索引按 `(Epoch, ProjectId)` 缓存，Core 接缝为 `IXamlUsageSource`（ADR-0006），会话经 `IXamlUsageSourceProvider` 可选暴露。`symbol_find_references` 已接入：源码命中之后同一分页流追加 Exact 使用点（cursor stage 1，Unverified 不进入），`xamlUsage` 标注种类。`symbol_resolve_at` 亦已接入：已注册文档内的位置反查覆盖使用点，`resolvedFrom=Reference`、`matched` 为使用点 span；落在使用点之外报 `NoSymbolAtPosition`，未接线会话保持 `UnsupportedDocumentForPosition`。`symbol_preview_rename` 已接入：`Exact` 使用点按符号键匹配改写（span 内只替换简单名的一处出现：标识符类整段替换，限定/前缀类尾部替换），`Unverified` 同名提及只报告不修改；`x:Name` 生成字段由此成为唯一可改名的生成符号。
 _Avoid_: XAML document index, usage as a third adapter concept
 
 **Binding path**:

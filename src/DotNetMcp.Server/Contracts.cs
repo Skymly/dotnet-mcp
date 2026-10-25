@@ -503,6 +503,16 @@ public sealed record RenameDocumentSliceDto
     public required string NewText { get; init; }
 }
 
+public sealed record UnverifiedXamlMentionDto
+{
+    public required string Path { get; init; }
+    public required int Line { get; init; }
+    public required int Column { get; init; }
+    public required int EndLine { get; init; }
+    public required int EndColumn { get; init; }
+    public required string Text { get; init; }
+}
+
 public sealed record SymbolPreviewRenameResultDto
 {
     public required string PreviewId { get; init; }
@@ -512,6 +522,7 @@ public sealed record SymbolPreviewRenameResultDto
     public required string NewName { get; init; }
     public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
     public required IReadOnlyList<string> InvalidatedHandles { get; init; }
+    public IReadOnlyList<UnverifiedXamlMentionDto>? UnverifiedXamlMentions { get; init; }
 }
 
 
