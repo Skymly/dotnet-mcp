@@ -70,6 +70,7 @@ public class SoftBudgetPageTests
             out var entire,
             out var docIndex,
             out var locOffset,
+            out var stage,
             out var tool,
             out var queryId,
             out var cursorError));
@@ -78,6 +79,7 @@ public class SoftBudgetPageTests
         Assert.True(entire);
         Assert.Equal(2, docIndex);
         Assert.Equal(0, locOffset);
+        Assert.Equal(0, stage);
         Assert.Equal("symbol_find_references", tool);
         Assert.Equal("href", queryId);
         Assert.DoesNotContain("Page complete.", page.Message, StringComparison.Ordinal);
@@ -168,7 +170,7 @@ public class SoftBudgetPageTests
         var cursor = Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
 
         Assert.False(FindRefsPageCursor.TryDecode(
-            cursor, out _, out _, out _, out _, out _, out _, out var error));
+            cursor, out _, out _, out _, out _, out _, out _, out _, out var error));
         Assert.False(string.IsNullOrWhiteSpace(error));
     }
 

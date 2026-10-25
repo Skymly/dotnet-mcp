@@ -57,7 +57,7 @@ _Avoid_: renaming generated members; writing disk from preview
 _Avoid_: generic XML file, WPF/WinUI document
 
 **XAML usage**:
-XAML 文档内一处指向符号的使用点：`x:Class`、element 类型、属性/事件 attribute、`x:DataType`、markup 类型引用、binding 路径段、`x:Name` 生成字段、事件 handler。每个使用点带 `Location` 四元组、`SignatureQualified` 符号键与可重解析句柄；经 `x:DataType` / `x:Class` / 静态 DataContext 解析为 Exact，仅同名匹配为 Unverified。索引按 `(Epoch, ProjectId)` 缓存，Core 接缝为 `IXamlUsageSource`（ADR-0006），消费方后续 chunk 落地。
+XAML 文档内一处指向符号的使用点：`x:Class`、element 类型、属性/事件 attribute、`x:DataType`、markup 类型引用、binding 路径段、`x:Name` 生成字段、事件 handler。每个使用点带 `Location` 四元组、`SignatureQualified` 符号键与可重解析句柄；经 `x:DataType` / `x:Class` / 静态 DataContext 解析为 Exact，仅同名匹配为 Unverified。索引按 `(Epoch, ProjectId)` 缓存，Core 接缝为 `IXamlUsageSource`（ADR-0006），会话经 `IXamlUsageSourceProvider` 可选暴露。`symbol_find_references` 已接入：源码命中之后同一分页流追加 Exact 使用点（cursor stage 1，Unverified 不进入），`xamlUsage` 标注种类。
 _Avoid_: XAML document index, usage as a third adapter concept
 
 **Binding path**:

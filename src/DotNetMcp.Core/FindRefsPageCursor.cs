@@ -4,19 +4,23 @@ using System.Text.Json;
 namespace DotNetMcp.Core;
 
 /// <summary>
-/// Opaque find-references page cursor: workspace epoch + scope + document/project-stage
-/// walk + tool + query identity + TTL. v4: the F# adapter reuses DocIndex as the index
-/// into the scoped project list, so v3 F# cursors must fail decode (StaleCursorError).
+/// Opaque find-references page cursor: workspace epoch + scope + lane stage +
+/// document/project walk + tool + query identity + TTL. v5 adds Stage — 0 is
+/// the source walk (Roslyn document index; the F# adapter reuses DocIndex as
+/// the index into the scoped project list), higher lanes are adapter-defined
+/// (1 = XAML usage list for symbol_find_references) — so v4 cursors must fail
+/// decode (StaleCursorError).
 /// </summary>
 public static class FindRefsPageCursor
 {
-    private const string Version = "v4";
+    private const string Version = "v5";
     public static readonly TimeSpan DefaultTtl = TimeSpan.FromMinutes(30);
 
     private sealed record Payload(
         string V,
         long Epoch,
         bool EntireSolution,
+        int Stage,
         int DocIndex,
         int LocOffset,
         long IssuedAtUnixMs,
@@ -30,12 +34,13 @@ public static class FindRefsPageCursor
         int locOffset,
         string tool,
         string queryId,
-        DateTimeOffset? issuedAt = null)
+        DateTimeOffset? issuedAt = null,
+        int stage = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tool);
         var issued = (issuedAt ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds();
         var json = JsonSerializer.Serialize(
-            new Payload(Version, epoch, entireSolution, docIndex, locOffset, issued, tool, queryId ?? string.Empty));
+            new Payload(Version, epoch, entireSolution, stage, docIndex, locOffset, issued, tool, queryId ?? string.Empty));
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
     }
 
@@ -45,6 +50,7 @@ public static class FindRefsPageCursor
         out bool entireSolution,
         out int docIndex,
         out int locOffset,
+        out int stage,
         out string tool,
         out string queryId,
         out string? error,
@@ -55,6 +61,7 @@ public static class FindRefsPageCursor
         entireSolution = false;
         docIndex = 0;
         locOffset = 0;
+        stage = 0;
         tool = string.Empty;
         queryId = string.Empty;
         error = null;
@@ -71,6 +78,7 @@ public static class FindRefsPageCursor
             var payload = JsonSerializer.Deserialize<Payload>(json);
             if (payload is null ||
                 !string.Equals(payload.V, Version, StringComparison.Ordinal) ||
+                payload.Stage < 0 ||
                 payload.DocIndex < 0 ||
                 payload.LocOffset < 0 ||
                 payload.IssuedAtUnixMs <= 0 ||
@@ -93,6 +101,7 @@ public static class FindRefsPageCursor
             entireSolution = payload.EntireSolution;
             docIndex = payload.DocIndex;
             locOffset = payload.LocOffset;
+            stage = payload.Stage;
             tool = payload.Tool;
             queryId = payload.QueryId ?? string.Empty;
             return true;

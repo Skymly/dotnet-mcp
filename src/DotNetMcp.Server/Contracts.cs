@@ -227,6 +227,9 @@ public sealed record ReferenceLocationItemDto
     public int? EndColumn { get; init; }
     public required string ProjectId { get; init; }
     public required string Kind { get; init; }
+
+    /// <summary>XAML usage kind for Exact XAML hits (ADR-0006); omitted/null on source hits.</summary>
+    public string? XamlUsage { get; init; }
 }
 
 public sealed record SymbolFindReferencesResultDto

@@ -96,3 +96,14 @@ public interface IXamlUsageSource
     /// <summary>True for paths shaped like registered XAML documents (.axaml, .xaml).</summary>
     bool IsXamlDocumentPath(string path);
 }
+
+/// <summary>
+/// Optional session collaborator (ADR-0006): exposes the wired
+/// <see cref="IXamlUsageSource"/>. Sessions without it behave exactly as
+/// before — queries probe with <c>as</c>, same shape as
+/// <see cref="IWorkspaceSessionCaches"/>.
+/// </summary>
+public interface IXamlUsageSourceProvider
+{
+    IXamlUsageSource? XamlUsageSource { get; }
+}

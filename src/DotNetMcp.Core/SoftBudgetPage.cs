@@ -54,7 +54,7 @@ public static class SoftBudgetPage
         string completeMessage,
         bool scanIncomplete = false)
     {
-        if (!TryReadFindRefs(cursor, epoch, entireSolution, tool, queryId, out var docIndex, out var locOffset, out var error))
+        if (!TryReadFindRefs(cursor, epoch, entireSolution, tool, queryId, out var docIndex, out var locOffset, out _, out var error))
         {
             return (null, error);
         }
@@ -163,11 +163,13 @@ public static class SoftBudgetPage
         string queryId,
         out int docIndex,
         out int locOffset,
+        out int stage,
         out SymbolQueryError? error,
         string? scopeMismatchMessage = null)
     {
         docIndex = 0;
         locOffset = 0;
+        stage = 0;
         error = null;
         if (string.IsNullOrWhiteSpace(cursor))
         {
@@ -180,6 +182,7 @@ public static class SoftBudgetPage
                 out var cursorEntire,
                 out docIndex,
                 out locOffset,
+                out stage,
                 out var cursorTool,
                 out var cursorQuery,
                 out var cursorError))
@@ -189,6 +192,7 @@ public static class SoftBudgetPage
                 $"Call {tool} again without a cursor to start a fresh page.");
             docIndex = 0;
             locOffset = 0;
+            stage = 0;
             return false;
         }
 
@@ -201,6 +205,7 @@ public static class SoftBudgetPage
                 $"Call {tool} again without a cursor; do not retry with the stale cursor.");
             docIndex = 0;
             locOffset = 0;
+            stage = 0;
             return false;
         }
 
@@ -209,6 +214,7 @@ public static class SoftBudgetPage
             error = MismatchedQuery(tool);
             docIndex = 0;
             locOffset = 0;
+            stage = 0;
             return false;
         }
 
