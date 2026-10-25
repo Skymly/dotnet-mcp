@@ -32,6 +32,7 @@ public class ToolSurfaceGuardTests
         "symbol_preview_refactoring",
         "symbol_preview_rename",
         "symbol_resolve",
+        "symbol_resolve_at",
         "symbol_summary",
         "symbol_type_hierarchy",
         "workspace_check_drift",
