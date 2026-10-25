@@ -307,6 +307,19 @@ public sealed class LanguageAdapters
             adapter => adapter.FindReferencesAsync(
                 session, handle, entireSolution, limit, cursor, softBudget, cancellationToken));
 
+    public Task<(SymbolSourceSuccess? Success, SymbolQueryError? Error)> GetSourceAsync(
+        IWorkspaceSession session,
+        string handle,
+        int? maxChars = null,
+        CancellationToken cancellationToken = default) =>
+        Dispatch(handle, adapter => adapter.GetSourceAsync(
+            session, handle, NormalizeMaxChars(maxChars), cancellationToken));
+
+    private static int NormalizeMaxChars(int? maxChars) =>
+        maxChars is null or <= 0
+            ? SymbolSourceText.DefaultMaxChars
+            : Math.Min(maxChars.Value, SymbolSourceText.MaxCharsCap);
+
     public Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
         IWorkspaceSession session,
         string handle,

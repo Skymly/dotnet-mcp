@@ -116,9 +116,10 @@ public class ReadmeInstallSeamTests
         var toolNames = tools.Skip(1)
             .SelectMany(row => Regex.Matches(row[1], "`([^`]+)`").Select(m => m.Groups[1].Value))
             .ToArray();
-        Assert.Equal(32, toolNames.Length);
+        Assert.Equal(33, toolNames.Length);
         Assert.Contains("workspace_open", toolNames);
         Assert.Contains("symbol_resolve_at", toolNames);
+        Assert.Contains("symbol_source", toolNames);
         Assert.Contains("symbol_apply_refactoring", toolNames);
         Assert.Contains("xaml_diagnostics", toolNames);
 

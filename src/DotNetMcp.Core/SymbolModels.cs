@@ -160,6 +160,9 @@ public sealed record NoSymbolAtPositionError(string Message, string SuggestedAct
 public sealed record SymbolNotAddressableError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.SymbolNotAddressable, Message, SuggestedAction);
 
+public sealed record SourceUnavailableError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.SourceUnavailable, Message, SuggestedAction);
+
 public static class SymbolQueryErrorCodes
 {
     public const string InvalidSymbolHandle = "InvalidSymbolHandle";
@@ -200,6 +203,7 @@ public static class SymbolQueryErrorCodes
     public const string InvalidPosition = "InvalidPosition";
     public const string NoSymbolAtPosition = "NoSymbolAtPosition";
     public const string SymbolNotAddressable = "SymbolNotAddressable";
+    public const string SourceUnavailable = "SourceUnavailable";
 }
 
 public static class DeclarationAvailability

@@ -220,6 +220,44 @@ public sealed class SymbolTools
         return McpToolEnvelope.OkResult(ToAttributionDto(success!));
     }
 
+    [McpServerTool(Name = "symbol_source", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
+        "Return verbatim declaration source text for a C# / VB / F# SymbolHandle — cheaper than reading the whole " +
+        "file because it slices only the declaration (XML doc, attributes, members of a type). Source-generated " +
+        "code never lands on disk, so host file tools cannot read it: this is the only way to read generated " +
+        "source. Handwritten declarations come first (ordered by file/position), generated ones last, each with " +
+        "Origin and generator identity. Positions are 1-based UTF-16 code units, endColumn exclusive. " +
+        "maxChars (default 12000, max 60000) is a text budget spent declaration-by-declaration at line " +
+        "boundaries; a declaration over budget keeps only whole lines and later declarations list with empty " +
+        "text and truncated=true, so a truncated declaration's end position marks where the text stopped. " +
+        "Truncated types hint to page members via symbol_members first. Metadata-only symbols fail with " +
+        "SourceUnavailable — no decompilation.")]
+    public async Task<CallToolResult> SymbolSource(
+        [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
+        string handle,
+        [Description("Text budget for declaration text (default 12000, max 60000; non-positive resets to default).")]
+        int? maxChars = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("symbol_source");
+
+        if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
+        {
+            return notReady!;
+        }
+
+        var (success, error) = await _languages
+            .GetSourceAsync(session!, handle, maxChars, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
+        }
+
+        return McpToolEnvelope.OkResult(ToSourceDto(success!));
+    }
+
     [McpServerTool(Name = "symbol_members", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List members of a type SymbolHandle with forced pagination. Cursors bind to the workspace " +
         "epoch and become stale when the workspace generation advances.")]
@@ -551,6 +589,31 @@ public sealed class SymbolTools
                     }
             },
             StringComparer.Ordinal)
+    };
+
+    private static SymbolSourceResultDto ToSourceDto(SymbolSourceSuccess success) => new()
+    {
+        Declarations = success.Declarations.Select(d => new SymbolSourceDeclarationDto
+        {
+            Origin = d.Origin,
+            Generator = d.Generator is null
+                ? null
+                : new GeneratorIdentityDto
+                {
+                    AssemblyName = d.Generator.AssemblyName,
+                    TypeFullName = d.Generator.TypeFullName,
+                    Version = d.Generator.Version
+                },
+            FilePath = d.FilePath,
+            Line = d.Line,
+            Column = d.Column,
+            EndLine = d.EndLine,
+            EndColumn = d.EndColumn,
+            Text = d.Text,
+            Truncated = d.Truncated
+        }).ToArray(),
+        Truncated = success.Truncated,
+        Message = success.Message
     };
 
     private static SymbolMembersResultDto ToMembersDto(PagedResult<MemberListItem> page) => new()
