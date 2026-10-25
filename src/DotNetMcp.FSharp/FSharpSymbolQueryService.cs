@@ -706,9 +706,22 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         {
             if (string.IsNullOrWhiteSpace(file))
             {
-                return [new SymbolLocation(DeclarationAvailability.None, SymbolOrigin.Handwritten, null, null, null)];
+                return [new SymbolLocation(
+                    DeclarationAvailability.None,
+                    SymbolOrigin.Handwritten,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null)];
             }
 
+            // The range exists, but without the snapshot text there are no
+            // offsets; Line/Column/EndLine/EndColumn stay null alongside
+            // Start/Length so a location never mixes null and non-null
+            // coordinate systems.
             return
             [
                 new SymbolLocation(
@@ -716,7 +729,11 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                     SymbolOrigin.Handwritten,
                     file,
                     Start: null,
-                    Length: null)
+                    Length: null,
+                    Line: null,
+                    Column: null,
+                    EndLine: null,
+                    EndColumn: null)
             ];
         }
 
@@ -728,7 +745,11 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 SymbolOrigin.Handwritten,
                 source.Path,
                 start,
-                length)
+                length,
+                range.StartLine,
+                range.StartColumn + 1,
+                range.EndLine,
+                range.EndColumn + 1)
         ];
     }
 

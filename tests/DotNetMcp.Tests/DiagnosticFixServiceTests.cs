@@ -269,14 +269,14 @@ public class DiagnosticFixServiceTests
         Assert.NotNull(compilation);
         var hit = compilation.GetDiagnostics().First(d => d.Id == "CS0246");
         var span = hit.Location.GetLineSpan();
-        var startLine = span.StartLinePosition.Line + 1;
-        var startCharacter = span.StartLinePosition.Character;
+        var line = span.StartLinePosition.Line + 1;
+        var column = span.StartLinePosition.Character + 1;
         var (listed, listError) = await service.ListFixesAsync(
-            session, projectId, "CS0246", @"C:\fake\Many.cs", startLine, startCharacter, null, null);
+            session, projectId, "CS0246", @"C:\fake\Many.cs", line, column, null, null);
         Assert.Null(listError);
         var withKey = listed!.Items.First(i => !string.IsNullOrWhiteSpace(i.EquivalenceKey));
         var (draft, error) = await service.BuildPreviewAsync(
-            session, projectId, "CS0246", @"C:\fake\Many.cs", startLine, startCharacter, null, null,
+            session, projectId, "CS0246", @"C:\fake\Many.cs", line, column, null, null,
             withKey.FixIndex, DiagnosticFixScopes.Document);
         if (error is FixAllBudgetExceededError)
         {

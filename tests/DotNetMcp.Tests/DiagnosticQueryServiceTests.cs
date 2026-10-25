@@ -12,7 +12,7 @@ public class DiagnosticQueryServiceTests
         var projectId = workspace.CurrentSolution.Projects.Single().Id.Id.ToString("D");
         var fake = new FakeAdapter();
         var page = new PagedResult<DiagnosticItem>(
-            [new DiagnosticItem("CS0103", "Error", "name missing", @"C:\fake\W.cs", 1, 0, 1, 4, projectId)],
+            [new DiagnosticItem("CS0103", "Error", "name missing", @"C:\fake\W.cs", 1, 1, 1, 4, projectId)],
             Truncated: false,
             NextCursor: null,
             Message: "done");
@@ -46,7 +46,7 @@ public class DiagnosticQueryServiceTests
             PagesByProject =
             {
                 [projects[0].Id.Id.ToString("D")] = Enumerable.Range(0, 130)
-                    .Select(i => new DiagnosticItem("CS0000", "Warning", $"w{i}", @"C:.cs", i, 0, i, 1, projects[0].Id.Id.ToString("D")))
+                    .Select(i => new DiagnosticItem("CS0000", "Warning", $"w{i}", @"C:.cs", i + 1, 1, i + 1, 2, projects[0].Id.Id.ToString("D")))
                     .ToList(),
             },
             ErrorsByProject =
@@ -99,7 +99,7 @@ public class DiagnosticQueryServiceTests
         {
             PagesByProject =
             {
-                [okId] = [new DiagnosticItem("CS0001", "Error", "real", @"C:\a.cs", 1, 0, 1, 1, okId)],
+                [okId] = [new DiagnosticItem("CS0001", "Error", "real", @"C:\a.cs", 1, 1, 1, 2, okId)],
             },
             ErrorsByProject =
             {
@@ -136,12 +136,12 @@ public class DiagnosticQueryServiceTests
             {
                 [projectA] =
                 [
-                    new DiagnosticItem("CS0001", "Error", "a1", @"C:\a.cs", 1, 0, 1, 1, projectA),
-                    new DiagnosticItem("CS0002", "Error", "a2", @"C:\a.cs", 2, 0, 2, 1, projectA),
+                    new DiagnosticItem("CS0001", "Error", "a1", @"C:\a.cs", 1, 1, 1, 2, projectA),
+                    new DiagnosticItem("CS0002", "Error", "a2", @"C:\a.cs", 2, 1, 2, 2, projectA),
                 ],
                 [projectB] =
                 [
-                    new DiagnosticItem("CS0003", "Error", "b1", @"C:\b.cs", 1, 0, 1, 1, projectB),
+                    new DiagnosticItem("CS0003", "Error", "b1", @"C:\b.cs", 1, 1, 1, 2, projectB),
                 ],
             }
         };

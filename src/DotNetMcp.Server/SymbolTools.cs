@@ -425,14 +425,7 @@ public sealed class SymbolTools
 
     private static SymbolDefinitionResultDto ToDefinitionDto(SymbolDefinitionSuccess success) => new()
     {
-        Locations = success.Locations.Select(l => new SymbolLocationDto
-        {
-            DeclarationAvailability = l.DeclarationAvailability,
-            Origin = l.Origin,
-            FilePath = l.FilePath,
-            Start = l.Start,
-            Length = l.Length
-        }).ToArray()
+        Locations = success.Locations.Select(ToLocationDto).ToArray()
     };
 
     private static SymbolAttributionResultDto ToAttributionDto(SymbolAttributionSuccess success) => new()
@@ -486,6 +479,10 @@ public sealed class SymbolTools
             FilePath = i.FilePath,
             Start = i.Start,
             Length = i.Length,
+            Line = i.Line,
+            Column = i.Column,
+            EndLine = i.EndLine,
+            EndColumn = i.EndColumn,
             ProjectId = i.ProjectId,
             Kind = i.Kind
         }).ToArray(),
@@ -500,14 +497,7 @@ public sealed class SymbolTools
         {
             Handle = i.Handle,
             Summary = ToSummaryDto(i.Summary),
-            Locations = i.Locations.Select(l => new SymbolLocationDto
-            {
-                DeclarationAvailability = l.DeclarationAvailability,
-                Origin = l.Origin,
-                FilePath = l.FilePath,
-                Start = l.Start,
-                Length = l.Length
-            }).ToArray()
+            Locations = i.Locations.Select(ToLocationDto).ToArray()
         }).ToArray(),
         Truncated = page.Truncated,
         NextCursor = page.NextCursor,
@@ -536,6 +526,10 @@ public sealed class SymbolTools
             FilePath = i.FilePath,
             Start = i.Start,
             Length = i.Length,
+            Line = i.Line,
+            Column = i.Column,
+            EndLine = i.EndLine,
+            EndColumn = i.EndColumn,
             ProjectId = i.ProjectId,
             CallerHandle = i.CallerHandle,
             CallerSummary = ToSummaryDto(i.CallerSummary)
@@ -543,6 +537,19 @@ public sealed class SymbolTools
         Truncated = page.Truncated,
         NextCursor = page.NextCursor,
         Message = page.Message
+    };
+
+    private static SymbolLocationDto ToLocationDto(SymbolLocation l) => new()
+    {
+        DeclarationAvailability = l.DeclarationAvailability,
+        Origin = l.Origin,
+        FilePath = l.FilePath,
+        Start = l.Start,
+        Length = l.Length,
+        Line = l.Line,
+        Column = l.Column,
+        EndLine = l.EndLine,
+        EndColumn = l.EndColumn
     };
 
     private static SymbolSummaryDto ToSummaryDto(SymbolSummary summary) => new()

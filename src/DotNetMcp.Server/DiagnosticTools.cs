@@ -28,7 +28,7 @@ public sealed class DiagnosticTools
     [McpServerTool(Name = "diagnostics_list_fixes", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List built-in CodeFixes from Microsoft.CodeAnalysis C# / VB Features for one project_diagnostics occurrence. " +
         "Does not include CodeFixes from project analyzer assemblies. " +
-        "Locator is projectId + diagnosticId + optional filePath/span (1-based lines, 0-based characters). " +
+        "Locator is projectId + diagnosticId + optional filePath/span. Positions use the unified model: 1-based lines and 1-based UTF-16 columns, end column exclusive — the line/column/endLine/endColumn from a project_diagnostics row can be passed verbatim. " +
         "Returns Epoch. Each fixIndex is valid only for that Epoch; if the workspace Epoch advances, diagnostics_preview_fix fails with FixListEpochMismatch instead of selecting another action. " +
         "Zero fixes is success with an empty list and means no built-in fix, not that project analyzers have none. " +
         "F# projects return FixLanguageNotSupported. Does not write disk.")]
@@ -39,14 +39,14 @@ public sealed class DiagnosticTools
         string diagnosticId,
         [Description("Optional source file path from project_diagnostics.")]
         string? filePath = null,
-        [Description("Optional 1-based start line from project_diagnostics.")]
-        int? startLine = null,
-        [Description("Optional 0-based start character from project_diagnostics.")]
-        int? startCharacter = null,
+        [Description("Optional 1-based line from project_diagnostics.")]
+        int? line = null,
+        [Description("Optional 1-based column (UTF-16 code units, tabs count as one column) from project_diagnostics.")]
+        int? column = null,
         [Description("Optional 1-based end line from project_diagnostics.")]
         int? endLine = null,
-        [Description("Optional 0-based end character from project_diagnostics.")]
-        int? endCharacter = null,
+        [Description("Optional 1-based exclusive end column from project_diagnostics.")]
+        int? endColumn = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -63,10 +63,10 @@ public sealed class DiagnosticTools
                 projectId,
                 diagnosticId,
                 filePath,
-                startLine,
-                startCharacter,
+                line,
+                column,
                 endLine,
-                endCharacter,
+                endColumn,
                 cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
@@ -105,14 +105,14 @@ public sealed class DiagnosticTools
         int fixIndex,
         [Description("Optional source file path from project_diagnostics.")]
         string? filePath = null,
-        [Description("Optional 1-based start line from project_diagnostics.")]
-        int? startLine = null,
-        [Description("Optional 0-based start character from project_diagnostics.")]
-        int? startCharacter = null,
+        [Description("Optional 1-based line from project_diagnostics.")]
+        int? line = null,
+        [Description("Optional 1-based column (UTF-16 code units, tabs count as one column) from project_diagnostics.")]
+        int? column = null,
         [Description("Optional 1-based end line from project_diagnostics.")]
         int? endLine = null,
-        [Description("Optional 0-based end character from project_diagnostics.")]
-        int? endCharacter = null,
+        [Description("Optional 1-based exclusive end column from project_diagnostics.")]
+        int? endColumn = null,
         [Description("occurrence (default), document (this file), or project (this project) for the same EquivalenceKey.")]
         string? scope = null,
         CancellationToken cancellationToken = default)
@@ -131,10 +131,10 @@ public sealed class DiagnosticTools
                 projectId,
                 diagnosticId,
                 filePath,
-                startLine,
-                startCharacter,
+                line,
+                column,
                 endLine,
-                endCharacter,
+                endColumn,
                 fixIndex,
                 scope,
                 cancellationToken)

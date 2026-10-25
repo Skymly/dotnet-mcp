@@ -5,6 +5,10 @@ public sealed record DynamicInvocationItem(
     string? FilePath,
     int? Start,
     int? Length,
+    int? Line,
+    int? Column,
+    int? EndLine,
+    int? EndColumn,
     string ProjectId,
     string? ReceiverStaticType,
     IReadOnlyList<string?> ArgumentStaticTypes);

@@ -267,6 +267,10 @@ public sealed partial class FSharpSymbolQueryService
                     loc.FilePath,
                     loc.Start,
                     loc.Length,
+                    loc.Line,
+                    loc.Column,
+                    loc.EndLine,
+                    loc.EndColumn,
                     callerItem.ProjectId,
                     success.Handle,
                     success.Summary));
@@ -446,6 +450,10 @@ public sealed partial class FSharpSymbolQueryService
             loc.FilePath,
             loc.Start,
             loc.Length,
+            loc.Line,
+            loc.Column,
+            loc.EndLine,
+            loc.EndColumn,
             projectId,
             kind);
     }
@@ -455,13 +463,28 @@ public sealed partial class FSharpSymbolQueryService
         if (TryGetSnapshot(epoch, file, out var path, out var text))
         {
             var (start, length) = ToSpan(text, range);
-            return new SymbolLocation(DeclarationAvailability.InSource, SymbolOrigin.Handwritten, path, start, length);
+            return new SymbolLocation(
+                DeclarationAvailability.InSource,
+                SymbolOrigin.Handwritten,
+                path,
+                start,
+                length,
+                range.StartLine,
+                range.StartColumn + 1,
+                range.EndLine,
+                range.EndColumn + 1);
         }
 
+        // No snapshot text: keep FilePath but leave every coordinate null — a
+        // location never mixes null and non-null coordinate systems.
         return new SymbolLocation(
             DeclarationAvailability.InSource,
             SymbolOrigin.Handwritten,
             string.IsNullOrWhiteSpace(file) ? null : file,
+            null,
+            null,
+            null,
+            null,
             null,
             null);
     }

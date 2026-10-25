@@ -47,15 +47,15 @@ public sealed partial class FSharpSymbolQueryService
                 Severity: d.Severity.ToString(),
                 Message: d.Message,
                 FilePath: string.IsNullOrWhiteSpace(d.FileName) ? null : d.FileName,
-                StartLine: d.StartLine,
-                StartCharacter: d.StartColumn,
+                Line: d.StartLine,
+                Column: d.StartColumn + 1,
                 EndLine: d.EndLine,
-                EndCharacter: d.EndColumn,
+                EndColumn: d.EndColumn + 1,
                 ProjectId: projectId))
             .OrderBy(d => d.Id, StringComparer.Ordinal)
             .ThenBy(d => d.FilePath ?? string.Empty, StringComparer.Ordinal)
-            .ThenBy(d => d.StartLine ?? -1)
-            .ThenBy(d => d.StartCharacter ?? -1)
+            .ThenBy(d => d.Line ?? -1)
+            .ThenBy(d => d.Column ?? -1)
             .ThenBy(d => d.Message, StringComparer.Ordinal)
             .ToList();
         foreach (var name in project.MissingDependencyOutputs)
@@ -65,10 +65,10 @@ public sealed partial class FSharpSymbolQueryService
                 Severity: "Warning",
                 Message: $"Dependency output was not built for {name}. FS0039 diagnostics may be false until that project is built.",
                 FilePath: project.FilePath,
-                StartLine: null,
-                StartCharacter: null,
+                Line: null,
+                Column: null,
                 EndLine: null,
-                EndCharacter: null,
+                EndColumn: null,
                 ProjectId: projectId));
         }
 

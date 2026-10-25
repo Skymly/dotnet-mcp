@@ -106,10 +106,10 @@ public sealed class DiagnosticQueryService
                         Severity: string.Empty,
                         Message: $"Project '{project.Name}' diagnostics failed: {error.Message}",
                         FilePath: project.FilePath,
-                        StartLine: null,
-                        StartCharacter: null,
+                        Line: null,
+                        Column: null,
                         EndLine: null,
-                        EndCharacter: null,
+                        EndColumn: null,
                         ProjectId: projectId,
                         Error: error.Code,
                         SuggestedAction: error.SuggestedAction));

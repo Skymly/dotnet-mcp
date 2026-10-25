@@ -280,10 +280,10 @@ public class DiagnosticFixSeamTests
         ["projectId"] = occurrence.ProjectId,
         ["diagnosticId"] = occurrence.Id,
         ["filePath"] = occurrence.FilePath,
-        ["startLine"] = occurrence.StartLine,
-        ["startCharacter"] = occurrence.StartCharacter,
+        ["line"] = occurrence.Line,
+        ["column"] = occurrence.Column,
         ["endLine"] = occurrence.EndLine,
-        ["endCharacter"] = occurrence.EndCharacter
+        ["endColumn"] = occurrence.EndColumn
     };
 
     private static string CreateTempDir(string prefix)

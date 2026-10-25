@@ -375,7 +375,11 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 Origin: null,
                 FilePath: null,
                 Start: null,
-                Length: null), null);
+                Length: null,
+                Line: null,
+                Column: null,
+                EndLine: null,
+                EndColumn: null), null);
         }
 
         if (!location.IsInSource)
@@ -385,7 +389,11 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 Origin: null,
                 FilePath: null,
                 Start: null,
-                Length: null), null);
+                Length: null,
+                Line: null,
+                Column: null,
+                EndLine: null,
+                EndColumn: null), null);
         }
 
         var tree = location.SourceTree;
@@ -398,12 +406,19 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             return (null, originError);
         }
 
+        // GetLineSpan is the unmapped span: no #line mapping; generated-document
+        // trees produce positions inside the generated text, which is the contract.
+        var (line, column, endLine, endColumn) = SourcePositions.FromLineSpan(location.GetLineSpan());
         return (new SymbolLocation(
             DeclarationAvailability.InSource,
             origin,
             path,
             span.Start,
-            span.Length), null);
+            span.Length,
+            line,
+            column,
+            endLine,
+            endColumn), null);
     }
 
     private async Task<(string? Origin, SymbolQueryError? Error)> ResolveOriginAsync(

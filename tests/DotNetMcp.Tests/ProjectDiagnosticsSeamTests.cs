@@ -131,8 +131,8 @@ public class ProjectDiagnosticsSeamTests
                     d => all.Any(f =>
                         f.Id == d.Id &&
                         f.Message == d.Message &&
-                        f.StartLine == d.StartLine &&
-                        f.StartCharacter == d.StartCharacter));
+                        f.Line == d.Line &&
+                        f.Column == d.Column));
                 all.AddRange(body.Items);
                 cursor = body.NextCursor;
                 if (!body.Truncated)
@@ -146,7 +146,7 @@ public class ProjectDiagnosticsSeamTests
             Assert.True(all.Count > 2);
             Assert.Contains(all, d => d.Severity == "Warning" && d.Message.Contains("DiagWarnA", StringComparison.Ordinal));
             Assert.Contains(all, d => d.Severity == "Error");
-            Assert.Equal(all.Count, all.DistinctBy(d => (d.Id, d.Message, d.StartLine, d.StartCharacter)).Count());
+            Assert.Equal(all.Count, all.DistinctBy(d => (d.Id, d.Message, d.Line, d.Column)).Count());
         }
         finally
         {
@@ -311,8 +311,8 @@ public class ProjectDiagnosticsSeamTests
             Assert.True(page2.IsError is not true, InProcessMcpFixture.TextOf(page2));
             var second = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(page2);
             Assert.NotEmpty(second.Items);
-            Assert.Empty(first.Items.Select(i => (i.Id, i.FilePath, i.StartLine)).Intersect(
-                second.Items.Select(i => (i.Id, i.FilePath, i.StartLine))));
+            Assert.Empty(first.Items.Select(i => (i.Id, i.FilePath, i.Line)).Intersect(
+                second.Items.Select(i => (i.Id, i.FilePath, i.Line))));
         }
         finally
         {
