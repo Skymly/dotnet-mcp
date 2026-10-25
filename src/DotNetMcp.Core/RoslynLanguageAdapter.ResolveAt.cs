@@ -306,7 +306,7 @@ public sealed partial class RoslynLanguageAdapter
     /// extension method on the type; constructed generic forms map to their
     /// OriginalDefinition so `List&lt;int&gt;` gives the `List&lt;T&gt;` handle.
     /// </summary>
-    private static ISymbol NormalizePositionSymbol(ISymbol symbol)
+    internal static ISymbol NormalizePositionSymbol(ISymbol symbol)
     {
         if (symbol is IAliasSymbol alias)
         {

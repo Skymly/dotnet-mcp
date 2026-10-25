@@ -61,6 +61,8 @@ public static class ServerHost
         services.AddSingleton<DynamicInvocationQueryService>();
         services.AddSingleton<GeneratorQueryService>();
         services.AddSingleton<XamlDocumentService>();
+        services.AddSingleton<XamlUsageIndex>();
+        services.AddSingleton<IXamlUsageSource>(sp => sp.GetRequiredService<XamlUsageIndex>());
         services.AddSingleton<WorkspaceTools>();
         services.AddSingleton<SymbolTools>();
         services.AddSingleton<ProjectTools>();

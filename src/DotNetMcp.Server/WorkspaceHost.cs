@@ -58,6 +58,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private CancellationTokenSource? _debounceCts;
     private readonly GeneratorRunCache _generatorRunCache = new();
     private readonly FindHitCache _findHitCache = new();
+    private readonly XamlUsageIndexCache _xamlUsageCache = new();
     private CancellationTokenSource? _warmCts;
     private long _generation;
     private CompilationLru _compilationLru;
@@ -192,6 +193,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 generatorRunCache: _generatorRunCache,
                 compilationLru: _compilationLru,
                 findHitCache: _findHitCache,
+                xamlUsageCache: _xamlUsageCache,
                 solution: _publishedSolution);
             return true;
         }
@@ -202,6 +204,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         _epoch++;
         _generatorRunCache.Clear();
         _findHitCache.Clear();
+        _xamlUsageCache.Clear();
         _generators?.DiscardListCacheExceptEpoch(_epoch);
         CancelWarmUnlocked();
         // Replace the instance so in-flight sessions keep the previous epoch's compilations.
@@ -1311,7 +1314,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 fsharpSnapshot: fsharpSnapshot,
                 compilationLru: lru,
                 generatorRunCache: _generatorRunCache,
-                findHitCache: _findHitCache);
+                findHitCache: _findHitCache,
+                xamlUsageCache: _xamlUsageCache);
             foreach (var project in SelectWarmProjects(loaded.Solution, openedPath, lru.Capacity ?? 50))
             {
                 cancellationToken.ThrowIfCancellationRequested();

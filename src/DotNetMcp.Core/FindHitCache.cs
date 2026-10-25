@@ -76,4 +76,6 @@ public interface IWorkspaceSessionCaches
     CompilationLru CompilationCache { get; }
 
     FindHitCache FindHits { get; }
+
+    XamlUsageIndexCache XamlUsages { get; }
 }
