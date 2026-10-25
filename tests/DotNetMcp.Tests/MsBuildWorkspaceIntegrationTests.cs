@@ -1,3 +1,4 @@
+using DotNetMcp.Core;
 using DotNetMcp.Server;
 
 namespace DotNetMcp.Tests;
@@ -993,7 +994,9 @@ public class MsBuildWorkspaceIntegrationTests
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-{label}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-        return path;
+        // macOS keeps /var as a symlink to /private/var: dotnet restore treats the
+        // two spellings as distinct projects and fails on duplicate nuget.g.props.
+        return PathCanonical.Of(path);
     }
 
     private static void TryDelete(string path)
