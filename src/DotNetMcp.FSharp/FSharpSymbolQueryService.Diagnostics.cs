@@ -5,7 +5,7 @@ namespace DotNetMcp.FSharp;
 
 public sealed partial class FSharpSymbolQueryService
 {
-    public async Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
+    public async Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
         IWorkspaceSession session,
         string projectId,
         int? limit = null,
@@ -72,7 +72,7 @@ public sealed partial class FSharpSymbolQueryService
                 ProjectId: projectId));
         }
 
-        return SoftBudgetPage.Page(
+        var (page, pageError) = SoftBudgetPage.Page(
             items,
             epoch,
             budgetHit: clock.Elapsed >= budget,
@@ -83,5 +83,10 @@ public sealed partial class FSharpSymbolQueryService
             "Project has no error or warning diagnostics.",
             "Diagnostics page complete.",
             "the diagnostics list");
+        return page is null
+            ? (null, pageError)
+            : (new ProjectDiagnosticsResult(
+                page,
+                MissingMetadataDiagnostics.CountIn(items)), null);
     }
 }

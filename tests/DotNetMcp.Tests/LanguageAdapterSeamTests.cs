@@ -325,14 +325,14 @@ public class LanguageAdapterSeamTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult<(SymbolSourceSuccess?, SymbolQueryError?)>((null, NotFound()));
 
-        public Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
+        public Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
             IWorkspaceSession session,
             string projectId,
             int? limit = null,
             string? cursor = null,
             TimeSpan? softBudget = null,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<(PagedResult<DiagnosticItem>?, SymbolQueryError?)>((null, NotFound()));
+            Task.FromResult<(ProjectDiagnosticsResult?, SymbolQueryError?)>((null, NotFound()));
 
         public Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
             IWorkspaceSession session,

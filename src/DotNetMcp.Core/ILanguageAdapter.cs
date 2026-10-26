@@ -104,7 +104,7 @@ public interface ILanguageAdapter
         int maxChars,
         CancellationToken cancellationToken = default);
 
-    Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
+    Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
         IWorkspaceSession session,
         string projectId,
         int? limit = null,
