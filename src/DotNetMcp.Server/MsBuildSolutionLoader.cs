@@ -264,9 +264,20 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         var sw = Stopwatch.StartNew();
         try
         {
-            var solution = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct)
+            _ = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct)
                 .ConfigureAwait(false);
             sw.Stop();
+
+            // The slnx reader inside MSBuildWorkspace silently drops projects declared in
+            // nested solution folders (issue #545). Reconcile the declared set ourselves:
+            // retry whatever did not load, and name whatever still refuses to.
+            if (solutionPath.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
+            {
+                await ReconcileDeclaredSlnxProjectsAsync(
+                    workspace, solutionPath, warnings, progress, ct).ConfigureAwait(false);
+            }
+
+            var solution = workspace.CurrentSolution;
             var count = Math.Max(1, solution.ProjectIds.Count);
             progress?.Report(new LoadProgress(count, count));
             return new LoadedSolution(workspace, solution, warnings);
@@ -276,6 +287,116 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
             workspace.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Compares the project paths declared by a .slnx against what MSBuildWorkspace loaded,
+    /// opening each missing one on the same workspace. Declared paths that still are not
+    /// loaded after the retry get a named warning — the drop is never silent.
+    /// </summary>
+    private static async Task ReconcileDeclaredSlnxProjectsAsync(
+        MSBuildWorkspace workspace,
+        string solutionPath,
+        List<string> warnings,
+        IProgress<LoadProgress>? progress,
+        CancellationToken ct)
+    {
+        IReadOnlyList<string> declaredPaths;
+        try
+        {
+            declaredPaths = SlnxProjectEnumerator.EnumerateProjectPaths(solutionPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            warnings.Add($"Could not enumerate declared projects in solution: {ex.Message}");
+            return;
+        }
+
+        var missing = declaredPaths
+            .Where(path => !IsProjectAlreadyLoaded(workspace.CurrentSolution, path))
+            .ToArray();
+        if (missing.Length == 0)
+        {
+            return;
+        }
+
+        // Honest progress: loaded (by distinct file) + one unit per retry, matching OpenSlnfAsync.
+        var loadedCount = workspace.CurrentSolution.Projects
+            .Select(static p => p.FilePath)
+            .Where(static p => !string.IsNullOrWhiteSpace(p))
+            .Select(static p => SlnxProjectEnumerator.Canonicalize(p!))
+            .Distinct(PathPolicy.Comparer)
+            .Count();
+        var total = loadedCount + missing.Length;
+        var completed = loadedCount;
+        progress?.Report(new LoadProgress(completed, total));
+
+        var warned = new HashSet<string>(PathPolicy.Comparer);
+        foreach (var projectPath in missing)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                await OpenProjectIfMissingAsync(workspace, projectPath, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                var reason = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+                warnings.Add($"Project declared in solution but not loaded: {projectPath} ({reason})");
+                warned.Add(projectPath);
+            }
+
+            completed++;
+            progress?.Report(new LoadProgress(completed, total));
+        }
+
+        // A retry can also finish without throwing yet still leave the path unloaded
+        // (for example an unsupported project kind swallowed by MSBuild). Never silent.
+        foreach (var projectPath in missing)
+        {
+            if (!warned.Contains(projectPath)
+                && !IsProjectAlreadyLoaded(workspace.CurrentSolution, projectPath))
+            {
+                warnings.Add($"Project declared in solution but not loaded: {projectPath}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// True when the solution already holds a project with this file path (any TFM — a
+    /// multi-targeting csproj loads as one project per TFM, all sharing the same FilePath).
+    /// </summary>
+    internal static bool IsProjectAlreadyLoaded(Solution solution, string projectPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectPath);
+        var canonical = SlnxProjectEnumerator.Canonicalize(projectPath);
+        return solution.Projects.Any(p =>
+            !string.IsNullOrWhiteSpace(p.FilePath)
+            && string.Equals(
+                SlnxProjectEnumerator.Canonicalize(p.FilePath!),
+                canonical,
+                PathPolicy.Comparison));
+    }
+
+    /// <summary>
+    /// Opens a project on an existing workspace unless a project with that FilePath is
+    /// already loaded; returns true when a load actually ran. Shared by the .slnx
+    /// reconciliation pass and the .slnf path: MSBuildWorkspace throws when asked to open
+    /// a project path it already has, so the check must happen here.
+    /// </summary>
+    internal static async Task<bool> OpenProjectIfMissingAsync(
+        MSBuildWorkspace workspace,
+        string projectPath,
+        CancellationToken ct)
+    {
+        if (IsProjectAlreadyLoaded(workspace.CurrentSolution, projectPath))
+        {
+            return false;
+        }
+
+        _ = await workspace.OpenProjectAsync(projectPath, cancellationToken: ct)
+            .ConfigureAwait(false);
+        return true;
     }
 
     private static async Task<LoadedSolution> OpenProjectAsync(
