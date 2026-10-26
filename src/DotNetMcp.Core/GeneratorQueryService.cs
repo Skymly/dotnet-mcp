@@ -32,6 +32,21 @@ public sealed class GeneratorQueryService
         }
 
         var result = EnumerateGenerators(project);
+        var declaredUnresolved = session.DeclaredUnresolvedAnalyzerPaths(project!.Id);
+        if (declaredUnresolved.Count > 0)
+        {
+            // Issue #548: the loader detached unchecksumable UnresolvedAnalyzerReference
+            // stubs, so the declared paths survive as session data rather than reference
+            // objects — merge them so the caller still sees every path MSBuild declared.
+            var merged = new SortedSet<string>(result.UnresolvedAnalyzerReferences, PathComparisonComparer());
+            foreach (var path in declaredUnresolved)
+            {
+                merged.Add(path);
+            }
+
+            result = new GeneratorListResult(result.Generators, [.. merged]);
+        }
+
         _listCache[cacheKey] = result;
         return Task.FromResult<(GeneratorListResult?, SymbolQueryError?)>((result, null));
     }

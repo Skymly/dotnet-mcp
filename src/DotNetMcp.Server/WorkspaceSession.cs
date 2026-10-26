@@ -14,6 +14,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
     private readonly GeneratorRunCache _generatorRunCache;
     private readonly FindHitCache _findHits;
     private readonly XamlUsageIndexCache _xamlUsages;
+    private readonly IReadOnlyDictionary<ProjectId, IReadOnlyList<string>> _unresolvedAnalyzerPaths;
     private bool _disposed;
 
     public WorkspaceSession(
@@ -31,6 +32,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         // Prefer the host-frozen F# snapshot (captured when Epoch advances). Tests that need F#
         // sources must pass a snapshot captured with trusted roots — never walk disk without roots.
         Solution = solution ?? loaded.Solution;
+        _unresolvedAnalyzerPaths = loaded.UnresolvedAnalyzerPaths;
         Epoch = epoch;
         FSharpSnapshot = fsharpSnapshot ?? new FSharpWorkspaceSnapshot(epoch, []);
         _compilationLru = compilationLru ?? new CompilationLru(compilationLruCapacity);
@@ -55,6 +57,10 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
 
     /// <summary>Wired XAML usage source (ADR-0006); null when the host was built without one.</summary>
     public IXamlUsageSource? XamlUsageSource { get; }
+
+    /// <inheritdoc cref="IWorkspaceSession.DeclaredUnresolvedAnalyzerPaths"/>
+    public IReadOnlyList<string> DeclaredUnresolvedAnalyzerPaths(ProjectId projectId) =>
+        _unresolvedAnalyzerPaths.TryGetValue(projectId, out var paths) ? paths : [];
 
     public IReadOnlyList<ProjectSummaryDto> ListProjects() =>
         ProjectSummary.FromSolution(Solution);

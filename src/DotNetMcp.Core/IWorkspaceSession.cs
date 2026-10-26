@@ -36,4 +36,13 @@ public interface IWorkspaceSession : IDisposable
     Task<DriverRunSnapshot> GetGeneratorRunResultAsync(
         ProjectId projectId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Analyzer paths MSBuild declared for <paramref name="projectId"/> that no file
+    /// materialized for — captured when the loader detached the unchecksumable
+    /// <see cref="Microsoft.CodeAnalysis.Diagnostics.UnresolvedAnalyzerReference"/> stubs
+    /// (issue #548), so they survive as data for project_list_generators' unresolved
+    /// list (issue #551). Sessions without loader provenance report none.
+    /// </summary>
+    IReadOnlyList<string> DeclaredUnresolvedAnalyzerPaths(ProjectId projectId) => [];
 }

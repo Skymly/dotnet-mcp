@@ -35,5 +35,15 @@ internal sealed class RecordingAuditLogger : IAuditLogger
         _events.Enqueue(new AuditEvent("path_policy_denied", toolName, path));
     }
 
-    public readonly record struct AuditEvent(string Kind, string ToolName, string? Path);
+    public void ToolFailed(string toolName, Exception exception)
+    {
+        if (!_options.Enabled)
+        {
+            return;
+        }
+
+        _events.Enqueue(new AuditEvent("tool_failed", toolName, null, exception.GetType().Name));
+    }
+
+    public readonly record struct AuditEvent(string Kind, string ToolName, string? Path, string? Detail = null);
 }

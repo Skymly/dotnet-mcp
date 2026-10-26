@@ -9,4 +9,11 @@ public interface IAuditLogger
     void ToolInvoked(string toolName, string? path = null);
 
     void PathPolicyDenied(string toolName, string? path = null);
+
+    /// <summary>
+    /// A tool let an unexpected exception escape (issue #548). The exception — stack trace
+    /// included — stays on this local sink; the tool response only carries the sanitized
+    /// structured error.
+    /// </summary>
+    void ToolFailed(string toolName, Exception exception);
 }

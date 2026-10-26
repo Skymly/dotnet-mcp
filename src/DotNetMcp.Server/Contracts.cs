@@ -78,6 +78,7 @@ public static class PolicyErrorCodes
     public const string NoSymbolAtPosition = "NoSymbolAtPosition";
     public const string SymbolNotAddressable = "SymbolNotAddressable";
     public const string SourceUnavailable = "SourceUnavailable";
+    public const string SymbolQueryFailed = "SymbolQueryFailed";
 }
 
 public sealed record XamlBindingSegmentDto

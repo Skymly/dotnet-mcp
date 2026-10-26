@@ -170,6 +170,14 @@ public sealed record SymbolNotAddressableError(string Message, string SuggestedA
 public sealed record SourceUnavailableError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.SourceUnavailable, Message, SuggestedAction);
 
+/// <summary>
+/// Catch-all for an unexpected failure inside a symbol query (issue #548): the server maps
+/// any exception that escapes the language adapters to this shape — type and message only,
+/// never a stack trace — instead of letting the MCP layer emit the generic invocation error.
+/// </summary>
+public sealed record SymbolQueryFailedError(string Message, string SuggestedAction)
+    : SymbolQueryError(SymbolQueryErrorCodes.SymbolQueryFailed, Message, SuggestedAction);
+
 public static class SymbolQueryErrorCodes
 {
     public const string InvalidSymbolHandle = "InvalidSymbolHandle";
@@ -211,6 +219,7 @@ public static class SymbolQueryErrorCodes
     public const string NoSymbolAtPosition = "NoSymbolAtPosition";
     public const string SymbolNotAddressable = "SymbolNotAddressable";
     public const string SourceUnavailable = "SourceUnavailable";
+    public const string SymbolQueryFailed = "SymbolQueryFailed";
 }
 
 public static class DeclarationAvailability

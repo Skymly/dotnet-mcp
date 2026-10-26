@@ -24,11 +24,15 @@ public sealed class LoadedSolution : IAsyncDisposable
     public LoadedSolution(
         Workspace workspace,
         Solution solution,
-        IReadOnlyList<string> warnings)
+        IReadOnlyList<string> warnings,
+        IReadOnlyDictionary<ProjectId, IReadOnlyList<string>>? unresolvedAnalyzerPaths = null)
     {
         _workspace = workspace;
         Solution = solution;
         Warnings = warnings;
+        UnresolvedAnalyzerPaths = unresolvedAnalyzerPaths
+            ?? (IReadOnlyDictionary<ProjectId, IReadOnlyList<string>>)
+                new Dictionary<ProjectId, IReadOnlyList<string>>();
         _docsByPath = BuildIndex(solution);
 
         var projectPaths = solution.Projects
@@ -41,6 +45,15 @@ public sealed class LoadedSolution : IAsyncDisposable
     public Solution Solution { get; private set; }
     public IReadOnlyList<string> Warnings { get; }
     public Workspace Workspace => _workspace;
+
+    /// <summary>
+    /// Analyzer paths MSBuild declared but no file materialized for, keyed by project —
+    /// captured when the loader detached the unchecksumable
+    /// <see cref="Microsoft.CodeAnalysis.Diagnostics.UnresolvedAnalyzerReference"/> stubs
+    /// (issue #548). First-class data so project_list_generators can still surface them as
+    /// unresolvedAnalyzerReferences (issue #551) instead of losing the paths with the stubs.
+    /// </summary>
+    public IReadOnlyDictionary<ProjectId, IReadOnlyList<string>> UnresolvedAnalyzerPaths { get; }
 
     public IReadOnlyCollection<string> TrackedDocumentPaths => _docsByPath.Keys;
 

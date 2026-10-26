@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.MSBuild;
 
 namespace DotNetMcp.Server;
@@ -279,8 +280,9 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
 
             var solution = workspace.CurrentSolution;
             var count = Math.Max(1, solution.ProjectIds.Count);
+            var unresolvedAnalyzerPaths = RemoveUnresolvedAnalyzerReferences(workspace, warnings);
             progress?.Report(new LoadProgress(count, count));
-            return new LoadedSolution(workspace, solution, warnings);
+            return new LoadedSolution(workspace, workspace.CurrentSolution, warnings, unresolvedAnalyzerPaths);
         }
         catch
         {
@@ -413,8 +415,9 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
             _ = await workspace.OpenProjectAsync(projectPath, cancellationToken: ct)
                 .ConfigureAwait(false);
             var count = Math.Max(1, workspace.CurrentSolution.ProjectIds.Count);
+            var unresolvedAnalyzerPaths = RemoveUnresolvedAnalyzerReferences(workspace, warnings);
             progress?.Report(new LoadProgress(count, count));
-            return new LoadedSolution(workspace, workspace.CurrentSolution, warnings);
+            return new LoadedSolution(workspace, workspace.CurrentSolution, warnings, unresolvedAnalyzerPaths);
         }
         catch
         {
@@ -454,12 +457,75 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
                 progress?.Report(new LoadProgress(completed, total));
             }
 
-            return new LoadedSolution(workspace, workspace.CurrentSolution, warnings);
+            var unresolvedAnalyzerPaths = RemoveUnresolvedAnalyzerReferences(workspace, warnings);
+            return new LoadedSolution(workspace, workspace.CurrentSolution, warnings, unresolvedAnalyzerPaths);
         }
         catch
         {
             workspace.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Detaches <see cref="UnresolvedAnalyzerReference"/> stubs MSBuild leaves on a project when
+    /// an &lt;Analyzer&gt; item cannot be resolved to a file — an unrestored generator package, a
+    /// stale package path (issue #548). The stubs contribute no analyzers; Roslyn keeps them for
+    /// error reporting only, and the workspace serializer cannot checksum any non-file reference
+    /// (UnresolvedAnalyzerReference throws UnexpectedValue; AnalyzerImageReference is test-only),
+    /// so SymbolFinder's dependent-type cascade (symbol_find_callers / find_references /
+    /// find_implementations) threw an <see cref="InvalidOperationException"/> out of the query.
+    ///
+    /// The declared paths are NOT lost: they are returned keyed by project for
+    /// <see cref="LoadedSolution.UnresolvedAnalyzerPaths"/> so project_list_generators can still
+    /// report them as unresolvedAnalyzerReferences (issue #551), and each path is named in the
+    /// load warnings — the detachment is never silent. Removing a non-file analyzer reference
+    /// does not write the csproj: MSBuildWorkspace only persists
+    /// <see cref="AnalyzerFileReference"/> removes.
+    /// </summary>
+    internal static Dictionary<ProjectId, IReadOnlyList<string>>? RemoveUnresolvedAnalyzerReferences(
+        Workspace workspace, List<string> warnings)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(warnings);
+
+        var solution = workspace.CurrentSolution;
+        var stripped = solution;
+        Dictionary<ProjectId, IReadOnlyList<string>>? unresolvedPaths = null;
+        foreach (var project in solution.Projects)
+        {
+            foreach (var reference in project.AnalyzerReferences)
+            {
+                if (reference is not UnresolvedAnalyzerReference)
+                {
+                    continue;
+                }
+
+                stripped = stripped.RemoveAnalyzerReference(project.Id, reference);
+                if (reference.FullPath is { Length: > 0 } path)
+                {
+                    unresolvedPaths ??= [];
+                    ((List<string>)(unresolvedPaths.TryGetValue(project.Id, out var list)
+                        ? list!
+                        : unresolvedPaths[project.Id] = new List<string>())).Add(path);
+                    warnings.Add(
+                        $"Unresolved analyzer reference removed from project {project.Name}: {path}");
+                }
+                else
+                {
+                    warnings.Add(
+                        $"Unresolved analyzer reference removed from project {project.Name}.");
+                }
+            }
+        }
+
+        if (!ReferenceEquals(stripped, solution) && !workspace.TryApplyChanges(stripped))
+        {
+            warnings.Add(
+                "Unresolved analyzer references could not be detached from the workspace; " +
+                "finder queries may fail with a structured error instead of returning results.");
+        }
+
+        return unresolvedPaths;
     }
 }
