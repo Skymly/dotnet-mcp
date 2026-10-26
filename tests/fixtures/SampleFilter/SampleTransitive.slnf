@@ -1,0 +1,12 @@
+{
+  // Issue #547 fixture: App loads first and pulls LibA + LibB in transitively via
+  // its ProjectReference graph, so LibA's own entry is already in the workspace
+  // when reached and must be skipped with a named warning.
+  "solution": {
+    "path": "Sample.slnx",
+    "projects": [
+      "App/App.csproj",
+      "LibA/LibA.csproj"
+    ]
+  }
+}

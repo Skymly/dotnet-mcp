@@ -1,0 +1,11 @@
+{
+  // Issue #547 fixture: Ghost/Ghost.csproj does not exist. A missing file is NOT a
+  // dedup skip — it means a stale filter, so the open must still fail.
+  "solution": {
+    "path": "Sample.slnx",
+    "projects": [
+      "LibA/LibA.csproj",
+      "Ghost/Ghost.csproj"
+    ]
+  }
+}
