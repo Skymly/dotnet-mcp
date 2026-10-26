@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-08-20 Amendment 2 Diagnostic fix；2026-08-20 Amendment 3 Code Refactoring；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁；2026-10-09 Amendment 7 现行写面；2026-10-11 Amendment 8 受信根并集；2026-10-25 Amendment 9 Rename preview 写集合含已注册 XAML 文档；2026-10-26 Amendment 10 加载图文档集合允许工具链根只读文件）**
+Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-08-20 Amendment 2 Diagnostic fix；2026-08-20 Amendment 3 Code Refactoring；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁；2026-10-09 Amendment 7 现行写面；2026-10-11 Amendment 8 受信根并集；2026-10-25 Amendment 9 Rename preview 写集合含已注册 XAML 文档；2026-10-26 Amendment 10 加载图文档集合允许工具链根只读文件；2026-10-26 Amendment 11 analyzer 引用改为非锁定字节加载并可随 Epoch 刷新）**
 
 ## 上下文
 
@@ -140,3 +140,13 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 - **写集合不变**：`Preview` / `Apply` / `WriteDeclaredPaths` 的各道根校验仍只接受受信根（`PreviewPathOutsideTrustedRoots` / `PathOutsideTrustedRoots`）——工具链根文档可读、不可写。
 - **漂移路径**：`workspace_check_drift` 的 `DetectDrift` 用同一「受信 ∪ 工具链」读集合做磁盘比对，工具链根文档内容一致时不再报 `OutsideTrustedRoots` 假旗，分歧时如实标记 `ContentMismatch` / `MissingOnDisk`；但修复文本读取仍只走受信根，所以这类标记永远 `Repaired:false`——刷新手段是重新 `workspace_open`。
 - 拒绝文案区分两类根：document 的拒绝消息与 analyzer 一致写「trusted roots and toolchain roots」，不回显路径内容（§1）。
+
+## Amendment 11（2026-10-26）：analyzer 引用改为非锁定字节加载并随 Epoch 刷新
+
+证据：#549 —— `MSBuildWorkspace` 交付的 `AnalyzerFileReference` 是惰性、路径绑定的；默认 loader 在首次 `GetGenerators`/`GetAnalyzers` 时把 DLL 内存映射进进程，Windows 下文件被锁到会话结束，工作区内重建的生成器既写不进输出目录也不会被后续诊断拾取（陈旧生成器伪影变成假诊断）。
+
+- **图门禁时机不变**：`EnsureLoadedSolutionUnderRoots` 仍先跑（Amendment 6），用原始 `FullPath` 判定；通过后 host 才把每个 on-disk `AnalyzerFileReference` 换成同路径、由 `NonLockingAnalyzerLoader` 字节加载的新引用。`UnresolvedAnalyzerReference` 不替换。
+- **读闸门**：analyzer 字节读取与依赖探测都走「受信根 ∪ 工具链根」谓词（与 Amendment 6/10 同一接受集合）；不在集合内的路径在物化时抛 `UnauthorizedAccessException`，不读盘。
+- **加载隔离**：每条路径一个可卸载 `AssemblyLoadContext`；默认上下文已能满足的依赖（`Microsoft.CodeAnalysis`、BCL 等）返回 null 交回宿主绑定，保证 `ISourceGenerator`/`DiagnosticAnalyzer` 类型身份一致。
+- **刷新面**：写操作提交 epoch（`CommitEpochWithFSharpSnapshot`）时按 `(Exists, Length, LastWriteTimeUtc)` 指纹 re-stat 每条 analyzer 路径；变化的引用换新 loader 实例重建（新引用与旧引用比较不等，solution diff 才生效），未变化的引用原样保留。指纹依赖"重写必然触碰 mtime"；同长度且同 mtime 的字节替换（如保留时间戳的拷贝工具）会漏检——作为已知限制接受。
+- **analyzer DLL 缺失不降级**：文件消失的已物化引用保留（已加载字节仍可用），不引入新失败面。

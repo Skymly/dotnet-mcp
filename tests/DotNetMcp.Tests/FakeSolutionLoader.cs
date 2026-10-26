@@ -672,6 +672,16 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         string projectFilePath = @"C:\fake\GeneratorHost.csproj") =>
         new(TimeSpan.Zero, () => CreateGeneratorsLoaded(projectFilePath));
 
+    /// <summary>
+    /// In-workspace analyzer refresh seam (issue #549): sources and the analyzer DLL all
+    /// live under the test's trusted temp root so a test can overwrite the DLL mid-session
+    /// and watch the next epoch pick it up.
+    /// </summary>
+    public static FakeSolutionLoader ImmediateWithAnalyzerRefreshOnDisk(
+        string projectDir,
+        string analyzerAssemblyPath) =>
+        new(TimeSpan.Zero, () => CreateAnalyzerRefreshLoadedOnDisk(projectDir, analyzerAssemblyPath));
+
     public static FakeSolutionLoader DelayedWithGenerators(
         TimeSpan delay,
         string projectFilePath = @"C:\fake\GeneratorHost.csproj") =>
@@ -1722,6 +1732,76 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         if (!workspace.TryApplyChanges(solution))
         {
             throw new InvalidOperationException("Failed to apply AdhocWorkspace generators fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    /// <summary>
+    /// Issue #549 fixture: <paramref name="analyzerAssemblyPath"/> is attached as a real
+    /// on-disk <see cref="AnalyzerFileReference"/>. <c>Consumer.cs</c> references the
+    /// CustomGenerator-emitted <c>SampleApp.Generated.CustomMarker.Who</c>, so a refresh
+    /// to an analyzer that stops emitting the marker surfaces as CS0246; the
+    /// <c>Renamable.Ping</c> symbol drives a preview/apply write to advance the epoch.
+    /// </summary>
+    public static LoadedSolution CreateAnalyzerRefreshLoadedOnDisk(string projectDir, string analyzerAssemblyPath)
+    {
+        Directory.CreateDirectory(projectDir);
+        var projectFilePath = Path.Combine(projectDir, "GenHost.csproj");
+        File.WriteAllText(projectFilePath, "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        var consumerPath = Path.Combine(projectDir, "Consumer.cs");
+        var renamablePath = Path.Combine(projectDir, "Renamable.cs");
+        File.WriteAllText(consumerPath, """
+            namespace GenHost;
+
+            public static class Consumer
+            {
+                public static string Who => SampleApp.Generated.CustomMarker.Who;
+            }
+            """);
+        File.WriteAllText(renamablePath, """
+            namespace GenHost;
+
+            public sealed class Renamable
+            {
+                public static int Ping(int value) => value + 1;
+            }
+            """);
+
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "GenHost",
+            "GenHost",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(projectId),
+            "Consumer.cs",
+            SourceText.From(File.ReadAllText(consumerPath)),
+            filePath: consumerPath);
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(projectId),
+            "Renamable.cs",
+            SourceText.From(File.ReadAllText(renamablePath)),
+            filePath: renamablePath);
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in TrustedPlatformReferences())
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        solution = solution.AddAnalyzerReference(
+            projectId,
+            new AnalyzerFileReference(analyzerAssemblyPath, TestAnalyzerAssemblyLoader.Instance));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace analyzer-refresh fixture.");
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
