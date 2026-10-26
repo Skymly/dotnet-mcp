@@ -29,6 +29,18 @@ public sealed class LoggerAuditLogger : IAuditLogger
     public void PathPolicyDenied(string toolName, string? path = null) =>
         Write("path_policy_denied", toolName, path);
 
+    public void ToolFailed(string toolName, Exception exception)
+    {
+        if (!_options.Enabled)
+        {
+            return;
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
+        ArgumentNullException.ThrowIfNull(exception);
+        _logger.LogError(exception, "audit tool_failed tool={ToolName}", toolName);
+    }
+
     private void Write(string kind, string toolName, string? path)
     {
         if (!_options.Enabled)

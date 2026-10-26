@@ -323,7 +323,8 @@ public sealed class SymbolTools
         "Exact XAML usages (bindings, x:Class, elements, x:Name, event handlers) follow source hits for C#/VB " +
         "handles in the same paged stream. F# handles search the defining project plus its F# dependents " +
         "(entireSolution widens to every F# project); C#/VB dependents are never searched and the message " +
-        "names them.")]
+        "names them. An engine failure inside the search reports SymbolQueryFailed instead of an invocation " +
+        "error.")]
     public async Task<CallToolResult> SymbolFindReferences(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
         string handle,
@@ -343,30 +344,43 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _languages
-            .FindReferencesAsync(
-                session!,
-                handle,
-                entireSolution,
-                limit,
-                cursor,
-                softBudget: null,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        if (error is not null)
+        try
         {
-            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
-        }
+            var (success, error) = await _languages
+                .FindReferencesAsync(
+                    session!,
+                    handle,
+                    entireSolution,
+                    limit,
+                    cursor,
+                    softBudget: null,
+                    cancellationToken)
+                .ConfigureAwait(false);
 
-        return McpToolEnvelope.OkResult(ToFindReferencesDto(success!));
+            if (error is not null)
+            {
+                return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
+            }
+
+            return McpToolEnvelope.OkResult(ToFindReferencesDto(success!));
+        }
+        catch (OperationCanceledException)
+        {
+            // Client cancellation must stay cancellation, not a tool failure (issue #548).
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return UnexpectedQueryResult("symbol_find_references", ex);
+        }
     }
 
     [McpServerTool(Name = "symbol_find_implementations", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Find types and members that implement or derive from a SymbolHandle (interfaces, abstract/virtual " +
         "members, and class inheritance). Results are paginated; cursors bind to the workspace epoch. " +
         "F# handles search the defining project plus its F# dependents; C#/VB dependents are never searched " +
-        "and the message names them.")]
+        "and the message names them. An engine failure inside the search reports SymbolQueryFailed instead " +
+        "of an invocation error.")]
     public async Task<CallToolResult> SymbolFindImplementations(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
         string handle,
@@ -384,16 +398,28 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _languages
-            .FindImplementationsAsync(session!, handle, limit, cursor, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (error is not null)
+        try
         {
-            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
-        }
+            var (success, error) = await _languages
+                .FindImplementationsAsync(session!, handle, limit, cursor, cancellationToken)
+                .ConfigureAwait(false);
 
-        return McpToolEnvelope.OkResult(ToImplementationsDto(success!));
+            if (error is not null)
+            {
+                return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
+            }
+
+            return McpToolEnvelope.OkResult(ToImplementationsDto(success!));
+        }
+        catch (OperationCanceledException)
+        {
+            // Client cancellation must stay cancellation, not a tool failure (issue #548).
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return UnexpectedQueryResult("symbol_find_implementations", ex);
+        }
     }
 
     [McpServerTool(Name = "symbol_type_hierarchy", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
@@ -436,7 +462,8 @@ public sealed class SymbolTools
         "Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch. A source-generated " +
         "caller location that cannot be reconciled fails the page with CompilationUnavailable instead of being reported as Handwritten. " +
         "F# handles search the defining project plus its F# dependents (entireSolution widens to every F# project); " +
-        "C#/VB dependents are never searched and the message names them.")]
+        "C#/VB dependents are never searched and the message names them. An engine failure inside the search " +
+        "reports SymbolQueryFailed instead of an invocation error.")]
     public async Task<CallToolResult> SymbolFindCallers(
         [Description("Method SymbolHandle from symbol_resolve.")]
         string handle,
@@ -456,16 +483,28 @@ public sealed class SymbolTools
             return notReady!;
         }
 
-        var (success, error) = await _languages
-            .FindCallersAsync(session!, handle, entireSolution, limit, cursor, softBudget: null, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (error is not null)
+        try
         {
-            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
-        }
+            var (success, error) = await _languages
+                .FindCallersAsync(session!, handle, entireSolution, limit, cursor, softBudget: null, cancellationToken)
+                .ConfigureAwait(false);
 
-        return McpToolEnvelope.OkResult(ToCallersDto(success!));
+            if (error is not null)
+            {
+                return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
+            }
+
+            return McpToolEnvelope.OkResult(ToCallersDto(success!));
+        }
+        catch (OperationCanceledException)
+        {
+            // Client cancellation must stay cancellation, not a tool failure (issue #548).
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return UnexpectedQueryResult("symbol_find_callers", ex);
+        }
     }
 
     [McpServerTool(Name = "symbol_preview_rename", ReadOnly = true, Destructive = false, Idempotent = false, OpenWorld = false), Description(
@@ -566,6 +605,30 @@ public sealed class SymbolTools
             WrittenPaths = applied.Value.WrittenPaths,
             InvalidatedHandles = applied.Value.InvalidatedHandles
         }));
+    }
+
+    /// <summary>
+    /// Defense in depth (issue #548): an exception escaping a finder adapter — for example a
+    /// Roslyn-internal failure inside <c>SymbolFinder</c>'s dependent-type cascade — is written
+    /// to the local audit sink and returned as a structured <c>SymbolQueryFailed</c> instead of
+    /// the generic MCP invocation error. Only the exception type and a truncated message leave
+    /// the process; the stack trace stays in the audit log.
+    /// </summary>
+    private CallToolResult UnexpectedQueryResult(string tool, Exception exception)
+    {
+        _audit.ToolFailed(tool, exception);
+        var detail = string.IsNullOrWhiteSpace(exception.Message)
+            ? exception.GetType().Name
+            : $"{exception.GetType().Name}: {exception.Message}";
+        if (detail.Length > 300)
+        {
+            detail = string.Concat(detail.AsSpan(0, 300), "...");
+        }
+
+        return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(
+            new SymbolQueryFailedError(
+                $"{tool} failed unexpectedly ({detail}).",
+                "Retry the call; if it repeats, reload the workspace and check the server audit log for the matching tool_failed entry.")));
     }
 
     private static IReadOnlyList<RenameDocumentSliceDto> ToDocumentDtos(
