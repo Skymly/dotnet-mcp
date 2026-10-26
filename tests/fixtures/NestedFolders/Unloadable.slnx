@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="Root/Root.csproj" />
+  <Project Path="Gone/Gone.csproj" />
+  <Folder Name="/Outer/">
+    <Folder Name="/Outer/Inner/">
+      <Project Path="Inner/Inner.csproj" />
+    </Folder>
+  </Folder>
+  <Project Path="Shared/Shared.shproj" />
+</Solution>
