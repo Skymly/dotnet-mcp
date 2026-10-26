@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-08-20 Amendment 2 Diagnostic fix；2026-08-20 Amendment 3 Code Refactoring；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁；2026-10-09 Amendment 7 现行写面；2026-10-11 Amendment 8 受信根并集；2026-10-25 Amendment 9 Rename preview 写集合含已注册 XAML 文档）**
+Accepted（2026-08-02），**Amended（2026-08-19 Amendment 1；2026-08-20 Amendment 2 Diagnostic fix；2026-08-20 Amendment 3 Code Refactoring；2026-09-02 Amendment 4 fail-closed roots；2026-09-12 Amendment 5 `.sln`/`.slnx` post-load graph gate；2026-09-15 Amendment 6 analyzer 引用纳入图门禁；2026-10-09 Amendment 7 现行写面；2026-10-11 Amendment 8 受信根并集；2026-10-25 Amendment 9 Rename preview 写集合含已注册 XAML 文档；2026-10-26 Amendment 10 加载图文档集合允许工具链根只读文件）**
 
 ## 上下文
 
@@ -130,3 +130,13 @@ ADR-0001/0002 原稿完全未提及安全，而本项目是**面向公开发布�
 证据：#525、ADR-0005 Amendment 1、ADR-0006。
 
 §3/Amendment 7 的「已存在解决方案文档」写集合扩为「解决方案手写文档 + Rename preview 切片覆盖的、受信根内已注册 XAML 文档（`AdditionalDocuments`）」。允许名单不变——仍是 Amendment 7 列出的 8 个 Workspace Edit 工具加 `workspace_check_drift`；不新增写工具。XAML 切片走同一 apply 管线：写前根校验、`PreviewTargetMissing`、编码/BOM 保持、`SourceEncodingRefused`、`WriteSuppression` 与 Epoch 推进规则原样适用；不增删文件（类型改名不改文件名）。
+
+## Amendment 10（2026-10-26）：加载图文档集合允许工具链根只读文件
+
+证据：#544 —— xunit v3（以及任何以 contentFiles/`_content` 方式往编译里注入 `.cs` 的包）把 NuGet 全局包缓存下的源文件编进 `project.Documents`；只配仓库根为受信根时 `workspace_open` 被 post-load 图门禁拒绝，真实仓库打不开。
+
+- **document / AdditionalDocument 的接受集合**从「仅受信根」扩为「受信根 ∪ 工具链根」（`ToolchainRoots`，Amendment 6 的同一集合：NuGet 包缓存、`NUGET_FALLBACK_PACKAGES`、dotnet 安装根）。理由与 analyzer 相同：MSBuild 求值与 analyzer 每次构建已经从这些根执行代码，允许「读」严格弱于既有的「执行」；这些是工具链注入的只读内容，不是用户声明的输入。
+- **project 路径与 `.slnf` 条目不变**，仍仅受信根——包缓存内的项目不是合法场景。
+- **写集合不变**：`Preview` / `Apply` / `WriteDeclaredPaths` 的各道根校验仍只接受受信根（`PreviewPathOutsideTrustedRoots` / `PathOutsideTrustedRoots`）——工具链根文档可读、不可写。
+- **漂移路径**：`workspace_check_drift` 的 `DetectDrift` 用同一「受信 ∪ 工具链」读集合做磁盘比对，工具链根文档内容一致时不再报 `OutsideTrustedRoots` 假旗，分歧时如实标记 `ContentMismatch` / `MissingOnDisk`；但修复文本读取仍只走受信根，所以这类标记永远 `Repaired:false`——刷新手段是重新 `workspace_open`。
+- 拒绝文案区分两类根：document 的拒绝消息与 analyzer 一致写「trusted roots and toolchain roots」，不回显路径内容（§1）。

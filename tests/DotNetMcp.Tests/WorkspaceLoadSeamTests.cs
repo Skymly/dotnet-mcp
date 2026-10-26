@@ -278,6 +278,9 @@ public class WorkspaceLoadSeamTests
 
             var status = await WaitUntilFailedAsync(fx);
             Assert.Equal(PolicyErrorCodes.LoadedGraphOutsideTrustedRoots, status.ErrorCode);
+            // A document outside BOTH root kinds still fails; the message names both so the
+            // caller knows package/toolchain content was already allowed (Amendment 10).
+            Assert.Contains("toolchain roots", status.Error, StringComparison.Ordinal);
 
             var list = await fx.Client.CallToolAsync(
                 "workspace_list_projects",

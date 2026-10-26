@@ -639,7 +639,17 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             .Distinct(PathPolicy.Comparer)
             .ToArray();
 
-        var detected = loaded.DetectDrift(extras, _trustedRoots.Contains);
+        // Drift DETECTION reads the same paths the load gate admits (trusted roots ∪
+        // toolchain roots — ADR-0004 Amendment 10): a toolchain-root document (e.g. a
+        // package-injected _content/*.cs) is a legitimate read-only graph member, so a
+        // disk divergence is reported as ContentMismatch/MissingOnDisk, not as a false
+        // OutsideTrustedRoots alarm. Repair is a different category: the repair-text
+        // read below stays trusted-roots-only, so toolchain documents are never
+        // Repaired — the remedy is workspace_open, which re-runs MSBuild.
+        var toolchainRoots = ToolchainRoots.Discover();
+        var detected = loaded.DetectDrift(
+            extras,
+            path => _trustedRoots.Contains(path) || toolchainRoots.Contains(path));
 
         var repairTexts = new Dictionary<string, string>(PathPolicy.Comparer);
         foreach (var drift in detected)
@@ -1235,7 +1245,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 "Call workspace_status to poll load progress; do not retry workspace_open.",
             "ready" => "Proceed with query tools such as workspace_list_projects.",
             "failed" when _errorCode == PolicyErrorCodes.LoadedGraphOutsideTrustedRoots =>
-                "Add a trusted root that covers the escaped project/document, or open a .slnf that excludes it; do not keep polling workspace_status.",
+                "Documents and analyzers under toolchain roots (NuGet package cache, dotnet install) are already allowed; " +
+                "add a trusted root that covers the remaining escaped project/document path, or open a .slnf that excludes it; " +
+                "do not keep polling workspace_status.",
             "failed" => "Inspect error; call workspace_open again with a corrected path if needed.",
             "cancelled" => "Previous load was cancelled; call workspace_open to start a new load.",
             _ => "Call workspace_status."
