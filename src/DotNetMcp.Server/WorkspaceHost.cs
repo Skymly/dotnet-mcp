@@ -239,6 +239,12 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             ? null
             : WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, nextEpoch, _trustedRoots);
 
+        // Issue #549: a write-side epoch advance is also where rebuilt analyzer/generator
+        // DLLs get picked up — re-stat analyzer paths and swap references whose bytes
+        // changed (e.g. a user-side dotnet build refreshed an in-workspace generator).
+        // Unchanged paths keep their reference instance; nothing churns per epoch.
+        var analyzerPlan = loaded?.PlanAnalyzerReferenceRefresh(AnalyzerReadAllowance());
+
         _options.BeforeFSharpSnapshotCommitForTests?.Invoke();
 
         lock (_gate)
@@ -248,10 +254,25 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 return;
             }
 
+            if (analyzerPlan is not null)
+            {
+                loaded.ApplyAnalyzerReferenceRefresh(analyzerPlan);
+            }
+
             AdvanceEpochUnlocked();
             _fsharpSnapshot = snap;
             _publishedSolution = loaded.Solution;
         }
+    }
+
+    /// <summary>
+    /// Read gate for analyzer bytes (issue #549): the same trusted ∪ toolchain roots the
+    /// graph gate already vetted for analyzer paths.
+    /// </summary>
+    private Func<string, bool> AnalyzerReadAllowance()
+    {
+        var toolchainRoots = ToolchainRoots.Discover();
+        return path => _trustedRoots.Contains(path) || toolchainRoots.Contains(path);
     }
 
     private void CaptureFSharpOutsideGate()
@@ -1000,6 +1021,28 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             var loaded = await _loader.OpenAsync(path, progress, ct).ConfigureAwait(false);
 
             await MsBuildSolutionLoader.EnsureGraphOrDisposeAsync(loaded, _trustedRoots).ConfigureAwait(false);
+
+            // Issue #549: MSBuildWorkspace hands out lazy AnalyzerFileReference instances
+            // whose loader memory-maps (and locks) the analyzer DLL the first time
+            // analyzers or generators materialize. After the graph gate has vetted every
+            // analyzer path, swap them for byte-loaded references — the DLL can be
+            // overwritten by a user-side build mid-session, and CommitEpochWithFSharpSnapshot
+            // refreshes the bytes. Best-effort: failure keeps the original references.
+            try
+            {
+                if (loaded.ConvertToNonLockingAnalyzerReferences(AnalyzerReadAllowance()) < 0)
+                {
+                    loaded.AddWarning(
+                        "The workspace refused analyzer-reference changes; analyzer DLLs may stay locked for the session and rebuilt analyzers will not be picked up.");
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                loaded.AddWarning(
+                    "Analyzer references could not be switched to non-locking byte loads: "
+                    + ex.Message
+                    + " Analyzer DLLs may stay locked for the session and rebuilt analyzers will not be picked up.");
+            }
 
             var committed = false;
             lock (_gate)

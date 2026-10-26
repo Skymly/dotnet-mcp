@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Server;
@@ -15,6 +17,9 @@ public sealed class LoadedSolution : IAsyncDisposable
     private readonly Workspace _workspace;
     private Dictionary<string, DocumentId> _docsByPath;
     private readonly Dictionary<string, DateTime> _projectFileMtimes = new(PathPolicy.Comparer);
+    // Concurrent: refresh PLANNING reads it outside the workspace gate while a committing
+    // apply may write it inside the gate (issue #549).
+    private readonly ConcurrentDictionary<string, AnalyzerFileStamp> _analyzerStamps = new(PathPolicy.Comparer);
 
     public LoadedSolution(
         Workspace workspace,
@@ -227,6 +232,218 @@ public sealed class LoadedSolution : IAsyncDisposable
             if (File.Exists(path))
             {
                 _projectFileMtimes[path] = File.GetLastWriteTimeUtc(path);
+            }
+        }
+    }
+
+    /// <summary>Append a load warning when the backing list is mutable; fixture loaders may pass immutable lists.</summary>
+    internal void AddWarning(string message)
+    {
+        if (Warnings is List<string> warnings)
+        {
+            warnings.Add(message);
+        }
+    }
+
+    /// <summary>
+    /// Issue #549: swaps lazy file-backed analyzer references for
+    /// <see cref="AnalyzerFileReference"/> instances that byte-load through
+    /// <see cref="NonLockingAnalyzerLoader"/> — the DLL is never memory-mapped, so it is
+    /// never locked for the session — and records each analyzer path's file stamp for
+    /// <see cref="PlanAnalyzerReferenceRefresh"/>. Runs once after the trusted-graph gate,
+    /// before the workspace is published. Returns the number of swapped references, or a
+    /// negative number when the workspace refused the apply — the original references
+    /// stay in place either way (today's behavior).
+    /// </summary>
+    internal int ConvertToNonLockingAnalyzerReferences(Func<string, bool> allowRead)
+    {
+        ArgumentNullException.ThrowIfNull(allowRead);
+        var loader = new NonLockingAnalyzerLoader(allowRead);
+        var swapped = 0;
+        var updated = Solution;
+
+        // Analyzer paths also serve as dependency probes, matching what MSBuild resolves.
+        foreach (var path in EnumerateAnalyzerPaths(Solution))
+        {
+            loader.AddDependencyLocation(path);
+        }
+
+        foreach (var project in Solution.Projects)
+        {
+            var replacement = new List<AnalyzerReference>(project.AnalyzerReferences.Count);
+            var touched = false;
+            foreach (var reference in project.AnalyzerReferences)
+            {
+                var path = reference.FullPath;
+                var normalized = path is null ? null : TryNormalize(path);
+                if (normalized is not null)
+                {
+                    _analyzerStamps[normalized] = AnalyzerFileStamp.Capture(path!);
+                }
+
+                if (reference is AnalyzerFileReference
+                    && normalized is not null
+                    && File.Exists(path))
+                {
+                    replacement.Add(new AnalyzerFileReference(path!, loader));
+                    touched = true;
+                    swapped++;
+                }
+                else
+                {
+                    replacement.Add(reference);
+                }
+            }
+
+            if (touched)
+            {
+                updated = updated.WithProjectAnalyzerReferences(project.Id, replacement);
+            }
+        }
+
+        if (swapped > 0 && !TryApplySolutionChanges(updated))
+        {
+            return -swapped;
+        }
+
+        return swapped;
+    }
+
+    /// <summary>
+    /// Issue #549: re-stat every analyzer path (disk I/O — call outside the workspace gate)
+    /// and plan reference swaps where the file stamp moved since load or last refresh, or
+    /// where an unresolved analyzer's DLL appeared meanwhile. Unchanged paths keep their
+    /// reference instance — no swap, no churn.
+    /// </summary>
+    internal AnalyzerRefreshPlan? PlanAnalyzerReferenceRefresh(Func<string, bool> allowRead)
+    {
+        ArgumentNullException.ThrowIfNull(allowRead);
+        var swaps = new List<KeyValuePair<ProjectId, IReadOnlyList<AnalyzerReference>>>();
+        var newStamps = new Dictionary<string, AnalyzerFileStamp>(PathPolicy.Comparer);
+        var loadersByPath = new Dictionary<string, NonLockingAnalyzerLoader>(PathPolicy.Comparer);
+
+        foreach (var project in Solution.Projects)
+        {
+            List<AnalyzerReference>? replacement = null;
+            var index = -1;
+            foreach (var reference in project.AnalyzerReferences)
+            {
+                index++;
+                var path = reference.FullPath;
+                var normalized = path is null ? null : TryNormalize(path);
+                if (normalized is null)
+                {
+                    continue;
+                }
+
+                _analyzerStamps.TryGetValue(normalized, out var known);
+                var current = AnalyzerFileStamp.Capture(normalized);
+
+                // A file-backed reference whose bytes changed gets a fresh reference (fresh
+                // loader instance → fresh load context, and the new instance compares
+                // unequal so the solution diff applies). A non-file reference such as
+                // UnresolvedAnalyzerReference upgrades only on the missing→present
+                // transition, preserving MSBuild's unresolved verdict while it was absent.
+                var needsSwap = reference is AnalyzerFileReference
+                    ? current.Exists && !current.Equals(known)
+                    : current.Exists && !known.Exists;
+                if (!needsSwap)
+                {
+                    continue;
+                }
+
+                if (!loadersByPath.TryGetValue(normalized, out var loader))
+                {
+                    loader = new NonLockingAnalyzerLoader(allowRead);
+                    loadersByPath[normalized] = loader;
+                }
+
+                replacement ??= [.. project.AnalyzerReferences];
+                replacement[index] = new AnalyzerFileReference(reference.FullPath!, loader);
+                newStamps[normalized] = current;
+            }
+
+            if (replacement is not null)
+            {
+                swaps.Add(new KeyValuePair<ProjectId, IReadOnlyList<AnalyzerReference>>(project.Id, replacement));
+            }
+        }
+
+        if (swaps.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var path in EnumerateAnalyzerPaths(Solution))
+        {
+            foreach (var loader in loadersByPath.Values)
+            {
+                loader.AddDependencyLocation(path);
+            }
+        }
+
+        return new AnalyzerRefreshPlan(swaps, newStamps);
+    }
+
+    /// <summary>
+    /// Applies a <see cref="PlanAnalyzerReferenceRefresh"/> result. Call under the workspace
+    /// gate. A refused apply leaves references as they were (stale-but-stable, today's
+    /// behavior) and skips the stamp update so the next epoch retries.
+    /// </summary>
+    internal void ApplyAnalyzerReferenceRefresh(AnalyzerRefreshPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        var updated = Solution;
+        foreach (var swap in plan.Swaps)
+        {
+            if (updated.GetProject(swap.Key) is not null)
+            {
+                updated = updated.WithProjectAnalyzerReferences(swap.Key, swap.Value);
+            }
+        }
+
+        if (ReferenceEquals(updated, Solution) || !TryApplySolutionChanges(updated))
+        {
+            return;
+        }
+
+        foreach (var (path, stamp) in plan.NewStamps)
+        {
+            _analyzerStamps[path] = stamp;
+        }
+    }
+
+    /// <summary>
+    /// Routes a solution mutation through the underlying workspace so this snapshot and
+    /// <see cref="Workspace.CurrentSolution"/> stay paired. Returns false when the
+    /// workspace refuses the change.
+    /// </summary>
+    private bool TryApplySolutionChanges(Solution updated)
+    {
+        bool applied;
+        try
+        {
+            applied = _workspace.TryApplyChanges(updated);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
+        {
+            applied = false;
+        }
+
+        Solution = _workspace.CurrentSolution;
+        return applied;
+    }
+
+    private static IEnumerable<string> EnumerateAnalyzerPaths(Solution solution)
+    {
+        foreach (var project in solution.Projects)
+        {
+            foreach (var reference in project.AnalyzerReferences)
+            {
+                if (!string.IsNullOrWhiteSpace(reference.FullPath))
+                {
+                    yield return reference.FullPath!;
+                }
             }
         }
     }
