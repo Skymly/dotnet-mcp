@@ -338,6 +338,16 @@ public sealed record GeneratorIdentityDto
 public sealed record ProjectListGeneratorsResultDto
 {
     public required IReadOnlyList<GeneratorIdentityDto> Generators { get; init; }
+
+    /// <summary>
+    /// Analyzer paths MSBuild declared for the project that no loadable assembly materialized
+    /// for — an OutputItemType="Analyzer" project reference whose output is not built, or a
+    /// missing analyzer DLL (issue #551). Paths only: the generator types inside are unknown
+    /// until the assembly exists and the workspace is reopened. Omitted when every declared
+    /// analyzer reference resolved.
+    /// </summary>
+    public IReadOnlyList<string>? UnresolvedAnalyzerReferences { get; init; }
+    public string? Message { get; init; }
     public long Epoch { get; init; }
 }
 

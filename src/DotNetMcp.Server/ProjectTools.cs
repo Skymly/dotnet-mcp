@@ -86,6 +86,9 @@ public sealed class ProjectTools
     [McpServerTool(Name = "project_list_generators", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "List source generators registered on a project (assembly name, type full name, version) " +
         "via AnalyzerReferences.GetGenerators — not FilePath heuristics. " +
+        "An analyzer path MSBuild declared but Roslyn could not materialize an assembly for — an " +
+        "OutputItemType=Analyzer project reference whose output is not built, a missing DLL — is not " +
+        "silent: unresolvedAnalyzerReferences lists the paths and message says to build them and reopen. " +
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
         "Results are cached per (projectId, workspace epoch). F# projects return GeneratorLanguageNotSupported.")]
     public async Task<CallToolResult> ProjectListGenerators(
@@ -114,14 +117,21 @@ public sealed class ProjectTools
             return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
+        var unresolved = success!.UnresolvedAnalyzerReferences;
         return McpToolEnvelope.OkResult(new ProjectListGeneratorsResultDto
         {
-            Generators = success!.Select(g => new GeneratorIdentityDto
+            Generators = success.Generators.Select(g => new GeneratorIdentityDto
             {
                 AssemblyName = g.AssemblyName,
                 TypeFullName = g.TypeFullName,
                 Version = g.Version
             }).ToArray(),
+            UnresolvedAnalyzerReferences = unresolved.Count > 0 ? unresolved : null,
+            Message = unresolved.Count > 0
+                ? $"{unresolved.Count} declared analyzer reference(s) resolved to no loadable assembly — " +
+                  "their paths are in unresolvedAnalyzerReferences. Build the analyzer project or restore " +
+                  "its package, then reopen the workspace to enumerate the generators inside."
+                : null,
             Epoch = session.Epoch
         });
     }

@@ -1,4 +1,5 @@
 using DotNetMcp.Server;
+using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace DotNetMcp.Tests;
 
@@ -139,6 +140,68 @@ public class ProjectListGeneratorsSeamTests
                 g => g.TypeFullName == "CustomGenerator.MarkerGenerator");
             Assert.Equal("CustomGenerator", marker.AssemblyName);
             Assert.Equal("1.2.3.0", marker.Version);
+            Assert.Null(body.UnresolvedAnalyzerReferences);
+            Assert.Null(body.Message);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task project_list_generators_reports_declared_but_unresolved_analyzer_paths()
+    {
+        // Issue #551: an analyzer path MSBuild declared but Roslyn could not materialize an
+        // assembly for — the OutputItemType="Analyzer" reference shape with no built output —
+        // must not collapse to a silent empty list. The path is reported, identities are not
+        // fabricated, and loaded references still list real generators.
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+        var missingAnalyzer = Path.Combine(root, "gen", "bin", "Debug", "netstandard2.0", "NotBuilt.dll");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TestTrustedRoots.Create(root),
+                new FakeSolutionLoader(TimeSpan.Zero, () =>
+                {
+                    var loaded = FakeSolutionLoader.CreateGeneratorsLoaded(
+                        Path.Combine(root, "GeneratorHost.csproj"));
+                    var ws = loaded.Workspace;
+                    var projectId = ws.CurrentSolution.ProjectIds.Single();
+                    if (!ws.TryApplyChanges(ws.CurrentSolution.AddAnalyzerReference(
+                            projectId, new UnresolvedAnalyzerReference(missingAnalyzer))))
+                    {
+                        throw new InvalidOperationException(
+                            "Failed to apply the unresolved analyzer reference fixture.");
+                    }
+
+                    return new LoadedSolution(ws, ws.CurrentSolution, warnings: []);
+                }));
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var list = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(list.IsError is not true);
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var projectId = Assert.Single(projects.Projects).ProjectId;
+
+            var result = await fx.Client.CallToolAsync(
+                "project_list_generators",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+
+            Assert.True(result.IsError is not true);
+            var body = InProcessMcpFixture.Deserialize<ProjectListGeneratorsResultDto>(result);
+
+            Assert.Contains(body.Generators, g => g.TypeFullName == "CustomGenerator.MarkerGenerator");
+            var unresolved = Assert.Single(body.UnresolvedAnalyzerReferences!);
+            Assert.Equal(missingAnalyzer, unresolved);
+            Assert.False(string.IsNullOrWhiteSpace(body.Message));
+            Assert.Contains("unresolvedAnalyzerReferences", body.Message, StringComparison.Ordinal);
         }
         finally
         {
