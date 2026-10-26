@@ -4,7 +4,8 @@ namespace DotNetMcp.Server;
 
 /// <summary>
 /// Post-load / pre-open checks that every project, document, and on-disk analyzer
-/// path stays under trusted roots (analyzers may also sit under toolchain roots).
+/// path stays under trusted roots (documents and analyzers may also sit under
+/// toolchain roots — see ADR-0004 Amendment 10).
 /// </summary>
 public static class TrustedGraphGate
 {
@@ -36,8 +37,15 @@ public static class TrustedGraphGate
 
     /// <summary>
     /// After MSBuild / workspace load, reject any on-disk project, document, or
-    /// analyzer whose final path escapes trusted roots (and, for analyzers, toolchain
-    /// roots). Synthetic in-memory fixture paths that do not exist on disk are skipped
+    /// analyzer whose final path escapes trusted roots (and, for documents and
+    /// analyzers, toolchain roots). Project paths stay trusted-roots-only: a project
+    /// inside the NuGet package cache is not a supported scenario.
+    /// Documents under toolchain roots are admitted read-only — packages such as
+    /// xunit v3 inject package-cache sources (e.g. <c>_content/*.cs</c>) into the
+    /// compile, and MSBuild/analyzers already execute code from these roots on every
+    /// build, so allowing READ is strictly weaker. The write set is unchanged:
+    /// preview/apply still refuses paths outside trusted roots.
+    /// Synthetic in-memory fixture paths that do not exist on disk are skipped
     /// so AdhocWorkspace tests keep working; real escaping files are still caught.
     /// Analyzer checks use <see cref="AnalyzerReference.FullPath"/> only — never
     /// <c>GetAnalyzers</c> / <c>GetGenerators</c>, which would load the DLL first.
@@ -53,20 +61,20 @@ public static class TrustedGraphGate
 
         EnsureProjectPathsUnderRoots(projectPaths, trustedRoots, "workspace_open");
 
+        var toolchainRoots = ToolchainRoots.Discover();
         foreach (var project in loaded.Solution.Projects)
         {
             foreach (var document in EnumerateOnDiskTextDocuments(project))
             {
-                if (!trustedRoots.Contains(document.FilePath!))
+                if (!trustedRoots.Contains(document.FilePath!) && !toolchainRoots.Contains(document.FilePath!))
                 {
                     throw new LoadedGraphOutsideTrustedRootsException(
-                        "workspace_open: a document path resolves outside the configured trusted roots and was rejected.",
+                        "workspace_open: a document path resolves outside the configured trusted roots and toolchain roots and was rejected.",
                         document.FilePath!);
                 }
             }
         }
 
-        var toolchainRoots = ToolchainRoots.Discover();
         foreach (var project in loaded.Solution.Projects)
         {
             foreach (var analyzer in project.AnalyzerReferences)

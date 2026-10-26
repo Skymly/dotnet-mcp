@@ -24,6 +24,10 @@ _Avoid_: version stamp on symbol handles
 服务器允许读取的路径前缀集合；路径参数必须落在某一受信根之内。
 _Avoid_: sandbox, chroot, allowlist path (as synonyms in docs)
 
+**Toolchain root**:
+机器推断的只读根集合（NuGet 包缓存、`NUGET_FALLBACK_PACKAGES`、dotnet 安装根；ADR-0004 Amendment 6/10）。加载图的 document 与 analyzer 引用可落于此，project 路径与全部写集合仍仅限受信根。
+_Avoid_: treating package-cache content as user-declared trusted input; adding toolchain roots to --roots
+
 **Soft budget**:
 列表/扫描类查询的软性时间预算；用尽时允许部分结果而非一律失败。
 _Avoid_: hard timeout that aborts with empty error

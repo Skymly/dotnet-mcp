@@ -38,7 +38,8 @@ public static class McpToolEnvelope
             {
                 Error = PolicyErrorCodes.LoadedGraphOutsideTrustedRoots,
                 Message = status.Error ??
-                          "The loaded graph has a project or document outside trusted roots.",
+                          "The loaded graph has a project or document outside the configured trusted roots " +
+                          "(documents and analyzers may also resolve under toolchain roots).",
                 SuggestedAction = status.SuggestedAction
             });
             return false;
