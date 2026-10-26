@@ -30,7 +30,7 @@ public class GeneratorQueryServiceTests
         var (third, error3) = await service.ListGeneratorsAsync(session8, projectId);
         Assert.Null(error3);
         Assert.NotSame(first, third);
-        Assert.Equal(first!.Count, third!.Count);
+        Assert.Equal(first!.Generators.Count, third!.Generators.Count);
     }
 
     [Fact]

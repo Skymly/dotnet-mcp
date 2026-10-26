@@ -5,6 +5,17 @@ public sealed record GeneratorIdentity(
     string TypeFullName,
     string Version);
 
+/// <summary>
+/// project_list_generators payload (issue #551): the generators Roslyn actually loaded, plus the
+/// analyzer reference paths MSBuild declared but no loadable assembly materialized for — an
+/// OutputItemType="Analyzer" project reference whose output is not built, or an analyzer DLL
+/// missing on disk. The declared path is all that is known there; generator type identities are
+/// never fabricated for an assembly that was not loaded.
+/// </summary>
+public sealed record GeneratorListResult(
+    IReadOnlyList<GeneratorIdentity> Generators,
+    IReadOnlyList<string> UnresolvedAnalyzerReferences);
+
 public sealed record GeneratedSourceItem(string HintName, string Content);
 
 public sealed record GeneratorDiagnosticItem(

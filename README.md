@@ -111,6 +111,8 @@ An empty or whitespace `path` to `workspace_open` or an XAML tool is an empty-pa
 
 A source generator or analyzer that references a newer `Microsoft.CodeAnalysis` than the server bundles is refused by Roslyn, and its output silently drops out of `project_list_generators`, `project_list_generated_sources`, and `symbol_attribution`. Once the workspace is ready, `workspace_status.warnings` carries an `AnalyzerReferencesNewerCompiler` entry that names the file (not its path). It is read from the assembly's metadata, so the analyzer is not loaded to find out. The fix is a dotnet-mcp release that bundles a newer Roslyn.
 
+An analyzer path MSBuild declared but that resolves to no loadable assembly — an `OutputItemType="Analyzer"` project reference whose output is not built, or a DLL missing on disk — is not a silent miss either: `project_list_generators` lists it under `unresolvedAnalyzerReferences` with a `message` saying to build the analyzer project and reopen the workspace. Generator identities are only ever reported for assemblies that actually loaded.
+
 ## Security
 
 1. **Trusted roots** — every path is canonicalized (including parent reparse points). Unresolvable links fail closed. Loaded project graphs and apply-paths are re-checked. Configure `--roots` / `--roots=path` or `DOTNET_MCP_TRUSTED_ROOTS`. When both are set, the trusted set is their union. Path comparison ignores case on Windows and respects it on Linux and macOS, including a default macOS volume that does not, so write a path with the same casing as the configured root. Startup failure uses `TrustedRootsConfigurationFailed` on stderr, not a stack trace.

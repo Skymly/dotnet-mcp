@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace DotNetMcp.Core;
 
@@ -8,10 +9,10 @@ public sealed class GeneratorQueryService
     public const int DefaultGeneratedSourcesPageLimit = 50;
     public const int MaxGeneratedSourcesPageLimit = 100;
 
-    private readonly ConcurrentDictionary<(string ProjectId, long Epoch), IReadOnlyList<GeneratorIdentity>> _listCache =
+    private readonly ConcurrentDictionary<(string ProjectId, long Epoch), GeneratorListResult> _listCache =
         new();
 
-    public Task<(IReadOnlyList<GeneratorIdentity>? Success, SymbolQueryError? Error)> ListGeneratorsAsync(
+    public Task<(GeneratorListResult? Success, SymbolQueryError? Error)> ListGeneratorsAsync(
         IWorkspaceSession session,
         string projectId,
         CancellationToken cancellationToken = default,
@@ -21,18 +22,18 @@ public sealed class GeneratorQueryService
 
         if (!TryResolveSupportedProject(session, projectId, languages, out var project, out var error))
         {
-            return Task.FromResult<(IReadOnlyList<GeneratorIdentity>?, SymbolQueryError?)>((null, error));
+            return Task.FromResult<(GeneratorListResult?, SymbolQueryError?)>((null, error));
         }
 
         var cacheKey = (project!.Id.Id.ToString("D"), session.Epoch);
         if (_listCache.TryGetValue(cacheKey, out var cached))
         {
-            return Task.FromResult<(IReadOnlyList<GeneratorIdentity>?, SymbolQueryError?)>((cached, null));
+            return Task.FromResult<(GeneratorListResult?, SymbolQueryError?)>((cached, null));
         }
 
-        var identities = EnumerateGenerators(project);
-        _listCache[cacheKey] = identities;
-        return Task.FromResult<(IReadOnlyList<GeneratorIdentity>?, SymbolQueryError?)>((identities, null));
+        var result = EnumerateGenerators(project);
+        _listCache[cacheKey] = result;
+        return Task.FromResult<(GeneratorListResult?, SymbolQueryError?)>((result, null));
     }
 
     /// <summary>
@@ -289,14 +290,29 @@ public sealed class GeneratorQueryService
             "Source generator queries are not available for this language.",
             "Call project_list_generators on a C# or VB project.");
 
-    private static IReadOnlyList<GeneratorIdentity> EnumerateGenerators(Project project)
+    private static GeneratorListResult EnumerateGenerators(Project project)
     {
         var seen = new HashSet<(string Assembly, string Type)>();
         var list = new List<GeneratorIdentity>();
+        var unresolved = new SortedSet<string>(PathComparisonComparer());
 
         foreach (var reference in project.AnalyzerReferences)
         {
-            foreach (var generator in reference.GetGenerators(project.Language))
+            var generators = reference.GetGenerators(project.Language);
+            var fullPath = reference.FullPath;
+            if (generators.IsEmpty
+                && !string.IsNullOrWhiteSpace(fullPath)
+                && (reference is UnresolvedAnalyzerReference || !File.Exists(fullPath)))
+            {
+                // MSBuild declared this analyzer but Roslyn could not materialize an assembly
+                // for it — an OutputItemType="Analyzer" project reference whose output is not
+                // built, or a DLL deleted after open (issue #551). The path is honest; the
+                // generator identities inside are not, so they are never fabricated.
+                unresolved.Add(fullPath);
+                continue;
+            }
+
+            foreach (var generator in generators)
             {
                 var type = generator.GetGeneratorType();
                 var assemblyName = type.Assembly.GetName().Name ?? string.Empty;
@@ -317,8 +333,12 @@ public sealed class GeneratorQueryService
             return assembly != 0 ? assembly : string.CompareOrdinal(a.TypeFullName, b.TypeFullName);
         });
 
-        return list;
+        return new GeneratorListResult(list, [.. unresolved]);
     }
+
+    // Mirrors PathPolicy's comparison in DotNetMcp.Server, which Core cannot reference.
+    private static StringComparer PathComparisonComparer() =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     private static int ClampLimit(int? limit)
     {

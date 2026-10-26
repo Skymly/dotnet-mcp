@@ -500,6 +500,119 @@ public class MsBuildWorkspaceIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task workspace_open_generator_host_unbuilt_analyzer_reference_surfaces_declared_path()
+    {
+        // Issue #551: the fixture declares <ProjectReference OutputItemType="Analyzer"> to
+        // CustomGenerator, and the fixture copy carries no build output — MSBuild declares
+        // the analyzer path but Roslyn cannot materialize the assembly. The tool must
+        // surface that declared path instead of a silent empty generator list.
+        var project = Path.Combine(FixturesRoot, "GeneratorHost", "GeneratorHost.csproj");
+        Assert.True(File.Exists(project), $"Missing fixture: {project}");
+        Assert.True(File.Exists(
+            Path.Combine(FixturesRoot, "CustomGenerator", "CustomGenerator.csproj")),
+            "Missing fixture: CustomGenerator.csproj");
+
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([FixturesRoot]));
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = project });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+        await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+
+        var list = await fx.Client.CallToolAsync(
+            "workspace_list_projects",
+            new Dictionary<string, object?>());
+        Assert.True(list.IsError is not true, InProcessMcpFixture.TextOf(list));
+        var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+        var hostId = Assert.Single(projects.Projects, p =>
+            p.Name.Contains("GeneratorHost", StringComparison.OrdinalIgnoreCase)).ProjectId;
+
+        var result = await fx.Client.CallToolAsync(
+            "project_list_generators",
+            new Dictionary<string, object?> { ["projectId"] = hostId });
+        Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+        var body = InProcessMcpFixture.Deserialize<ProjectListGeneratorsResultDto>(result);
+
+        var unresolved = Assert.Single(body.UnresolvedAnalyzerReferences!);
+        Assert.EndsWith("CustomGenerator.dll", unresolved, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            Path.Combine("CustomGenerator", "bin"),
+            unresolved,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(unresolved), $"Expected an unbuilt analyzer path, found: {unresolved}");
+        Assert.DoesNotContain(body.Generators, g =>
+            string.Equals(g.AssemblyName, "CustomGenerator", StringComparison.Ordinal));
+        Assert.False(string.IsNullOrWhiteSpace(body.Message));
+        Assert.Contains("unresolvedAnalyzerReferences", body.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task workspace_open_msbuild_analyzer_lists_real_generator_identities()
+    {
+        var root = CreateTempDir("genhost-list");
+        var dllSrc = Path.Combine(AppContext.BaseDirectory, "CustomGenerator.dll");
+        Assert.True(File.Exists(dllSrc), $"Missing CustomGenerator.dll next to tests: {dllSrc}");
+        File.Copy(dllSrc, Path.Combine(root, "CustomGenerator.dll"));
+
+        var project = Path.Combine(root, "Host.csproj");
+        await File.WriteAllTextAsync(project, """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <Nullable>enable</Nullable>
+              </PropertyGroup>
+              <ItemGroup>
+                <Analyzer Include="CustomGenerator.dll" />
+              </ItemGroup>
+            </Project>
+            """);
+        await File.WriteAllTextAsync(Path.Combine(root, "Placeholder.cs"), """
+            namespace Host;
+            public static class Placeholder
+            {
+            }
+            """);
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+
+            var open = await fx.Client.CallToolAsync(
+                "workspace_open",
+                new Dictionary<string, object?> { ["path"] = project });
+            Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+            await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
+
+            var list = await fx.Client.CallToolAsync(
+                "workspace_list_projects",
+                new Dictionary<string, object?>());
+            Assert.True(list.IsError is not true, InProcessMcpFixture.TextOf(list));
+            var projectId = Assert.Single(
+                InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list).Projects).ProjectId;
+
+            var result = await fx.Client.CallToolAsync(
+                "project_list_generators",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<ProjectListGeneratorsResultDto>(result);
+
+            Assert.Contains(body.Generators, g =>
+                g.AssemblyName == "CustomGenerator"
+                && g.TypeFullName == "CustomGenerator.MarkerGenerator");
+            Assert.Null(body.UnresolvedAnalyzerReferences);
+            Assert.DoesNotContain(
+                "unresolvedAnalyzerReferences",
+                InProcessMcpFixture.TextOf(result),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
 
     [Fact]
     public async Task workspace_open_fsproj_rename_rejects_illegal_identifiers()
