@@ -73,7 +73,7 @@ Equivalent after publish: `dotnet tool exec Skymly.DotNetMcp --yes -- --roots /p
 
 stdio only. Framework-dependent .NET tool; NativeAOT is not required.
 
-Typical agent loop: `workspace_open` (returns immediately) → poll `workspace_status` until `ready` → `symbol_resolve` → navigation / attribution. Prefer a `.slnf` or a single project for a large solution.
+Typical agent loop: `workspace_open` (returns immediately) → poll `workspace_status` until `ready` → `symbol_resolve` → navigation / attribution. Prefer a `.slnf` or a single project for a large solution. `.slnf` entries already in the workspace (duplicates, or projects an earlier entry pulled in transitively) are skipped and named in the load warnings rather than failing the open.
 
 For agent setup, [`docs/agent-guidance.md`](docs/agent-guidance.md) holds a copy-paste block for a consuming repo's `AGENTS.md` / `CLAUDE.md` — the loop, the 1-based position model, and the preview → apply write rule. The server also sends the same brief in the initialize result `instructions` and ships `trace_symbol` / `safe_rename` prompts that walk an agent through the two core workflows.
 

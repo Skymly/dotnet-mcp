@@ -1,0 +1,12 @@
+{
+  // Issue #547 fixture: a multi-targeting project (net8.0 + net9.0) listed twice.
+  // Both TFMs load on the first entry sharing one FilePath; the second entry must
+  // be skipped by that FilePath, not opened once per TFM again.
+  "solution": {
+    "path": "Sample.slnx",
+    "projects": [
+      "../MultiTfm/MultiTfm.csproj",
+      "../MultiTfm/MultiTfm.csproj"
+    ]
+  }
+}

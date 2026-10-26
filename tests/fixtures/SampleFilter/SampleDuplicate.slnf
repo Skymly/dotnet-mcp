@@ -1,0 +1,11 @@
+{
+  // Issue #547 fixture: the same project listed twice. The second entry must be
+  // skipped with a named warning instead of aborting the whole open.
+  "solution": {
+    "path": "Sample.slnx",
+    "projects": [
+      "LibA/LibA.csproj",
+      "LibA/LibA.csproj"
+    ]
+  }
+}

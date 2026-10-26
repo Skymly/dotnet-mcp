@@ -442,8 +442,14 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
             foreach (var projectPath in projectPaths)
             {
                 ct.ThrowIfCancellationRequested();
-                await workspace.OpenProjectAsync(projectPath, cancellationToken: ct)
-                    .ConfigureAwait(false);
+                // An entry already in the workspace — a duplicate filter line, or a project an
+                // earlier entry pulled in transitively — would make MSBuildWorkspace throw and
+                // abort the whole open. Skip it, but name it: the skip is never silent.
+                if (!await OpenProjectIfMissingAsync(workspace, projectPath, ct).ConfigureAwait(false))
+                {
+                    warnings.Add($"Solution filter entry already loaded transitively: {projectPath}");
+                }
+
                 completed++;
                 progress?.Report(new LoadProgress(completed, total));
             }
