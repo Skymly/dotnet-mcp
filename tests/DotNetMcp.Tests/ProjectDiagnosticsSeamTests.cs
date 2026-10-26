@@ -162,14 +162,15 @@ public class ProjectDiagnosticsSeamTests
         using var session = new WorkspaceSession(loaded, epoch: 1);
         var projectId = loaded.Solution.Projects.Single().Id.Id.ToString("D");
 
-        var (page, error) = await service.GetProjectDiagnosticsAsync(
+        var (result, error) = await service.GetProjectDiagnosticsAsync(
             session,
             projectId,
             softBudget: TimeSpan.Zero);
 
         Assert.Null(error);
-        Assert.NotNull(page);
-        Assert.True(page!.Truncated);
+        Assert.NotNull(result);
+        var page = result!.Page;
+        Assert.True(page.Truncated);
         Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
         Assert.Empty(page.Items);
         Assert.Contains("Soft budget", page.Message, StringComparison.OrdinalIgnoreCase);
@@ -183,8 +184,8 @@ public class ProjectDiagnosticsSeamTests
 
         Assert.Null(continueError);
         Assert.NotNull(continued);
-        Assert.NotEmpty(continued!.Items);
-        Assert.DoesNotContain("SoftBudgetExceeded", continued.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(continued!.Page.Items);
+        Assert.DoesNotContain("SoftBudgetExceeded", continued.Page.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -194,14 +195,15 @@ public class ProjectDiagnosticsSeamTests
         var service = new DiagnosticQueryService();
         using var session = new WorkspaceSession(loaded, epoch: 1);
 
-        var (page, error) = await service.GetProjectDiagnosticsAsync(
+        var (result, error) = await service.GetProjectDiagnosticsAsync(
             session,
             projectId: string.Empty,
             softBudget: TimeSpan.Zero);
 
         Assert.Null(error);
-        Assert.NotNull(page);
-        Assert.True(page!.Truncated);
+        Assert.NotNull(result);
+        var page = result!.Page;
+        Assert.True(page.Truncated);
         Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
         Assert.DoesNotContain("complete", page.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("no error or warning", page.Message, StringComparison.OrdinalIgnoreCase);
@@ -215,8 +217,8 @@ public class ProjectDiagnosticsSeamTests
 
         Assert.Null(continueError);
         Assert.NotNull(continued);
-        Assert.NotEmpty(continued!.Items);
-        Assert.DoesNotContain("no error or warning", continued.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(continued!.Page.Items);
+        Assert.DoesNotContain("no error or warning", continued.Page.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -406,6 +408,103 @@ public class ProjectDiagnosticsSeamTests
         {
             TryDelete(root);
         }
+    }
+
+    [Fact]
+    public async Task project_diagnostics_flags_missing_metadata_references_as_degraded()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithMissingMetadataReferences());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var projectId = Assert.Single(projects.Projects).ProjectId;
+
+            var result = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(result);
+            Assert.True(body.Degraded);
+            Assert.NotNull(body.DegradedReason);
+            Assert.Contains("metadata references", body.DegradedReason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("dotnet build", body.DegradedReason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(body.Items, d => d.Id == "CS0012");
+            // Ambiguous typo diagnostics stay listed — the flag does not filter them.
+            Assert.Contains(body.Items, d => d.Id is "CS0234" or "CS0246");
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task project_diagnostics_omits_degraded_for_a_clean_compilation()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithDiagnostics());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var projectId = Assert.Single(projects.Projects).ProjectId;
+
+            var result = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(result);
+            Assert.NotEmpty(body.Items);
+            Assert.Null(body.Degraded);
+            Assert.Null(body.DegradedReason);
+            Assert.DoesNotContain("\"degraded\"", InProcessMcpFixture.TextOf(result), StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task GetProjectDiagnosticsAsync_missing_metadata_references_report_degraded_with_count()
+    {
+        var loaded = FakeSolutionLoader.CreateMissingMetadataReferencesLoaded(@"C:\fake\DegradedLib.csproj");
+        var service = new DiagnosticQueryService();
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+        var projectId = loaded.Solution.Projects.Single().Id.Id.ToString("D");
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(
+            result!.Degraded,
+            "diagnostics: " + string.Join(" | ", result.Page.Items.Select(d => $"{d.Id}:{d.Message}")));
+        Assert.Equal(
+            result.Page.Items.Count(d => MissingMetadataDiagnostics.IsMissingMetadataDiagnostic(d.Id)),
+            result.MissingMetadataDiagnosticCount);
+        Assert.True(result.MissingMetadataDiagnosticCount >= 1);
+        Assert.Contains(result.Page.Items, d => d.Id == "CS0012");
     }
 
     private static string CreateTempDir(string label)

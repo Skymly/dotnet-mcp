@@ -365,7 +365,7 @@ public class LanguageAdaptersTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
+        public Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
             IWorkspaceSession session,
             string projectId,
             int? limit = null,

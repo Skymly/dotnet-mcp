@@ -316,6 +316,16 @@ public sealed record ProjectDiagnosticsResultDto
     public string? NextCursor { get; init; }
     public string? Message { get; init; }
     public IReadOnlyList<string>? MissingDependencyOutputs { get; init; }
+
+    /// <summary>
+    /// true when the compilation reported CS0006/CS0012 — metadata references did
+    /// not resolve, so listed errors may be workspace artifacts rather than real
+    /// code defects. Omitted when false (issue #546).
+    /// </summary>
+    public bool? Degraded { get; init; }
+
+    /// <summary>Why <see cref="Degraded"/> is set, including the CS0006/CS0012 count.</summary>
+    public string? DegradedReason { get; init; }
 }
 
 public sealed record GeneratorIdentityDto

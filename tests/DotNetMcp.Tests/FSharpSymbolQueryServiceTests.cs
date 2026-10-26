@@ -250,11 +250,11 @@ public class FSharpSymbolQueryServiceTests
     public async Task get_project_diagnostics_returns_a_page()
     {
         using var session = Session(BrokenSnapshot());
-        var (page, error) = await Adapter().GetProjectDiagnosticsAsync(session, FsProjectId);
+        var (result, error) = await Adapter().GetProjectDiagnosticsAsync(session, FsProjectId);
         Assert.Null(error);
-        Assert.NotNull(page);
-        Assert.NotEmpty(page!.Items);
-        Assert.All(page.Items, d => Assert.Equal(FsProjectId, d.ProjectId));
+        Assert.NotNull(result);
+        Assert.NotEmpty(result!.Page.Items);
+        Assert.All(result.Page.Items, d => Assert.Equal(FsProjectId, d.ProjectId));
     }
 
     [Fact]

@@ -14,7 +14,7 @@ public sealed class DiagnosticQueryService
         _languages = languages ?? new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService(), _softBudgets)]);
     }
 
-    public async Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
+    public async Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
         IWorkspaceSession session,
         string projectId,
         int? limit = null,
@@ -41,7 +41,7 @@ public sealed class DiagnosticQueryService
             .ConfigureAwait(false);
     }
 
-    private async Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetBatchDiagnosticsAsync(
+    private async Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetBatchDiagnosticsAsync(
         IWorkspaceSession session,
         int? limit,
         string? cursor,
@@ -91,7 +91,7 @@ public sealed class DiagnosticQueryService
                 {
                     remaining = TimeSpan.Zero;
                 }
-                var (page, error) = await adapter.GetProjectDiagnosticsAsync(
+                var (result, error) = await adapter.GetProjectDiagnosticsAsync(
                         session,
                         projectId,
                         limit: LanguageAdapters.MaxMemberPageLimit,
@@ -117,7 +117,8 @@ public sealed class DiagnosticQueryService
                     break;
                 }
 
-                collected.AddRange(page!.Items);
+                var page = result!.Page;
+                collected.AddRange(page.Items);
                 if (!page.Truncated || string.IsNullOrWhiteSpace(page.NextCursor))
                 {
                     break;
@@ -160,7 +161,13 @@ public sealed class DiagnosticQueryService
             };
         }
 
-        return (paged, pageError);
+        // Count over the collected items (not per-adapter-page counts) so a
+        // project paged through multiple inner calls is not double-counted.
+        return (paged is null
+            ? null
+            : new ProjectDiagnosticsResult(
+                paged,
+                MissingMetadataDiagnostics.CountIn(collected)), pageError);
     }
 
     private static int ClampLimit(int? limit)

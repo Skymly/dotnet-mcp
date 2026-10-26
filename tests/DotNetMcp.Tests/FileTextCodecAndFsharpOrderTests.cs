@@ -75,9 +75,9 @@ public class FSharpCompileOrderTests
                 FSharpProjectFile.ReadCompilePaths(Path.Combine(dir, "Lib.fsproj")).Select(Path.GetFileName).ToArray());
             Assert.Contains("CUSTOM", project.Defines);
 
-            var (page, error) = await new DotNetMcp.FSharp.FSharpSymbolQueryService().GetProjectDiagnosticsAsync(session, project.ProjectId);
+            var (result, error) = await new DotNetMcp.FSharp.FSharpSymbolQueryService().GetProjectDiagnosticsAsync(session, project.ProjectId);
             Assert.Null(error);
-            Assert.DoesNotContain(page!.Items, d => d.Id == "FS0039");
+            Assert.DoesNotContain(result!.Page.Items, d => d.Id == "FS0039");
         }
         finally
         {
@@ -104,9 +104,9 @@ public class FSharpCompileOrderTests
                     project.References)
             ]);
             using var session = new WorkspaceSession(loaded, epoch: 1, fsharpSnapshot: reversed);
-            var (page, error) = await new DotNetMcp.FSharp.FSharpSymbolQueryService().GetProjectDiagnosticsAsync(session, project.ProjectId);
+            var (result, error) = await new DotNetMcp.FSharp.FSharpSymbolQueryService().GetProjectDiagnosticsAsync(session, project.ProjectId);
             Assert.Null(error);
-            Assert.Contains(page!.Items, d => d.Id == "FS0039");
+            Assert.Contains(result!.Page.Items, d => d.Id == "FS0039");
         }
         finally
         {

@@ -28,7 +28,7 @@ public class DiagnosticQueryServiceTests
             softBudget: TimeSpan.FromSeconds(1));
 
         Assert.Null(error);
-        Assert.Same(page, success);
+        Assert.Same(page, success!.Page);
         Assert.Equal(1, fake.DiagnosticCalls);
         Assert.Equal(projectId, fake.LastProjectId);
         Assert.Equal(7, fake.LastLimit);
@@ -68,14 +68,14 @@ public class DiagnosticQueryServiceTests
                 session, projectId: "  ", cursor: cursor);
             Assert.Null(error);
             Assert.NotNull(success);
-            last = success;
-            all.AddRange(success!.Items);
-            if (!success.Truncated)
+            last = success!.Page;
+            all.AddRange(success.Page.Items);
+            if (!success.Page.Truncated)
             {
                 break;
             }
 
-            cursor = success.NextCursor;
+            cursor = success.Page.NextCursor;
             Assert.False(string.IsNullOrWhiteSpace(cursor));
         }
 
@@ -109,10 +109,11 @@ public class DiagnosticQueryServiceTests
         var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
         using var session = new FakeSession(workspace.CurrentSolution);
 
-        var (page, error) = await service.GetProjectDiagnosticsAsync(session, projectId: string.Empty);
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId: string.Empty);
         Assert.Null(error);
-        Assert.NotNull(page);
-        var failure = Assert.Single(page!.Items, i => i.ProjectId == failedId);
+        Assert.NotNull(result);
+        var page = result!.Page;
+        var failure = Assert.Single(page.Items, i => i.ProjectId == failedId);
         Assert.Equal(SymbolQueryErrorCodes.CompilationUnavailable, failure.Error);
         Assert.Equal("Rebuild the project, then retry project_diagnostics.", failure.SuggestedAction);
         Assert.NotEqual("Error", failure.Severity);
@@ -148,15 +149,16 @@ public class DiagnosticQueryServiceTests
         var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
         using var session = new FakeSession(workspace.CurrentSolution);
 
-        var (page, error) = await service.GetProjectDiagnosticsAsync(
+        var (first, error) = await service.GetProjectDiagnosticsAsync(
             session,
             projectId: string.Empty,
             limit: 50,
             softBudget: TimeSpan.FromSeconds(1));
 
         Assert.Null(error);
-        Assert.NotNull(page);
-        Assert.Equal(2, page!.Items.Count);
+        Assert.NotNull(first);
+        var page = first!.Page;
+        Assert.Equal(2, page.Items.Count);
         Assert.True(page.Truncated);
         Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
         Assert.DoesNotContain("complete", page.Message, StringComparison.OrdinalIgnoreCase);
@@ -173,8 +175,98 @@ public class DiagnosticQueryServiceTests
 
         Assert.Null(continueError);
         Assert.NotNull(continued);
-        Assert.Contains(continued!.Items, i => i.Id == "CS0003");
-        Assert.DoesNotContain(continued.Items, i => i.Id == "CS0001");
+        Assert.Contains(continued!.Page.Items, i => i.Id == "CS0003");
+        Assert.DoesNotContain(continued.Page.Items, i => i.Id == "CS0001");
+    }
+
+    [Theory]
+    [InlineData("CS0006", true)]
+    [InlineData("CS0012", true)]
+    [InlineData("CS0234", false)]
+    [InlineData("CS0246", false)]
+    [InlineData("CS1061", false)]
+    [InlineData("DependencyOutputNotBuilt", false)]
+    [InlineData("FS0039", false)]
+    public void missing_metadata_detection_keys_on_cs0006_cs0012_only(string id, bool expected)
+    {
+        Assert.Equal(expected, MissingMetadataDiagnostics.IsMissingMetadataDiagnostic(id));
+    }
+
+    [Fact]
+    public async Task get_project_diagnostics_marks_degraded_when_adapter_reports_cs0012()
+    {
+        using var workspace = CreateWorkspace();
+        var projectId = workspace.CurrentSolution.Projects.Single().Id.Id.ToString("D");
+        var fake = new FakeAdapter
+        {
+            PagesByProject =
+            {
+                [projectId] =
+                [
+                    new DiagnosticItem("CS0012", "Error", "type defined in unreferenced assembly", @"C:\a.cs", 1, 1, 1, 2, projectId),
+                    new DiagnosticItem("CS0246", "Error", "real typo", @"C:\a.cs", 2, 1, 2, 2, projectId),
+                ],
+            },
+        };
+        var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
+        using var session = new FakeSession(workspace.CurrentSolution);
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(result!.Degraded);
+        Assert.Equal(1, result.MissingMetadataDiagnosticCount);
+        Assert.Equal(2, result.Page.Items.Count);
+    }
+
+    [Fact]
+    public async Task get_project_diagnostics_is_not_degraded_for_cs0246_only()
+    {
+        using var workspace = CreateWorkspace();
+        var projectId = workspace.CurrentSolution.Projects.Single().Id.Id.ToString("D");
+        var fake = new FakeAdapter
+        {
+            PagesByProject =
+            {
+                [projectId] = [new DiagnosticItem("CS0246", "Error", "type not found", @"C:\a.cs", 1, 1, 1, 2, projectId)],
+            },
+        };
+        var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
+        using var session = new FakeSession(workspace.CurrentSolution);
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.False(result!.Degraded);
+        Assert.Equal(0, result.MissingMetadataDiagnosticCount);
+    }
+
+    [Fact]
+    public async Task batch_diagnostics_marks_degraded_when_any_project_reports_cs0006()
+    {
+        using var workspace = CreateTwoProjectWorkspace();
+        var projects = workspace.CurrentSolution.Projects.OrderBy(p => p.Name).ToArray();
+        var projectA = projects[0].Id.Id.ToString("D");
+        var projectB = projects[1].Id.Id.ToString("D");
+        var fake = new FakeAdapter
+        {
+            PagesByProject =
+            {
+                [projectA] = [new DiagnosticItem("CS0006", "Error", "metadata file missing", @"C:\a.cs", 1, 1, 1, 2, projectA)],
+                [projectB] = [new DiagnosticItem("CS0246", "Error", "type not found", @"C:\b.cs", 1, 1, 1, 2, projectB)],
+            },
+        };
+        var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
+        using var session = new FakeSession(workspace.CurrentSolution);
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId: string.Empty);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(result!.Degraded);
+        Assert.Equal(1, result.MissingMetadataDiagnosticCount);
     }
 
     [Fact]
@@ -295,7 +387,7 @@ public class DiagnosticQueryServiceTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
+        public Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
             IWorkspaceSession session,
             string projectId,
             int? limit = null,
@@ -311,7 +403,7 @@ public class DiagnosticQueryServiceTests
             Cursors.Add(cursor);
             if (ErrorsByProject.TryGetValue(projectId, out var projectError))
             {
-                return Task.FromResult<(PagedResult<DiagnosticItem>?, SymbolQueryError?)>((null, projectError));
+                return Task.FromResult<(ProjectDiagnosticsResult?, SymbolQueryError?)>((null, projectError));
             }
 
             if (PagesByProject.TryGetValue(projectId, out var all))
@@ -345,10 +437,16 @@ public class DiagnosticQueryServiceTests
                     };
                 }
 
-                return Task.FromResult<(PagedResult<DiagnosticItem>?, SymbolQueryError?)>((page, null));
+                return Task.FromResult<(ProjectDiagnosticsResult?, SymbolQueryError?)>(
+                    (new ProjectDiagnosticsResult(page, MissingMetadataDiagnostics.CountIn(all)), null));
             }
 
-            return Task.FromResult<(PagedResult<DiagnosticItem>?, SymbolQueryError?)>((DiagnosticsPage, null));
+            return Task.FromResult<(ProjectDiagnosticsResult?, SymbolQueryError?)>(
+                (DiagnosticsPage is null
+                    ? null
+                    : new ProjectDiagnosticsResult(
+                        DiagnosticsPage,
+                        MissingMetadataDiagnostics.CountIn(DiagnosticsPage.Items)), null));
         }
 
         public Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> ResolveByNameAsync(

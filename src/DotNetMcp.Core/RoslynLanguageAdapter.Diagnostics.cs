@@ -8,7 +8,7 @@ namespace DotNetMcp.Core;
 
 public sealed partial class RoslynLanguageAdapter
 {
-    public async Task<(PagedResult<DiagnosticItem>? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
+    public async Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
         IWorkspaceSession session,
         string projectId,
         int? limit = null,
@@ -61,13 +61,15 @@ public sealed partial class RoslynLanguageAdapter
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return (SoftBudgetPage.Finish(
-                    Array.Empty<DiagnosticItem>(),
-                    moreItems: true,
-                    budgetHit: true,
-                    () => MemberPageCursor.Encode(epoch, offset, "project_diagnostics", projectId),
-                    "project_diagnostics",
-                    "Project has no error or warning diagnostics."), null);
+                return (new ProjectDiagnosticsResult(
+                    SoftBudgetPage.Finish(
+                        Array.Empty<DiagnosticItem>(),
+                        moreItems: true,
+                        budgetHit: true,
+                        () => MemberPageCursor.Encode(epoch, offset, "project_diagnostics", projectId),
+                        "project_diagnostics",
+                        "Project has no error or warning diagnostics."),
+                    MissingMetadataDiagnosticCount: 0), null);
             }
             catch (InvalidOperationException ex)
             {
@@ -95,7 +97,7 @@ public sealed partial class RoslynLanguageAdapter
             .ThenBy(d => d.Message, StringComparer.Ordinal)
             .ToList();
 
-        return SoftBudgetPage.Page(
+        var (page, pageError) = SoftBudgetPage.Page(
             diagnostics,
             epoch,
             budgetHit: false,
@@ -106,6 +108,11 @@ public sealed partial class RoslynLanguageAdapter
             "Project has no error or warning diagnostics.",
             "Diagnostics page complete.",
             "the diagnostics list");
+        return page is null
+            ? (null, pageError)
+            : (new ProjectDiagnosticsResult(
+                page,
+                MissingMetadataDiagnostics.CountIn(diagnostics)), null);
     }
 
     private static DiagnosticItem ToDiagnosticItem(Diagnostic diagnostic, string projectId)

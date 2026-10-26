@@ -216,6 +216,10 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
     public static FakeSolutionLoader ImmediateWithDiagnostics(string projectFilePath = @"C:\fake\BrokenLib.csproj") =>
         new(TimeSpan.Zero, () => CreateDiagnosticsLoaded(projectFilePath));
 
+    public static FakeSolutionLoader ImmediateWithMissingMetadataReferences(
+        string projectFilePath = @"C:\fake\DegradedLib.csproj") =>
+        new(TimeSpan.Zero, () => CreateMissingMetadataReferencesLoaded(projectFilePath));
+
     public static FakeSolutionLoader DelayedWithDiagnostics(
         TimeSpan delay,
         string projectFilePath = @"C:\fake\BrokenLib.csproj") =>
@@ -1835,6 +1839,93 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         }
 
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    /// <summary>
+    /// Degraded-compilation fixture (issue #546): DegradedLib references the
+    /// emitted MidLib image while DepLib — whose DepType appears in MidLib's
+    /// public API — is not referenced, so the compilation reports CS0012. An
+    /// ordinary CS0246 typo stays listed beside it so tests prove the flag does
+    /// not filter diagnostics. (CS0006 cannot be produced through public
+    /// AdhocWorkspace APIs — MetadataReference.CreateFromFile reads eagerly and
+    /// there is no unresolved-reference surface — so that id is covered by the
+    /// detection predicate unit test instead.)
+    /// </summary>
+    public static LoadedSolution CreateMissingMetadataReferencesLoaded(string projectFilePath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        var refs = TrustedPlatformReferences();
+
+        var depImage = EmitLibrary(
+            "DepLib",
+            "namespace DepLib; public sealed class DepType { public int Value => 1; }",
+            refs);
+        var midImage = EmitLibrary(
+            "MidLib",
+            "namespace MidLib; public static class Holder { public static DepLib.DepType Get() => new DepLib.DepType(); }",
+            [.. refs, MetadataReference.CreateFromImage(depImage)]);
+
+        var projectDir = Path.GetDirectoryName(projectFilePath) ?? @"C:\fake";
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "DegradedLib",
+            "DegradedLib",
+            LanguageNames.CSharp,
+            filePath: projectFilePath));
+
+        const string source = """
+            namespace DegradedLib;
+
+            public static class Use
+            {
+                public static int Read() => MidLib.Holder.Get().Value;
+                public static Unknown.Type? Typed => null;
+            }
+            """;
+
+        solution = solution.AddDocument(
+            docId,
+            "Use.cs",
+            SourceText.From(source),
+            filePath: Path.Combine(projectDir, "Use.cs"));
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        foreach (var metadata in refs)
+        {
+            solution = solution.AddMetadataReference(projectId, metadata);
+        }
+
+        // MidLib is referenced but its DepLib dependency is not → CS0012.
+        solution = solution.AddMetadataReference(projectId, MetadataReference.CreateFromImage(midImage));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace degraded fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
+    private static byte[] EmitLibrary(string assemblyName, string source, IReadOnlyList<MetadataReference> refs)
+    {
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(source)],
+            refs,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var pe = new MemoryStream();
+        var emit = compilation.Emit(pe);
+        if (!emit.Success)
+        {
+            throw new InvalidOperationException(
+                $"Failed to emit {assemblyName} fixture: {string.Join(" | ", emit.Diagnostics)}");
+        }
+
+        return pe.ToArray();
     }
 
     /// <summary>

@@ -92,6 +92,8 @@ For agent setup, [`docs/agent-guidance.md`](docs/agent-guidance.md) holds a copy
 If a code-action provider throws, `diagnostics_preview_fix` and `symbol_preview_refactoring` still return `FixApplyFailed` or `RefactoringApplyFailed`, but the message says the provider threw. That is not the same as a fix that produced no handwritten change. Fix all stops with `FixApplyFailed` instead of skipping that occurrence.
 
 `project_diagnostics` without `projectId` reports a failed project as `error` plus `suggestedAction`, not as a `Severity=Error` diagnostic. Do not pass that row to `diagnostics_list_fixes`.
+
+`project_diagnostics` sets `degraded` plus a `degradedReason` when the compilation reports CS0006 or CS0012 — metadata references that did not resolve — computed over the project's full diagnostic set before paging. Listed errors may then be workspace artifacts rather than real code defects; verify with `dotnet build` before trusting fix previews. Both fields are omitted otherwise.
 On paged results (`items` / `truncated` / `nextCursor`), `message` is optional and omitted when there is nothing to add.
 
 `symbol_find_references` also merges Exact XAML usage points (bindings, `x:Class`, element types, `x:Name` fields, event handlers) for C#/VB handles. Source hits page first; XAML hits follow in the same paged stream and carry `xamlUsage` naming the usage kind — source hits omit the field. Name-matched `Unverified` points are never included, and the XAML scan covers the same scope as source references (defining project plus dependents, or every project with `entireSolution`). One soft budget covers both lanes and the cursor walks both stages.
