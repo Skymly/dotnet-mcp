@@ -321,7 +321,10 @@ public sealed class SymbolTools
         "(do not restart from scratch). Cursors bind to the workspace epoch. A source-generated location that " +
         "cannot be reconciled fails the page with CompilationUnavailable instead of being reported as Handwritten. " +
         "Exact XAML usages (bindings, x:Class, elements, x:Name, event handlers) follow source hits for C#/VB " +
-        "handles in the same paged stream. F# handles search the defining project plus its F# dependents " +
+        "handles in the same paged stream. Scoped C#/VB projects the engine cannot search — a project " +
+        "reference whose output did not materialize, or a metadata/package-only reference for a source " +
+        "symbol — are named in the message instead of being reported as complete. F# handles search the " +
+        "defining project plus its F# dependents " +
         "(entireSolution widens to every F# project); C#/VB dependents are never searched and the message " +
         "names them. An engine failure inside the search reports SymbolQueryFailed instead of an invocation " +
         "error.")]
@@ -461,7 +464,9 @@ public sealed class SymbolTools
         "Default scope is the defining project plus projects that depend on it; pass entireSolution=true to search the whole solution. " +
         "Soft time budget may truncate with nextCursor. Cursors bind to the workspace epoch. A source-generated " +
         "caller location that cannot be reconciled fails the page with CompilationUnavailable instead of being reported as Handwritten. " +
-        "F# handles search the defining project plus its F# dependents (entireSolution widens to every F# project); " +
+        "Scoped C#/VB projects the engine cannot search — a project reference whose output did not materialize, " +
+        "or a metadata/package-only reference for a source symbol — are named in the message instead of being " +
+        "reported as complete. F# handles search the defining project plus its F# dependents (entireSolution widens to every F# project); " +
         "C#/VB dependents are never searched and the message names them. An engine failure inside the search " +
         "reports SymbolQueryFailed instead of an invocation error.")]
     public async Task<CallToolResult> SymbolFindCallers(

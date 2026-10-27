@@ -214,6 +214,9 @@ public sealed partial class RoslynLanguageAdapter
 
         var documents = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
             .ConfigureAwait(false);
+        var unsearched = await FinderScopeCoverage
+            .UnsearchedProjectsAsync(solution, symbol!, documents, cancellationToken)
+            .ConfigureAwait(false);
 
         return await PageFinderHitsAsync<CallerLocationItem>(
                 session,
@@ -226,6 +229,8 @@ public sealed partial class RoslynLanguageAdapter
                 pageLimit,
                 docIndex,
                 locOffset,
+                unsearched,
+                noun: "Caller",
                 async (scan, ct) =>
                 {
                     var callers = await SymbolFinder
@@ -301,6 +306,9 @@ public sealed partial class RoslynLanguageAdapter
 
             var scoped = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
                 .ConfigureAwait(false);
+            var scopedUnsearched = await FinderScopeCoverage
+                .UnsearchedProjectsAsync(solution, symbol!, scoped, cancellationToken)
+                .ConfigureAwait(false);
             return await PageXamlReferenceHitsAsync(
                     session,
                     symbol!,
@@ -311,6 +319,7 @@ public sealed partial class RoslynLanguageAdapter
                     budget,
                     pageLimit,
                     locOffset,
+                    scopedUnsearched,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -319,6 +328,9 @@ public sealed partial class RoslynLanguageAdapter
         // the document walk already spent does not reset for stage 1.
         var clock = Stopwatch.StartNew();
         var documents = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
+            .ConfigureAwait(false);
+        var unsearched = await FinderScopeCoverage
+            .UnsearchedProjectsAsync(solution, symbol!, documents, cancellationToken)
             .ConfigureAwait(false);
 
         var (slice, scanError) = await ScanFinderHitsAsync<ReferenceLocationItem>(
@@ -354,26 +366,34 @@ public sealed partial class RoslynLanguageAdapter
 
         if (!slice!.Exhausted)
         {
-            return (SoftBudgetPage.Finish(
-                slice.Items,
-                moreItems: true,
-                budgetHit: slice.TruncatedByBudget,
-                () => FindRefsPageCursor.Encode(
-                    session.Epoch, entireSolution, slice.NextDoc, slice.NextLoc,
-                    "symbol_find_references", handle),
-                "symbol_find_references",
-                slice.Items.Count == 0 ? emptyMessage : completeMessage), null);
+            return (ApplyScopeCoverage(
+                SoftBudgetPage.Finish(
+                    slice.Items,
+                    moreItems: true,
+                    budgetHit: slice.TruncatedByBudget,
+                    () => FindRefsPageCursor.Encode(
+                        session.Epoch, entireSolution, slice.NextDoc, slice.NextLoc,
+                        "symbol_find_references", handle),
+                    "symbol_find_references",
+                    slice.Items.Count == 0 ? emptyMessage : completeMessage),
+                finished: false,
+                unsearched,
+                noun: "Reference"), null);
         }
 
         if (xamlSource is null)
         {
-            return (SoftBudgetPage.Finish(
-                slice.Items,
-                moreItems: false,
-                budgetHit: false,
-                static () => string.Empty,
-                "symbol_find_references",
-                slice.Items.Count == 0 ? emptyMessage : completeMessage), null);
+            return (ApplyScopeCoverage(
+                SoftBudgetPage.Finish(
+                    slice.Items,
+                    moreItems: false,
+                    budgetHit: false,
+                    static () => string.Empty,
+                    "symbol_find_references",
+                    slice.Items.Count == 0 ? emptyMessage : completeMessage),
+                finished: true,
+                unsearched,
+                noun: "Reference"), null);
         }
 
         // Stage 1: Exact XAML usage points follow source hits on the same page.
@@ -394,15 +414,20 @@ public sealed partial class RoslynLanguageAdapter
             slice.Items.Add(xamlItems[i]);
         }
 
-        return (SoftBudgetPage.Finish(
-            slice.Items,
-            moreItems: xamlIncomplete || taken < xamlItems.Count,
-            budgetHit: xamlIncomplete,
-            () => FindRefsPageCursor.Encode(
-                session.Epoch, entireSolution, 0, taken,
-                "symbol_find_references", handle, stage: XamlReferencesStage),
-            "symbol_find_references",
-            slice.Items.Count == 0 ? emptyMessage : completeMessage), null);
+        var moreXaml = xamlIncomplete || taken < xamlItems.Count;
+        return (ApplyScopeCoverage(
+            SoftBudgetPage.Finish(
+                slice.Items,
+                moreItems: moreXaml,
+                budgetHit: xamlIncomplete,
+                () => FindRefsPageCursor.Encode(
+                    session.Epoch, entireSolution, 0, taken,
+                    "symbol_find_references", handle, stage: XamlReferencesStage),
+                "symbol_find_references",
+                slice.Items.Count == 0 ? emptyMessage : completeMessage),
+            finished: !moreXaml,
+            unsearched,
+            noun: "Reference"), null);
     }
 
     private async Task<(PagedResult<ReferenceLocationItem>? Success, SymbolQueryError? Error)> PageXamlReferenceHitsAsync(
@@ -415,6 +440,7 @@ public sealed partial class RoslynLanguageAdapter
         TimeSpan budget,
         int pageLimit,
         int locOffset,
+        IReadOnlyList<FinderScopeCoverage.UnsearchedProject> unsearched,
         CancellationToken cancellationToken)
     {
         var clock = Stopwatch.StartNew();
@@ -435,17 +461,22 @@ public sealed partial class RoslynLanguageAdapter
 
         var page = items.Skip(locOffset).Take(pageLimit).ToList();
         var next = locOffset + page.Count;
-        return (SoftBudgetPage.Finish(
-            page,
-            moreItems: next < items.Count || incomplete,
-            budgetHit: incomplete,
-            () => FindRefsPageCursor.Encode(
-                session.Epoch, entireSolution, 0, next,
-                "symbol_find_references", handle, stage: XamlReferencesStage),
-            "symbol_find_references",
-            page.Count == 0
-                ? "No references found in the selected scope."
-                : "Reference page complete."), null);
+        var moreItems = next < items.Count || incomplete;
+        return (ApplyScopeCoverage(
+            SoftBudgetPage.Finish(
+                page,
+                moreItems: moreItems,
+                budgetHit: incomplete,
+                () => FindRefsPageCursor.Encode(
+                    session.Epoch, entireSolution, 0, next,
+                    "symbol_find_references", handle, stage: XamlReferencesStage),
+                "symbol_find_references",
+                page.Count == 0
+                    ? "No references found in the selected scope."
+                    : "Reference page complete."),
+            finished: !moreItems,
+            unsearched,
+            noun: "Reference"), null);
     }
 
     /// <summary>
@@ -557,6 +588,8 @@ public sealed partial class RoslynLanguageAdapter
         int pageLimit,
         int docIndex,
         int locOffset,
+        IReadOnlyList<FinderScopeCoverage.UnsearchedProject> unsearched,
+        string noun,
         Func<IReadOnlyList<Document>, CancellationToken, Task<IReadOnlyList<IReadOnlyList<T>>>> findAligned,
         string emptyMessage,
         string completeMessage,
@@ -580,13 +613,43 @@ public sealed partial class RoslynLanguageAdapter
             return (null, error);
         }
 
-        return (SoftBudgetPage.Finish(
-            slice!.Items,
-            moreItems: !slice.Exhausted,
-            budgetHit: slice.TruncatedByBudget,
-            () => FindRefsPageCursor.Encode(session.Epoch, entireSolution, slice.NextDoc, slice.NextLoc, tool, handle),
-            tool,
-            slice.Items.Count == 0 ? emptyMessage : completeMessage), null);
+        return (ApplyScopeCoverage(
+            SoftBudgetPage.Finish(
+                slice!.Items,
+                moreItems: !slice.Exhausted,
+                budgetHit: slice.TruncatedByBudget,
+                () => FindRefsPageCursor.Encode(session.Epoch, entireSolution, slice.NextDoc, slice.NextLoc, tool, handle),
+                tool,
+                slice.Items.Count == 0 ? emptyMessage : completeMessage),
+            finished: slice!.Exhausted,
+            unsearched,
+            noun), null);
+    }
+
+    /// <summary>
+    /// Issue #559: when declared-scope projects could not be searched at all,
+    /// a finished page reports the coverage gap instead of the complete/empty
+    /// message, and a truncated page appends it — the message never claims a
+    /// completeness the engine could not deliver.
+    /// </summary>
+    private static PagedResult<T> ApplyScopeCoverage<T>(
+        PagedResult<T> page,
+        bool finished,
+        IReadOnlyList<FinderScopeCoverage.UnsearchedProject> unsearched,
+        string noun)
+    {
+        if (unsearched.Count == 0)
+        {
+            return page;
+        }
+
+        var details = FinderScopeCoverage.DescribeUnsearched(unsearched);
+        return page with
+        {
+            Message = finished
+                ? $"{noun} page coverage is incomplete: scoped projects were not searched — {details}."
+                : $"{page.Message} Scoped projects were not searched: {details}."
+        };
     }
 
     private async Task<(FinderSlice<T>? Slice, SymbolQueryError? Error)> ScanFinderHitsAsync<T>(
