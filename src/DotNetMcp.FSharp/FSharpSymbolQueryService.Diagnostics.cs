@@ -87,6 +87,7 @@ public sealed partial class FSharpSymbolQueryService
             ? (null, pageError)
             : (new ProjectDiagnosticsResult(
                 page,
-                MissingMetadataDiagnostics.CountIn(items)), null);
+                MissingMetadataDiagnostics.CountIn(items),
+                project.MissingDependencyOutputs.Count > 0 ? project.MissingDependencyOutputs : null), null);
     }
 }

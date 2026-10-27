@@ -319,13 +319,17 @@ public sealed record ProjectDiagnosticsResultDto
     public IReadOnlyList<string>? MissingDependencyOutputs { get; init; }
 
     /// <summary>
-    /// true when the compilation reported CS0006/CS0012 — metadata references did
-    /// not resolve, so listed errors may be workspace artifacts rather than real
-    /// code defects. Omitted when false (issue #546).
+    /// true when the compilation did not resolve all compile inputs — it reported
+    /// CS0006/CS0012 metadata diagnostics, or a declared project reference resolved
+    /// to no usable metadata (issue #560) — so listed errors may be workspace
+    /// artifacts rather than real code defects. Omitted when false (issue #546).
     /// </summary>
     public bool? Degraded { get; init; }
 
-    /// <summary>Why <see cref="Degraded"/> is set, including the CS0006/CS0012 count.</summary>
+    /// <summary>
+    /// Why <see cref="Degraded"/> is set: the CS0006/CS0012 count and/or the
+    /// declared project references that produced no usable metadata.
+    /// </summary>
     public string? DegradedReason { get; init; }
 }
 
@@ -567,6 +571,16 @@ public sealed record DiagnosticsListFixesResultDto
     public required bool IncludesProjectAnalyzers { get; init; }
     public required long Epoch { get; init; }
     public required IReadOnlyList<DiagnosticFixItemDto> Items { get; init; }
+
+    /// <summary>
+    /// true when the diagnostic's project did not resolve all compile inputs
+    /// (issue #560): fixes on cascade errors from missing metadata may not apply
+    /// cleanly — verify with dotnet build first. Omitted when not degraded.
+    /// </summary>
+    public bool? Degraded { get; init; }
+
+    /// <summary>Why <see cref="Degraded"/> is set.</summary>
+    public string? DegradedReason { get; init; }
 }
 
 public sealed record DiagnosticsPreviewFixResultDto
@@ -579,6 +593,16 @@ public sealed record DiagnosticsPreviewFixResultDto
     public required string Scope { get; init; }
     public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
     public required IReadOnlyList<string> InvalidatedHandles { get; init; }
+
+    /// <summary>
+    /// true when the diagnostic's project did not resolve all compile inputs
+    /// (issue #560): a preview built on a cascade error can be wrong — verify
+    /// with dotnet build first. Omitted when not degraded.
+    /// </summary>
+    public bool? Degraded { get; init; }
+
+    /// <summary>Why <see cref="Degraded"/> is set.</summary>
+    public string? DegradedReason { get; init; }
 }
 
 public sealed record DiagnosticsApplyFixResultDto

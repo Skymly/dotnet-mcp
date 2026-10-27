@@ -58,6 +58,7 @@ public sealed class DiagnosticQueryService
         var budget = softBudget ?? _softBudgets.BatchDiagnostics;
         var started = System.Diagnostics.Stopwatch.StartNew();
         var collected = new List<DiagnosticItem>();
+        var unmaterialized = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var stoppedEarly = false;
         var projectFailures = new List<string>();
         foreach (var project in session.Solution.Projects)
@@ -119,6 +120,11 @@ public sealed class DiagnosticQueryService
 
                 var page = result!.Page;
                 collected.AddRange(page.Items);
+                foreach (var missing in result.UnmaterializedReferences)
+                {
+                    unmaterialized.Add(missing);
+                }
+
                 if (!page.Truncated || string.IsNullOrWhiteSpace(page.NextCursor))
                 {
                     break;
@@ -162,12 +168,14 @@ public sealed class DiagnosticQueryService
         }
 
         // Count over the collected items (not per-adapter-page counts) so a
-        // project paged through multiple inner calls is not double-counted.
+        // project paged through multiple inner calls is not double-counted;
+        // unmaterialized project references likewise dedupe across inner pages.
         return (paged is null
             ? null
             : new ProjectDiagnosticsResult(
                 paged,
-                MissingMetadataDiagnostics.CountIn(collected)), pageError);
+                MissingMetadataDiagnostics.CountIn(collected),
+                unmaterialized.Count > 0 ? [.. unmaterialized] : null), pageError);
     }
 
     private static int ClampLimit(int? limit)

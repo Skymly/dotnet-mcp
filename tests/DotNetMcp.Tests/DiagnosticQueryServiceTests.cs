@@ -270,6 +270,38 @@ public class DiagnosticQueryServiceTests
     }
 
     [Fact]
+    public async Task batch_diagnostics_marks_degraded_when_any_project_has_unmaterialized_reference()
+    {
+        using var workspace = CreateTwoProjectWorkspace();
+        var projects = workspace.CurrentSolution.Projects.OrderBy(p => p.Name).ToArray();
+        var projectA = projects[0].Id.Id.ToString("D");
+        var projectB = projects[1].Id.Id.ToString("D");
+        var fake = new FakeAdapter
+        {
+            PagesByProject =
+            {
+                [projectA] = [new DiagnosticItem("CS0246", "Error", "cascade from missing ref", @"C:\a.cs", 1, 1, 1, 2, projectA)],
+                [projectB] = [new DiagnosticItem("CS0168", "Warning", "unused", @"C:\b.cs", 1, 1, 1, 2, projectB)],
+            },
+            UnmaterializedByProject =
+            {
+                [projectA] = [@"C:\fake\MissingDep\MissingDep.csproj"],
+            },
+        };
+        var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
+        using var session = new FakeSession(workspace.CurrentSolution);
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId: string.Empty);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(result!.Degraded);
+        Assert.Equal(0, result.MissingMetadataDiagnosticCount);
+        var missing = Assert.Single(result.UnmaterializedReferences);
+        Assert.Contains("MissingDep", missing, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task get_project_diagnostics_unknown_project_is_not_found()
     {
         using var workspace = CreateWorkspace();
@@ -345,6 +377,8 @@ public class DiagnosticQueryServiceTests
         public Dictionary<string, List<DiagnosticItem>> PagesByProject { get; } = new();
 
         public Dictionary<string, SymbolQueryError> ErrorsByProject { get; } = new();
+
+        public Dictionary<string, List<string>> UnmaterializedByProject { get; } = new();
 
         public int DiagnosticCalls { get; private set; }
 
@@ -438,7 +472,10 @@ public class DiagnosticQueryServiceTests
                 }
 
                 return Task.FromResult<(ProjectDiagnosticsResult?, SymbolQueryError?)>(
-                    (new ProjectDiagnosticsResult(page, MissingMetadataDiagnostics.CountIn(all)), null));
+                    (new ProjectDiagnosticsResult(
+                        page,
+                        MissingMetadataDiagnostics.CountIn(all),
+                        UnmaterializedByProject.TryGetValue(projectId, out var refs) ? refs : null), null));
             }
 
             return Task.FromResult<(ProjectDiagnosticsResult?, SymbolQueryError?)>(
