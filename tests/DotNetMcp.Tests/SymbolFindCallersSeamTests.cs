@@ -327,6 +327,81 @@ public class SymbolFindCallersSeamTests
     }
 
     /// <summary>
+    /// Issue #565: CallerDecl declares a ProjectReference to LibMod, but the
+    /// edge produced no usable reference (LibMod emits a netmodule —
+    /// AdhocWorkspace's stand-in for the missing output dll MSBuildWorkspace
+    /// leaves behind), so the declared edge is named with the
+    /// materialization-failure reason instead of counting as searched, while
+    /// ZeroRefA and ZeroRefB — no reference of any kind — collapse to a count.
+    /// </summary>
+    [Fact]
+    public async Task FindCallersAsync_entire_solution_names_unmaterialized_edge_and_collapses_unrelated()
+    {
+        var loaded = FakeSolutionLoader.CreateMaterializationGapLoaded();
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var libMod = loaded.Solution.Projects.Single(p => p.Name == "LibMod");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "LibMod.ModOps.Sub",
+            libMod.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindCallersAsync(
+            session, resolved!.Handle, entireSolution: true);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        var paths = page.Items.Select(i => i.FilePath ?? string.Empty).ToArray();
+        Assert.Contains(paths, p => p.Contains("LocalSub.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, p => p.Contains("DeclUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("not searched", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CallerDecl", page.Message, StringComparison.Ordinal);
+        Assert.Contains("did not materialize", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("ZeroRefA", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("ZeroRefB", page.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "2 other scoped projects with no usable reference to 'LibMod'",
+            page.Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Issue #565: the default dependency-closure scope declares CallerDecl
+    /// (ProjectReference → LibMod), so it is named there too; the unrelated
+    /// projects sit outside the declared scope and contribute no count.
+    /// </summary>
+    [Fact]
+    public async Task FindCallersAsync_default_scope_names_unmaterialized_edge()
+    {
+        var loaded = FakeSolutionLoader.CreateMaterializationGapLoaded();
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var libMod = loaded.Solution.Projects.Single(p => p.Name == "LibMod");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "LibMod.ModOps.Sub",
+            libMod.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindCallersAsync(
+            session, resolved!.Handle, entireSolution: false);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        Assert.Contains("CallerDecl", page.Message, StringComparison.Ordinal);
+        Assert.Contains("did not materialize", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("ZeroRef", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("other scoped", page.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Issue #559 no-regression: a scope whose projects are all searchable keeps
     /// the complete message and no coverage note.
     /// </summary>

@@ -2662,6 +2662,127 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    /// <summary>
+    /// Materialization-gap fixture (issue #565): LibMod emits a NetModule, so
+    /// a declared ProjectReference to it produces no metadata reference at all
+    /// (Roslyn cannot reference a module) — the same observable state
+    /// MSBuildWorkspace leaves when the referenced project's output dll is not
+    /// on disk. CallerDecl declares the edge and calls ModOps.Sub, but the
+    /// call cannot bind: the finder returns no hits there, and the coverage
+    /// gate must name it with the materialization-failure reason instead of
+    /// counting the declared edge as searched. ZeroRefA and ZeroRefB share the
+    /// scope under entireSolution yet hold no reference of any kind to LibMod,
+    /// so they collapse to a count instead of individual names.
+    /// </summary>
+    public static FakeSolutionLoader ImmediateWithMaterializationGap(string root = @"C:\fake") =>
+        new(TimeSpan.Zero, () => CreateMaterializationGapLoaded(root));
+
+    public static LoadedSolution CreateMaterializationGapLoaded(string root = @"C:\fake")
+    {
+        var workspace = new AdhocWorkspace();
+        var libModId = ProjectId.CreateNewId();
+        var declId = ProjectId.CreateNewId();
+        var zeroAId = ProjectId.CreateNewId();
+        var zeroBId = ProjectId.CreateNewId();
+        var libModOps = DocumentId.CreateNewId(libModId);
+        var libModUses = DocumentId.CreateNewId(libModId);
+        var declDoc = DocumentId.CreateNewId(declId);
+        var zeroADoc = DocumentId.CreateNewId(zeroAId);
+        var zeroBDoc = DocumentId.CreateNewId(zeroBId);
+        var refs = TrustedPlatformReferences();
+        var solution = workspace.CurrentSolution;
+
+        solution = solution.AddProject(ProjectInfo.Create(
+            libModId, VersionStamp.Create(), "LibMod", "LibMod", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "LibMod", "LibMod.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            declId, VersionStamp.Create(), "CallerDecl", "CallerDecl", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "CallerDecl", "CallerDecl.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            zeroAId, VersionStamp.Create(), "ZeroRefA", "ZeroRefA", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "ZeroRefA", "ZeroRefA.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            zeroBId, VersionStamp.Create(), "ZeroRefB", "ZeroRefB", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "ZeroRefB", "ZeroRefB.csproj")));
+
+        const string ops = """
+            namespace LibMod;
+
+            public static class ModOps
+            {
+                public static int Sub(int a, int b) => a - b;
+            }
+            """;
+        const string local = """
+            namespace LibMod;
+
+            public static class LocalSub
+            {
+                public static int Twice(int x) => ModOps.Sub(x, 1) + ModOps.Sub(x, 2);
+            }
+            """;
+        const string declUses = """
+            namespace CallerDecl;
+            using LibMod;
+
+            public static class DeclUses
+            {
+                public static int Remote(int x) => ModOps.Sub(x, 1);
+            }
+            """;
+        const string zeroASource = """
+            namespace ZeroRefA;
+
+            public static class Idle
+            {
+                public static int Answer() => 42;
+            }
+            """;
+        const string zeroBSource = """
+            namespace ZeroRefB;
+
+            public static class Idle
+            {
+                public static string Echo(string s) => s;
+            }
+            """;
+
+        solution = solution.AddDocument(libModOps, "ModOps.cs", SourceText.From(ops), filePath: Path.Combine(root, "LibMod", "ModOps.cs"));
+        solution = solution.AddDocument(libModUses, "LocalSub.cs", SourceText.From(local), filePath: Path.Combine(root, "LibMod", "LocalSub.cs"));
+        solution = solution.AddDocument(declDoc, "DeclUses.cs", SourceText.From(declUses), filePath: Path.Combine(root, "CallerDecl", "DeclUses.cs"));
+        solution = solution.AddDocument(zeroADoc, "Idle.cs", SourceText.From(zeroASource), filePath: Path.Combine(root, "ZeroRefA", "Idle.cs"));
+        solution = solution.AddDocument(zeroBDoc, "Idle.cs", SourceText.From(zeroBSource), filePath: Path.Combine(root, "ZeroRefB", "Idle.cs"));
+
+        // CallerDecl's declared edge to LibMod never materializes: a NetModule
+        // target yields no metadata reference (Roslyn's GetMetadataReferenceAsync
+        // returns null for OutputKind.NetModule), so the compilation holds no
+        // assembly symbol named 'LibMod' and DeclUses's call cannot bind.
+        solution = solution.AddProjectReference(declId, new ProjectReference(libModId));
+
+        solution = solution.WithProjectCompilationOptions(
+            libModId, new CSharpCompilationOptions(OutputKind.NetModule));
+        foreach (var id in new[] { declId, zeroAId, zeroBId })
+        {
+            solution = solution.WithProjectCompilationOptions(
+                id, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        }
+
+        foreach (var id in new[] { libModId, declId, zeroAId, zeroBId })
+        {
+            foreach (var metadata in refs)
+            {
+                solution = solution.AddMetadataReference(id, metadata);
+            }
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace materialization-gap fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithCallers(string projectFilePath = @"C:\fake\CallerLib.csproj") =>
         new(TimeSpan.Zero, () => CreateCallersLoaded(projectFilePath));
 
