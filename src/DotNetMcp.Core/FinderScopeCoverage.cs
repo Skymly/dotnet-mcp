@@ -12,30 +12,51 @@ namespace DotNetMcp.Core;
 /// are searched; for a metadata-originated symbol only projects holding a
 /// <see cref="PortableExecutableReference"/> to the defining assembly name. A
 /// scoped project outside that gate contributes zero hits regardless of what
-/// its documents contain — a project reference whose output never materialized
-/// degrades the same way — and the engine does not say so. The page must name
+/// its documents contain — and the engine does not say so. The page must name
 /// those projects instead of claiming a completeness the search could not
 /// deliver.
 /// </summary>
+/// <remarks>
+/// A declared <see cref="ProjectReference"/> edge is not enough on its own
+/// (issue #565): MSBuildWorkspace materializes the edge as a
+/// <see cref="PortableExecutableReference"/> to the target's output dll, so a
+/// missing output leaves the dependent's compilation with no assembly symbol
+/// for the defining assembly — calls cannot bind and the search finds nothing
+/// even though the edge was declared. The gate therefore verifies that a
+/// declared edge actually materialized a resolvable reference to the
+/// origination's assembly name before counting the project as searched.
+/// Scoped projects with no usable reference of any kind can never contain
+/// hits, so they collapse to a count instead of individual names.
+/// </remarks>
 public static class FinderScopeCoverage
 {
-    /// <summary>A declared-scope project the finder could not search, with why.</summary>
-    public sealed record UnsearchedProject(string ProjectId, string Name, string Reason);
+    /// <summary>
+    /// A declared-scope project the finder could not search, with why.
+    /// <see cref="Collapsed"/> marks a project with no usable reference at
+    /// all — it is counted rather than named in the page message.
+    /// </summary>
+    public sealed record UnsearchedProject(
+        string ProjectId,
+        string Name,
+        string Reason,
+        bool Collapsed = false);
 
     /// <summary>
     /// Projects inside <paramref name="scopeDocuments"/> whose documents the
     /// Roslyn finder gate skips for <paramref name="symbol"/>. Mirrors
     /// DependentProjectsFinder: source originations admit a project when it is
     /// an originating project itself or holds a direct
-    /// <see cref="ProjectReference"/> to one; metadata originations admit a
-    /// project when a <see cref="PortableExecutableReference"/> resolves to the
-    /// defining assembly name. Originations follow the engine's initial search
-    /// set — the symbol, its source definition and linked-document twins
-    /// (multi-targeted/shared files), and the up-cascade (overridden and
-    /// implemented-interface members). The engine's per-project down-cascade
-    /// runs after the searched set is fixed, so it cannot widen coverage and is
-    /// not mirrored. Internal-visibility originations additionally require
-    /// InternalsVisibleTo access, matching the engine's visibility filter.
+    /// <see cref="ProjectReference"/> to one <em>that materialized a resolvable
+    /// reference to the origination's assembly</em>; metadata originations
+    /// admit a project when a <see cref="PortableExecutableReference"/>
+    /// resolves to the defining assembly name. Originations follow the
+    /// engine's initial search set — the symbol, its source definition and
+    /// linked-document twins (multi-targeted/shared files), and the up-cascade
+    /// (overridden and implemented-interface members). The engine's
+    /// per-project down-cascade runs after the searched set is fixed, so it
+    /// cannot widen coverage and is not mirrored. Internal-visibility
+    /// originations additionally require InternalsVisibleTo access, matching
+    /// the engine's visibility filter.
     /// </summary>
     public static async Task<IReadOnlyList<UnsearchedProject>> UnsearchedProjectsAsync(
         Solution solution,
@@ -71,6 +92,27 @@ public static class FinderScopeCoverage
         var searchedName = symbol.OriginalDefinition?.ContainingAssembly?.Name
             ?? originations[0].AssemblyName;
 
+        // Declared-edge dependents of any source origination, direct or
+        // transitive. A scoped project on the declared chain could plausibly
+        // contain hits (its sources were written against the defining
+        // assembly), so it is named rather than collapsed even when no usable
+        // reference materialized at the end of the chain.
+        var transitiveDependents = new HashSet<ProjectId>();
+        var dependencyGraph = solution.GetProjectDependencyGraph();
+        foreach (var origination in originations)
+        {
+            if (origination.SourceProjectId is null)
+            {
+                continue;
+            }
+
+            foreach (var dependentId in dependencyGraph
+                         .GetProjectsThatTransitivelyDependOnThisProject(origination.SourceProjectId))
+            {
+                transitiveDependents.Add(dependentId);
+            }
+        }
+
         var unsearched = new List<UnsearchedProject>();
         foreach (var project in scopeProjects)
         {
@@ -90,12 +132,15 @@ public static class FinderScopeCoverage
                 continue;
             }
 
-            unsearched.Add(new UnsearchedProject(
-                project.Id.Id.ToString("D"),
-                project.Name,
-                await DescribeGapAsync(
-                        solution, project, assemblyNames, searchedName, cancellationToken)
-                    .ConfigureAwait(false)));
+            unsearched.Add(await DescribeGapAsync(
+                    solution,
+                    project,
+                    originations,
+                    assemblyNames,
+                    transitiveDependents,
+                    searchedName,
+                    cancellationToken)
+                .ConfigureAwait(false));
         }
 
         return unsearched;
@@ -103,11 +148,32 @@ public static class FinderScopeCoverage
 
     /// <summary>
     /// Text appended to (or replacing) the page message so a covered page never
-    /// reads as fully searched (issue #559). Names every affected project with
-    /// its reason, matching the F# adapter's "were not searched" disclosure.
+    /// reads as fully searched (issue #559). Names every plausibly affected
+    /// project with its reason, matching the F# adapter's "were not searched"
+    /// disclosure, and collapses projects with no usable reference into a
+    /// count — they could never contain hits (issue #565).
     /// </summary>
-    public static string DescribeUnsearched(IReadOnlyList<UnsearchedProject> unsearched) =>
-        string.Join("; ", unsearched.Select(static u => $"'{u.Name}' ({u.Reason})"));
+    public static string DescribeUnsearched(IReadOnlyList<UnsearchedProject> unsearched)
+    {
+        var parts = unsearched
+            .Where(static u => !u.Collapsed)
+            .Select(static u => $"'{u.Name}' ({u.Reason})")
+            .ToList();
+        var collapsedGroups = unsearched
+            .Where(static u => u.Collapsed)
+            .GroupBy(static u => u.Reason, StringComparer.Ordinal)
+            .OrderBy(static g => g.Key, StringComparer.Ordinal);
+        foreach (var group in collapsedGroups)
+        {
+            var noun = group.Count() == 1 ? "scoped project" : "scoped projects";
+            var prefix = parts.Count > 0
+                ? $"and {group.Count()} other {noun}"
+                : $"{group.Count()} {noun}";
+            parts.Add($"{prefix} with {group.Key}");
+        }
+
+        return string.Join("; ", parts);
+    }
 
     private static async Task<bool> IsSearchedAsync(
         Project project,
@@ -119,15 +185,34 @@ public static class FinderScopeCoverage
             .ToHashSet();
         foreach (var origination in originations)
         {
-            // The originating project is always a dependent of its own
-            // origination; other source-origination dependents need a direct
-            // ProjectReference edge to it.
-            var hasReference = origination.SourceProjectId is not null
-                ? project.Id == origination.SourceProjectId ||
-                  candidateIds.Contains(origination.SourceProjectId)
-                : await ReferencesAssemblyByNameAsync(
+            bool hasReference;
+            if (origination.SourceProjectId is not null)
+            {
+                // The originating project is always a dependent of its own
+                // origination — the engine marks it searched with
+                // hasInternalsAccess: true, so the visibility gate does not
+                // apply to it either.
+                if (project.Id == origination.SourceProjectId)
+                {
+                    return true;
+                }
+
+                // A declared ProjectReference edge is only a candidate: the
+                // edge must also have materialized a resolvable reference to
+                // the origination's assembly inside this compilation, or the
+                // project contributes zero hits (issue #565).
+                hasReference = candidateIds.Contains(origination.SourceProjectId) &&
+                    await ResolvesToAssemblyAsync(
+                            project, origination.AssemblyName, cancellationToken)
+                        .ConfigureAwait(false);
+            }
+            else
+            {
+                hasReference = await ReferencesAssemblyByNameAsync(
                         project, origination.AssemblyName, cancellationToken)
                     .ConfigureAwait(false);
+            }
+
             if (!hasReference)
             {
                 continue;
@@ -146,19 +231,56 @@ public static class FinderScopeCoverage
     }
 
     /// <summary>
-    /// Why the gate skips <paramref name="project"/>: an assembly-name
-    /// reference that exists only as metadata/package content, a project edge
-    /// that lands on a different load of the defining assembly, or no usable
-    /// reference at all (the "project reference without matching metadata
-    /// reference" load failure, issue #559).
+    /// Why the gate skips <paramref name="project"/>: a declared project
+    /// reference to an origination that materialized no usable reference (the
+    /// "project reference without matching metadata reference" load failure),
+    /// an assembly-name reference that exists only as metadata/package
+    /// content, a project edge that lands on a different load of the defining
+    /// assembly, a transitive declared chain with no usable reference at the
+    /// end, or no usable reference at all — the only shape that collapses to a
+    /// count instead of a name.
     /// </summary>
-    private static async Task<string> DescribeGapAsync(
+    private static async Task<UnsearchedProject> DescribeGapAsync(
         Solution solution,
         Project project,
+        IReadOnlyList<Origination> originations,
         HashSet<string> assemblyNames,
+        HashSet<ProjectId> transitiveDependents,
         string searchedName,
         CancellationToken cancellationToken)
     {
+        var candidateIds = project.ProjectReferences
+            .Select(static r => r.ProjectId)
+            .ToHashSet();
+
+        // A declared edge to an origination that reached this branch did not
+        // admit the project: either the edge produced no resolvable assembly
+        // symbol, or the internal-visibility gate dropped it.
+        foreach (var origination in originations)
+        {
+            if (origination.SourceProjectId is null ||
+                !candidateIds.Contains(origination.SourceProjectId))
+            {
+                continue;
+            }
+
+            var targetName = solution.GetProject(origination.SourceProjectId)?.Name
+                ?? origination.AssemblyName;
+            if (!await ResolvesToAssemblyAsync(
+                        project, origination.AssemblyName, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return Gap(
+                    $"declared project reference to '{targetName}' did not materialize (missing output/metadata)");
+            }
+
+            if (origination.MinVisibilityRank == InternalRank &&
+                !origination.InternalsVisibleTo.Contains(project.AssemblyName ?? string.Empty))
+            {
+                return Gap($"declared project reference to '{targetName}' but lacks InternalsVisibleTo access");
+            }
+        }
+
         var metadataOnly = false;
         foreach (var name in assemblyNames)
         {
@@ -173,7 +295,7 @@ public static class FinderScopeCoverage
 
         if (metadataOnly)
         {
-            return $"references '{searchedName}' only via metadata/package reference, not a project reference";
+            return Gap($"references '{searchedName}' only via metadata/package reference, not a project reference");
         }
 
         var alternateUnit = project.ProjectReferences
@@ -182,10 +304,58 @@ public static class FinderScopeCoverage
             .FirstOrDefault(p => assemblyNames.Contains(p!.AssemblyName ?? string.Empty));
         if (alternateUnit is not null)
         {
-            return $"references '{searchedName}' through '{alternateUnit.Name}', a different load of the assembly";
+            return Gap($"references '{searchedName}' through '{alternateUnit.Name}', a different load of the assembly");
         }
 
-        return $"no usable reference to '{searchedName}' (missing project/metadata reference)";
+        if (transitiveDependents.Contains(project.Id))
+        {
+            return Gap(
+                $"references '{searchedName}' only through a declared project-reference chain (no usable reference materialized)");
+        }
+
+        return new UnsearchedProject(
+            project.Id.Id.ToString("D"),
+            project.Name,
+            $"no usable reference to '{searchedName}'",
+            Collapsed: true);
+
+        UnsearchedProject Gap(string reason) =>
+            new(project.Id.Id.ToString("D"), project.Name, reason);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="project"/>'s compilation holds any reference
+    /// that resolves to an assembly named <paramref name="assemblyName"/> —
+    /// <see cref="PortableExecutableReference"/>s (MSBuildWorkspace output
+    /// paths) and <see cref="CompilationReference"/>s (declared project edges)
+    /// alike, both resolved through the same API. A declared edge that
+    /// produced no resolvable assembly symbol — a missing output dll, an
+    /// unresolved path, a target that cannot emit a metadata reference —
+    /// returns <see langword="false"/>.
+    /// </summary>
+    private static async Task<bool> ResolvesToAssemblyAsync(
+        Project project,
+        string assemblyName,
+        CancellationToken cancellationToken)
+    {
+        var compilation = await project.GetCompilationAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (compilation is null)
+        {
+            return false;
+        }
+
+        foreach (var reference in compilation.References)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (compilation.GetAssemblyOrModuleSymbol(reference) is IAssemblySymbol assembly &&
+                string.Equals(assembly.Name, assemblyName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

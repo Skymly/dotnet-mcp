@@ -330,6 +330,47 @@ public class SymbolFindReferencesSeamTests
         Assert.Contains("CallerMeta", page.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Issue #565: the references lane applies the same materialization gate —
+    /// CallerDecl's declared edge to LibMod never produced a usable reference,
+    /// so it is named with the failure reason while the unrelated projects
+    /// collapse to a count.
+    /// </summary>
+    [Fact]
+    public async Task FindReferencesAsync_entire_solution_names_unmaterialized_edge_and_collapses_unrelated()
+    {
+        var loaded = FakeSolutionLoader.CreateMaterializationGapLoaded();
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var libMod = loaded.Solution.Projects.Single(p => p.Name == "LibMod");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "LibMod.ModOps.Sub",
+            libMod.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindReferencesAsync(
+            session,
+            resolved!.Handle,
+            entireSolution: true,
+            limit: 50,
+            cursor: null);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        var paths = page.Items.Select(i => i.FilePath ?? string.Empty).ToArray();
+        Assert.Contains(paths, p => p.Contains("LocalSub.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, p => p.Contains("DeclUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("CallerDecl", page.Message, StringComparison.Ordinal);
+        Assert.Contains("did not materialize", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("ZeroRefA", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("ZeroRefB", page.Message, StringComparison.Ordinal);
+        Assert.Contains("2 other scoped projects", page.Message, StringComparison.Ordinal);
+    }
+
     private static async Task<string> ResolveMarkerHandleAsync(InProcessMcpFixture fx)
     {
         var projects = await fx.Client.CallToolAsync(
