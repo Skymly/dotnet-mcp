@@ -290,6 +290,46 @@ public class SymbolFindReferencesSeamTests
         Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
     }
 
+    /// <summary>
+    /// Issue #559: the references lane shares the same engine gate — scope
+    /// projects it cannot search are named instead of reported behind
+    /// "Reference page complete".
+    /// </summary>
+    [Fact]
+    public async Task FindReferencesAsync_entire_solution_names_unsearched_scope_projects()
+    {
+        var loaded = FakeSolutionLoader.CreateCallersCoverageGapLoaded();
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var libA = loaded.Solution.Projects.Single(p => p.Name == "LibA");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "LibA.MathOps.Add",
+            libA.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindReferencesAsync(
+            session,
+            resolved!.Handle,
+            entireSolution: true,
+            limit: 50,
+            cursor: null);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        var paths = page.Items.Select(i => i.FilePath ?? string.Empty).ToArray();
+        Assert.Contains(paths, p => p.Contains("HealthyUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, p => p.Contains("BrokenUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, p => p.Contains("MetaUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("Reference page complete", page.Message, StringComparison.Ordinal);
+        Assert.Contains("not searched", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CallerBroken", page.Message, StringComparison.Ordinal);
+        Assert.Contains("CallerMeta", page.Message, StringComparison.Ordinal);
+    }
+
     private static async Task<string> ResolveMarkerHandleAsync(InProcessMcpFixture fx)
     {
         var projects = await fx.Client.CallToolAsync(

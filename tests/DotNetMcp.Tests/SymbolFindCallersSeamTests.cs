@@ -256,6 +256,105 @@ public class SymbolFindCallersSeamTests
         Assert.False(string.IsNullOrWhiteSpace(page.NextCursor));
     }
 
+    /// <summary>
+    /// Issue #559: scope projects the Roslyn engine cannot search must be named
+    /// instead of reported behind "Caller page complete". CallerBroken's only
+    /// declared edge lands on Mid (the transitive LibA reference never
+    /// materialized); CallerMeta references the LibA image as metadata only —
+    /// both silently produce zero callers under the dependent-projects gate.
+    /// </summary>
+    [Fact]
+    public async Task FindCallersAsync_entire_solution_names_unsearched_scope_projects()
+    {
+        var loaded = FakeSolutionLoader.CreateCallersCoverageGapLoaded();
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var libA = loaded.Solution.Projects.Single(p => p.Name == "LibA");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "LibA.MathOps.Add",
+            libA.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindCallersAsync(
+            session, resolved!.Handle, entireSolution: true);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        var paths = page.Items.Select(i => i.FilePath ?? string.Empty).ToArray();
+        Assert.Contains(paths, p => p.Contains("HealthyUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, p => p.Contains("BrokenUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, p => p.Contains("MetaUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("Caller page complete", page.Message, StringComparison.Ordinal);
+        Assert.Contains("not searched", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CallerBroken", page.Message, StringComparison.Ordinal);
+        Assert.Contains("CallerMeta", page.Message, StringComparison.Ordinal);
+        Assert.Contains("metadata", page.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Issue #559: the default dependency-closure scope declares CallerBroken
+    /// (Mid → LibA), so it is named there too; CallerMeta is outside the
+    /// declared scope and stays unmentioned.
+    /// </summary>
+    [Fact]
+    public async Task FindCallersAsync_default_scope_names_unsearchable_dependent()
+    {
+        var loaded = FakeSolutionLoader.CreateCallersCoverageGapLoaded();
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var libA = loaded.Solution.Projects.Single(p => p.Name == "LibA");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "LibA.MathOps.Add",
+            libA.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindCallersAsync(
+            session, resolved!.Handle, entireSolution: false);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        Assert.DoesNotContain("Caller page complete", page.Message, StringComparison.Ordinal);
+        Assert.Contains("CallerBroken", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("CallerMeta", page.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Issue #559 no-regression: a scope whose projects are all searchable keeps
+    /// the complete message and no coverage note.
+    /// </summary>
+    [Fact]
+    public async Task FindCallersAsync_fully_searchable_scope_still_reports_complete()
+    {
+        var loaded = FakeSolutionLoader.CreateCallersGraphLoaded();
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var libA = loaded.Solution.Projects.Single(p => p.Name == "LibA");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "LibA.MathOps.Add",
+            libA.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindCallersAsync(
+            session, resolved!.Handle, entireSolution: false);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        Assert.Equal("Caller page complete.", page.Message);
+        Assert.DoesNotContain("not searched", page.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string KeyOf(CallerLocationItemDto item) =>
         $"{item.FilePath}|{item.Start}|{item.Length}|{item.CallerHandle}";
 

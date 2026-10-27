@@ -2366,6 +2366,146 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    /// <summary>
+    /// Coverage-gap fixture (issue #559): LibA defines MathOps.Add.
+    /// CallerHealthy holds a project reference to LibA and calls it — searched.
+    /// CallerBroken declares a project chain through Mid to LibA, but no usable
+    /// reference to LibA materialized (its call cannot bind — the evaluation
+    /// "project reference without matching metadata reference" shape).
+    /// CallerMeta references the emitted LibA image only — its calls bind, yet
+    /// a source-originated search still skips it (the nuget-consumer shape).
+    /// The default scope covers LibA plus dependency-graph dependents (Mid,
+    /// CallerBroken, CallerHealthy); CallerMeta only enters via entireSolution.
+    /// </summary>
+    public static FakeSolutionLoader ImmediateWithCallersCoverageGap(string root = @"C:\fake") =>
+        new(TimeSpan.Zero, () => CreateCallersCoverageGapLoaded(root));
+
+    public static LoadedSolution CreateCallersCoverageGapLoaded(string root = @"C:\fake")
+    {
+        var workspace = new AdhocWorkspace();
+        var libAId = ProjectId.CreateNewId();
+        var midId = ProjectId.CreateNewId();
+        var healthyId = ProjectId.CreateNewId();
+        var brokenId = ProjectId.CreateNewId();
+        var metaId = ProjectId.CreateNewId();
+        var libAOps = DocumentId.CreateNewId(libAId);
+        var libAUses = DocumentId.CreateNewId(libAId);
+        var midDoc = DocumentId.CreateNewId(midId);
+        var healthyDoc = DocumentId.CreateNewId(healthyId);
+        var brokenDoc = DocumentId.CreateNewId(brokenId);
+        var metaDoc = DocumentId.CreateNewId(metaId);
+        var mscorlib = MetadataReference.CreateFromFile(typeof(object).Assembly.Location);
+        var solution = workspace.CurrentSolution;
+
+        var libAImage = EmitLibrary(
+            "LibA",
+            "namespace LibA; public static class MathOps { public static int Add(int a, int b) => a + b; }",
+            [mscorlib]);
+
+        solution = solution.AddProject(ProjectInfo.Create(
+            libAId, VersionStamp.Create(), "LibA", "LibA", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "LibA", "LibA.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            midId, VersionStamp.Create(), "Mid", "Mid", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "Mid", "Mid.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            healthyId, VersionStamp.Create(), "CallerHealthy", "CallerHealthy", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "CallerHealthy", "CallerHealthy.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            brokenId, VersionStamp.Create(), "CallerBroken", "CallerBroken", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "CallerBroken", "CallerBroken.csproj")));
+        solution = solution.AddProject(ProjectInfo.Create(
+            metaId, VersionStamp.Create(), "CallerMeta", "CallerMeta", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "CallerMeta", "CallerMeta.csproj")));
+
+        const string ops = """
+            namespace LibA;
+
+            public static class MathOps
+            {
+                public static int Add(int a, int b) => a + b;
+            }
+            """;
+        const string local = """
+            namespace LibA;
+
+            public static class LocalUses
+            {
+                public static int Twice(int x) => MathOps.Add(x, x);
+            }
+            """;
+        const string midUses = """
+            namespace Mid;
+            using LibA;
+
+            public static class MidUses
+            {
+                public static int Deep(int x) => MathOps.Add(x, 1);
+            }
+            """;
+        const string healthyUses = """
+            namespace CallerHealthy;
+            using LibA;
+
+            public static class HealthyUses
+            {
+                public static int Remote(int x) => MathOps.Add(x, 2);
+            }
+            """;
+        const string brokenUses = """
+            namespace CallerBroken;
+            using LibA;
+
+            public static class BrokenUses
+            {
+                public static int Remote(int x) => MathOps.Add(x, 3);
+            }
+            """;
+        const string metaUses = """
+            namespace CallerMeta;
+            using LibA;
+
+            public static class MetaUses
+            {
+                public static int Remote(int x) => MathOps.Add(x, 4);
+            }
+            """;
+
+        solution = solution.AddDocument(libAOps, "MathOps.cs", SourceText.From(ops), filePath: Path.Combine(root, "LibA", "MathOps.cs"));
+        solution = solution.AddDocument(libAUses, "LocalUses.cs", SourceText.From(local), filePath: Path.Combine(root, "LibA", "LocalUses.cs"));
+        solution = solution.AddDocument(midDoc, "MidUses.cs", SourceText.From(midUses), filePath: Path.Combine(root, "Mid", "MidUses.cs"));
+        solution = solution.AddDocument(healthyDoc, "HealthyUses.cs", SourceText.From(healthyUses), filePath: Path.Combine(root, "CallerHealthy", "HealthyUses.cs"));
+        solution = solution.AddDocument(brokenDoc, "BrokenUses.cs", SourceText.From(brokenUses), filePath: Path.Combine(root, "CallerBroken", "BrokenUses.cs"));
+        solution = solution.AddDocument(metaDoc, "MetaUses.cs", SourceText.From(metaUses), filePath: Path.Combine(root, "CallerMeta", "MetaUses.cs"));
+
+        // CallerBroken's only declared edge lands on Mid — the transitive LibA
+        // reference never materializes, so its MathOps.Add call cannot bind.
+        solution = solution.AddProjectReference(brokenId, new ProjectReference(midId));
+        solution = solution.AddProjectReference(midId, new ProjectReference(libAId));
+        solution = solution.AddProjectReference(healthyId, new ProjectReference(libAId));
+
+        foreach (var id in new[] { libAId, midId, healthyId, brokenId, metaId })
+        {
+            solution = solution.WithProjectCompilationOptions(
+                id, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        }
+
+        foreach (var id in new[] { libAId, midId, healthyId, brokenId, metaId })
+        {
+            solution = solution.AddMetadataReference(id, mscorlib);
+        }
+
+        // CallerMeta consumes the compiled LibA image like a package consumer.
+        solution = solution.AddMetadataReference(metaId, MetadataReference.CreateFromImage(libAImage));
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace callers coverage-gap fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithCallers(string projectFilePath = @"C:\fake\CallerLib.csproj") =>
         new(TimeSpan.Zero, () => CreateCallersLoaded(projectFilePath));
 
