@@ -302,6 +302,40 @@ public class DiagnosticQueryServiceTests
     }
 
     [Fact]
+    public async Task batch_diagnostics_marks_degraded_and_dedups_unresolved_analyzer_paths_across_inner_pages()
+    {
+        using var workspace = CreateWorkspace();
+        var projectId = workspace.CurrentSolution.Projects.Single().Id.Id.ToString("D");
+        var analyzerPath = @"C:\fake\gen\Missing.Generators.dll";
+        var fake = new FakeAdapter
+        {
+            PagesByProject =
+            {
+                [projectId] = Enumerable.Range(0, 130)
+                    .Select(i => new DiagnosticItem("CS0246", "Error", $"cascade {i}", @"C:\a.cs", i + 1, 1, i + 1, 2, projectId))
+                    .ToList(),
+            },
+            UnresolvedAnalyzersByProject =
+            {
+                [projectId] = [analyzerPath],
+            },
+        };
+        var service = new DiagnosticQueryService(languages: new LanguageAdapters([fake]));
+        using var session = new FakeSession(workspace.CurrentSolution);
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId: string.Empty);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(result!.Degraded);
+        Assert.Equal(0, result.MissingMetadataDiagnosticCount);
+        // 130 items page through two inner adapter calls; the declared path
+        // reports on every inner page and must still aggregate once.
+        var analyzer = Assert.Single(result.UnresolvedAnalyzers);
+        Assert.Equal(analyzerPath, analyzer);
+    }
+
+    [Fact]
     public async Task get_project_diagnostics_unknown_project_is_not_found()
     {
         using var workspace = CreateWorkspace();
@@ -379,6 +413,8 @@ public class DiagnosticQueryServiceTests
         public Dictionary<string, SymbolQueryError> ErrorsByProject { get; } = new();
 
         public Dictionary<string, List<string>> UnmaterializedByProject { get; } = new();
+
+        public Dictionary<string, List<string>> UnresolvedAnalyzersByProject { get; } = new();
 
         public int DiagnosticCalls { get; private set; }
 
@@ -475,7 +511,8 @@ public class DiagnosticQueryServiceTests
                     (new ProjectDiagnosticsResult(
                         page,
                         MissingMetadataDiagnostics.CountIn(all),
-                        UnmaterializedByProject.TryGetValue(projectId, out var refs) ? refs : null), null));
+                        UnmaterializedByProject.TryGetValue(projectId, out var refs) ? refs : null,
+                        UnresolvedAnalyzersByProject.TryGetValue(projectId, out var analyzers) ? analyzers : null), null));
             }
 
             return Task.FromResult<(ProjectDiagnosticsResult?, SymbolQueryError?)>(

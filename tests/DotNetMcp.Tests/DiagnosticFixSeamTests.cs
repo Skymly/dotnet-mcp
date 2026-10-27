@@ -204,6 +204,41 @@ public class DiagnosticFixSeamTests
         }
     }
 
+    [Fact]
+    public async Task list_fixes_reports_degraded_when_analyzer_reference_is_unresolved()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithUnresolvedAnalyzerDegraded());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+            var listed = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(listed);
+            var consumer = Assert.Single(projects.Projects, p => p.Name == "GenConsumer");
+            var page = await ProjectDiagnosticsAsync(fx, consumer.ProjectId);
+            var occurrence = page.Items.FirstOrDefault(d => d.Id is "CS0103" or "CS0246");
+            Assert.NotNull(occurrence);
+
+            var fixes = await ListFixesAsync(fx, occurrence!);
+
+            Assert.True(fixes.Degraded);
+            Assert.NotNull(fixes.DegradedReason);
+            Assert.Contains("SourceGen.Generators.dll", fixes.DegradedReason, StringComparison.Ordinal);
+            Assert.Contains("source generator", fixes.DegradedReason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("dotnet build", fixes.DegradedReason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     internal static async Task<DiagnosticItemDto> FirstCs0246Async(InProcessMcpFixture fx)
     {
         var projectId = await FirstProjectIdAsync(fx);

@@ -2082,6 +2082,162 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    public static FakeSolutionLoader ImmediateWithUnresolvedAnalyzerDegraded(
+        string root = @"C:\fake",
+        string? missingAnalyzerPath = null,
+        bool keepStubAttached = false) =>
+        new(TimeSpan.Zero, () => CreateUnresolvedAnalyzerDegradedLoaded(root, missingAnalyzerPath, keepStubAttached));
+
+    /// <summary>
+    /// Missing analyzer/generator fixture (issue #566): GenConsumer declares an
+    /// analyzer reference whose dll never materialized — recorded on the session
+    /// the way the loader records stripped <see cref="UnresolvedAnalyzerReference"/>
+    /// stubs (issue #548) — while uses of the generated API degrade to
+    /// CS0246/CS0103/CS1061 cascade errors with no CS0006/CS0012 and every
+    /// project reference resolved. CleanLib reports ambiguous ids with all
+    /// analyzer inputs materialized, proving the flag keys on the declared
+    /// path, not the diagnostic ids. <paramref name="keepStubAttached"/> leaves
+    /// the stub on the project instead of recording it — the shape a workspace
+    /// that never ran the load-time detachment exposes.
+    /// </summary>
+    public static LoadedSolution CreateUnresolvedAnalyzerDegradedLoaded(
+        string root,
+        string? missingAnalyzerPath = null,
+        bool keepStubAttached = false)
+    {
+        var workspace = new AdhocWorkspace();
+        var consumerId = ProjectId.CreateNewId();
+        var cleanId = ProjectId.CreateNewId();
+        var consumerDoc = DocumentId.CreateNewId(consumerId);
+        var cleanDoc = DocumentId.CreateNewId(cleanId);
+        var refs = TrustedPlatformReferences();
+        var analyzerPath = missingAnalyzerPath
+            ?? Path.Combine(root, "SourceGen", "bin", "Debug", "netstandard2.0", "SourceGen.Generators.dll");
+
+        const string consumerSource = """
+            namespace GenConsumer;
+
+            public static class Use
+            {
+                public static SourceGen.Generated.Widget? Typed => null;
+                public static string Call() => GeneratedRegistry.Names;
+                public static int Read(string s) => s.GeneratedExtension();
+            }
+            """;
+
+        const string cleanSource = """
+            namespace CleanLib;
+
+            public static class Use
+            {
+                public static int Read(string s) => s.MissingMethod();
+            }
+            """;
+
+        workspace.AddProject(ProjectInfo.Create(
+            consumerId,
+            VersionStamp.Create(),
+            "GenConsumer",
+            "GenConsumer",
+            LanguageNames.CSharp,
+            filePath: Path.Combine(root, "GenConsumer", "GenConsumer.csproj"),
+            compilationOptions: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
+            documents:
+            [
+                DocumentInfo.Create(
+                    consumerDoc,
+                    "Use.cs",
+                    loader: TextLoader.From(
+                        TextAndVersion.Create(SourceText.From(consumerSource), VersionStamp.Create())),
+                    filePath: Path.Combine(root, "GenConsumer", "Use.cs")),
+            ],
+            metadataReferences: refs));
+        workspace.AddProject(ProjectInfo.Create(
+            cleanId,
+            VersionStamp.Create(),
+            "CleanLib",
+            "CleanLib",
+            LanguageNames.CSharp,
+            filePath: Path.Combine(root, "CleanLib", "CleanLib.csproj"),
+            compilationOptions: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
+            documents:
+            [
+                DocumentInfo.Create(
+                    cleanDoc,
+                    "Use.cs",
+                    loader: TextLoader.From(
+                        TextAndVersion.Create(SourceText.From(cleanSource), VersionStamp.Create())),
+                    filePath: Path.Combine(root, "CleanLib", "Use.cs")),
+            ],
+            metadataReferences: refs));
+
+        if (keepStubAttached)
+        {
+            var withStub = workspace.CurrentSolution.AddAnalyzerReference(
+                consumerId, new UnresolvedAnalyzerReference(analyzerPath));
+            if (!workspace.TryApplyChanges(withStub))
+            {
+                throw new InvalidOperationException("Failed to attach the unresolved analyzer fixture stub.");
+            }
+
+            return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+        }
+
+        var unresolvedAnalyzerPaths = new Dictionary<ProjectId, IReadOnlyList<string>>
+        {
+            [consumerId] = [analyzerPath],
+        };
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: [], unresolvedAnalyzerPaths);
+    }
+
+    public static FakeSolutionLoader ImmediateWithFsharpUnresolvedAnalyzer(
+        string projectFilePath = @"C:\fake\BrokenFs.fsproj",
+        string missingAnalyzerPath = @"C:\fake\gen\Fs.Generators.dll") =>
+        new(TimeSpan.Zero, () => CreateFsharpUnresolvedAnalyzerLoaded(projectFilePath, missingAnalyzerPath));
+
+    /// <summary>
+    /// F# variant of the missing-analyzer fixture (issue #566): the F# project
+    /// declares an analyzer path that never materialized — recorded on the
+    /// session under the same project id the F# snapshot carries — and reports
+    /// real FS0001 errors beside the flag.
+    /// </summary>
+    public static LoadedSolution CreateFsharpUnresolvedAnalyzerLoaded(
+        string projectFilePath,
+        string missingAnalyzerPath)
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var docId = DocumentId.CreateNewId(projectId);
+        var projectDir = Path.Combine(Path.GetTempPath(), "dotnet-mcp-broken-fs");
+        var filePath = Path.Combine(projectDir, "Broken.fs");
+        const string source = """
+            module Broken
+
+            let alpha: int = "not-an-int"
+            let beta: int = "also-bad"
+            let gamma: int = "still-bad"
+            """;
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "BrokenFs",
+            "BrokenFs",
+            LanguageNames.FSharp,
+            filePath: projectFilePath));
+        solution = solution.AddDocument(docId, "Broken.fs", SourceText.From(source), filePath: filePath);
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace F# unresolved-analyzer fixture.");
+        }
+
+        var unresolvedAnalyzerPaths = new Dictionary<ProjectId, IReadOnlyList<string>>
+        {
+            [projectId] = [missingAnalyzerPath],
+        };
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: [], unresolvedAnalyzerPaths);
+    }
+
     private static byte[] EmitLibrary(string assemblyName, string source, IReadOnlyList<MetadataReference> refs)
     {
         var compilation = CSharpCompilation.Create(

@@ -59,6 +59,8 @@ public sealed class DiagnosticQueryService
         var started = System.Diagnostics.Stopwatch.StartNew();
         var collected = new List<DiagnosticItem>();
         var unmaterialized = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unresolvedAnalyzers = new HashSet<string>(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         var stoppedEarly = false;
         var projectFailures = new List<string>();
         foreach (var project in session.Solution.Projects)
@@ -125,6 +127,11 @@ public sealed class DiagnosticQueryService
                     unmaterialized.Add(missing);
                 }
 
+                foreach (var analyzerPath in result.UnresolvedAnalyzers)
+                {
+                    unresolvedAnalyzers.Add(analyzerPath);
+                }
+
                 if (!page.Truncated || string.IsNullOrWhiteSpace(page.NextCursor))
                 {
                     break;
@@ -169,13 +176,15 @@ public sealed class DiagnosticQueryService
 
         // Count over the collected items (not per-adapter-page counts) so a
         // project paged through multiple inner calls is not double-counted;
-        // unmaterialized project references likewise dedupe across inner pages.
+        // unmaterialized project references and unresolved analyzer paths
+        // likewise dedupe across inner pages.
         return (paged is null
             ? null
             : new ProjectDiagnosticsResult(
                 paged,
                 MissingMetadataDiagnostics.CountIn(collected),
-                unmaterialized.Count > 0 ? [.. unmaterialized] : null), pageError);
+                unmaterialized.Count > 0 ? [.. unmaterialized] : null,
+                unresolvedAnalyzers.Count > 0 ? [.. unresolvedAnalyzers] : null), pageError);
     }
 
     private static int ClampLimit(int? limit)

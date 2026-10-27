@@ -89,10 +89,12 @@ public sealed class DiagnosticTools
                 Title = i.Title,
                 EquivalenceKey = i.EquivalenceKey
             }).ToArray(),
-            Degraded = degraded is { MissingMetadataDiagnosticCount: > 0 }
-                or { UnmaterializedReferences.Count: > 0 } ? true : null,
+            Degraded = degraded is { Degraded: true } ? true : null,
             DegradedReason = degraded is { } state
-                ? DegradedDiagnostics.ComposeReason(state.MissingMetadataDiagnosticCount, state.UnmaterializedReferences)
+                ? DegradedDiagnostics.ComposeReason(
+                    state.MissingMetadataDiagnosticCount,
+                    state.UnmaterializedReferences,
+                    state.UnresolvedAnalyzerReferences)
                 : null
         });
     }
@@ -179,10 +181,12 @@ public sealed class DiagnosticTools
             Scope = draft.Scope,
             Documents = ToDocumentDtos(held.Value.Documents),
             InvalidatedHandles = held.Value.InvalidatedHandles,
-            Degraded = degraded is { MissingMetadataDiagnosticCount: > 0 }
-                or { UnmaterializedReferences.Count: > 0 } ? true : null,
+            Degraded = degraded is { Degraded: true } ? true : null,
             DegradedReason = degraded is { } state
-                ? DegradedDiagnostics.ComposeReason(state.MissingMetadataDiagnosticCount, state.UnmaterializedReferences)
+                ? DegradedDiagnostics.ComposeReason(
+                    state.MissingMetadataDiagnosticCount,
+                    state.UnmaterializedReferences,
+                    state.UnresolvedAnalyzerReferences)
                 : null
         });
     }
