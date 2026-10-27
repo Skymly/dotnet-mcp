@@ -620,6 +620,201 @@ public class ProjectDiagnosticsSeamTests
         Assert.Contains(result.Page.Items, d => d.Id is "CS0234" or "CS1061");
     }
 
+    [Fact]
+    public async Task project_diagnostics_flags_unresolved_analyzer_reference_as_degraded()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithUnresolvedAnalyzerDegraded());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var projectId = projects.Projects.Single(p => p.Name == "GenConsumer").ProjectId;
+
+            var result = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(result);
+            Assert.True(body.Degraded);
+            Assert.NotNull(body.DegradedReason);
+            Assert.Contains("analyzer", body.DegradedReason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("SourceGen.Generators.dll", body.DegradedReason, StringComparison.Ordinal);
+            Assert.Contains("source generator", body.DegradedReason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("CS0103", body.DegradedReason, StringComparison.Ordinal);
+            Assert.Contains("dotnet build", body.DegradedReason, StringComparison.OrdinalIgnoreCase);
+            // Cascade errors from the missing generator stay listed — the flag does not filter them.
+            Assert.Contains(body.Items, d => d.Id is "CS0246" or "CS0103" or "CS1061");
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task project_diagnostics_omits_degraded_when_analyzer_references_resolve()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithUnresolvedAnalyzerDegraded());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var projectId = projects.Projects.Single(p => p.Name == "CleanLib").ProjectId;
+
+            var result = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(result);
+            Assert.Contains(body.Items, d => d.Id is "CS1061");
+            Assert.Null(body.Degraded);
+            Assert.Null(body.DegradedReason);
+            Assert.DoesNotContain("\"degraded\"", InProcessMcpFixture.TextOf(result), StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task project_diagnostics_flags_unresolved_analyzer_on_fsharp_project()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithFsharpUnresolvedAnalyzer());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var projectId = Assert.Single(projects.Projects).ProjectId;
+
+            var result = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(result);
+            Assert.True(body.Degraded);
+            Assert.NotNull(body.DegradedReason);
+            Assert.Contains("analyzer", body.DegradedReason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Fs.Generators.dll", body.DegradedReason, StringComparison.Ordinal);
+            Assert.Contains("dotnet build", body.DegradedReason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task GetProjectDiagnosticsAsync_unresolved_analyzer_reports_degraded()
+    {
+        var loaded = FakeSolutionLoader.CreateUnresolvedAnalyzerDegradedLoaded(@"C:\fake");
+        var service = new DiagnosticQueryService();
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+        var projectId = loaded.Solution.Projects.Single(p => p.Name == "GenConsumer").Id.Id.ToString("D");
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(
+            result!.Degraded,
+            "diagnostics: " + string.Join(" | ", result.Page.Items.Select(d => $"{d.Id}:{d.Message}")));
+        Assert.Equal(0, result.MissingMetadataDiagnosticCount);
+        Assert.Empty(result.UnmaterializedReferences);
+        var analyzer = Assert.Single(result.UnresolvedAnalyzers);
+        Assert.Contains("SourceGen.Generators.dll", analyzer, StringComparison.Ordinal);
+        Assert.Contains(result.Page.Items, d => d.Id is "CS0246" or "CS0103" or "CS1061");
+    }
+
+    [Fact]
+    public async Task GetProjectDiagnosticsAsync_attached_unresolved_analyzer_stub_reports_degraded()
+    {
+        // No loader provenance — the UnresolvedAnalyzerReference stub itself is
+        // the structural evidence, the same criterion project_list_generators
+        // applies before any stub stripping ran (issue #566).
+        var loaded = FakeSolutionLoader.CreateUnresolvedAnalyzerDegradedLoaded(@"C:\fake", keepStubAttached: true);
+        var service = new DiagnosticQueryService();
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+        var projectId = loaded.Solution.Projects.Single(p => p.Name == "GenConsumer").Id.Id.ToString("D");
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(result!.Degraded);
+        var analyzer = Assert.Single(result.UnresolvedAnalyzers);
+        Assert.Contains("SourceGen.Generators.dll", analyzer, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetProjectDiagnosticsAsync_soft_budget_hit_still_carries_unresolved_analyzers()
+    {
+        var loaded = FakeSolutionLoader.CreateUnresolvedAnalyzerDegradedLoaded(@"C:\fake");
+        var service = new DiagnosticQueryService();
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+        var projectId = loaded.Solution.Projects.Single(p => p.Name == "GenConsumer").Id.Id.ToString("D");
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(
+            session,
+            projectId,
+            softBudget: TimeSpan.Zero);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(result!.Page.Truncated);
+        Assert.True(result.Degraded);
+        var analyzer = Assert.Single(result.UnresolvedAnalyzers);
+        Assert.Contains("SourceGen.Generators.dll", analyzer, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetProjectDiagnosticsAsync_batch_collects_unresolved_analyzers()
+    {
+        var loaded = FakeSolutionLoader.CreateUnresolvedAnalyzerDegradedLoaded(@"C:\fake");
+        var service = new DiagnosticQueryService();
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId: string.Empty);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(result!.Degraded);
+        var analyzer = Assert.Single(result.UnresolvedAnalyzers);
+        Assert.Contains("SourceGen.Generators.dll", analyzer, StringComparison.Ordinal);
+        Assert.Contains(result.Page.Items, d => d.ProjectId ==
+            loaded.Solution.Projects.Single(p => p.Name == "CleanLib").Id.Id.ToString("D"));
+    }
+
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-{label}-{Guid.NewGuid():N}");

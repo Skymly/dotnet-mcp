@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace DotNetMcp.Core;
 
@@ -16,14 +17,17 @@ public sealed record DiagnosticItem(
     string? SuggestedAction = null);
 
 /// <summary>
-/// project_diagnostics payload (issue #546): the paged items plus the count of
-/// missing-metadata diagnostics in the FULL diagnostic set — the degraded signal
-/// must not depend on which page slice was returned.
+/// project_diagnostics payload (issue #546): the paged items plus the degraded
+/// signals computed over the FULL workspace state — missing-metadata diagnostics
+/// in the full diagnostic set, unmaterialized project references, unresolved
+/// analyzer/generator paths — the flag must not depend on which page slice was
+/// returned.
 /// </summary>
 public sealed record ProjectDiagnosticsResult(
     PagedResult<DiagnosticItem> Page,
     int MissingMetadataDiagnosticCount,
-    IReadOnlyList<string>? UnmaterializedProjectReferences = null)
+    IReadOnlyList<string>? UnmaterializedProjectReferences = null,
+    IReadOnlyList<string>? UnresolvedAnalyzerReferences = null)
 {
     /// <summary>
     /// Directly declared project references whose targets produced no usable
@@ -34,13 +38,27 @@ public sealed record ProjectDiagnosticsResult(
     public IReadOnlyList<string> UnmaterializedReferences => UnmaterializedProjectReferences ?? [];
 
     /// <summary>
-    /// True when the compilation is missing compile inputs: either it reported
-    /// CS0006/CS0012 — metadata references did not resolve — or one or more
-    /// declared project references resolved to no usable metadata. In both
-    /// cases listed errors may be workspace artifacts, not code defects.
+    /// Analyzer/source-generator paths MSBuild declared for the project that no
+    /// file materialized for (issue #566) — an OutputItemType="Analyzer" project
+    /// reference whose output is not built, or a package analyzer path that does
+    /// not exist. From a path alone analyzer vs generator cannot be told apart;
+    /// a missing generator means missing generated members, so cascade
+    /// CS0234/CS0103/CS1061 errors may be workspace artifacts. Empty when every
+    /// declared analyzer reference resolved.
+    /// </summary>
+    public IReadOnlyList<string> UnresolvedAnalyzers => UnresolvedAnalyzerReferences ?? [];
+
+    /// <summary>
+    /// True when the compilation is missing compile inputs: it reported
+    /// CS0006/CS0012 — metadata references did not resolve — or declared
+    /// project references resolved to no usable metadata, or declared
+    /// analyzer/generator references did not materialize. In every case listed
+    /// errors may be workspace artifacts, not code defects.
     /// </summary>
     public bool Degraded =>
-        MissingMetadataDiagnosticCount > 0 || UnmaterializedReferences.Count > 0;
+        MissingMetadataDiagnosticCount > 0 ||
+        UnmaterializedReferences.Count > 0 ||
+        UnresolvedAnalyzers.Count > 0;
 }
 
 /// <summary>
@@ -114,6 +132,126 @@ public static class ProjectReferenceMaterialization
 
         return missing;
     }
+}
+
+/// <summary>
+/// Declared-but-unmaterialized analyzer/generator detection (issue #566). Two
+/// provenance shapes exist: the loader records the declared paths on the
+/// session when it detaches the unchecksumable
+/// <see cref="UnresolvedAnalyzerReference"/> stubs (issue #548 —
+/// <see cref="IWorkspaceSession.DeclaredUnresolvedAnalyzerPaths"/>), and a
+/// session without loader provenance can still carry the stub itself or a
+/// file-backed reference whose dll vanished after open — the same unresolved
+/// criterion project_list_generators applies (issue #551). The union is the
+/// degraded signal: the declared path names a compile input MSBuild promised
+/// and nothing materialized, which for a source generator means its generated
+/// members never existed. Best-effort throughout — any lookup failure yields
+/// what could still be proven rather than failing the diagnostics query.
+/// </summary>
+public static class AnalyzerReferenceMaterialization
+{
+    /// <summary>
+    /// Analyzer/generator paths MSBuild declared for <paramref name="project"/>
+    /// that no file materialized for: the session-recorded paths merged with
+    /// unresolvable references still attached to the project.
+    /// </summary>
+    public static IReadOnlyList<string> FindUnresolved(IWorkspaceSession session, Project project)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(project);
+
+        var paths = new SortedSet<string>(PathComparer());
+        AddDeclaredPaths(session, project.Id, paths);
+        AddUnmaterializedReferences(project, paths);
+        return [.. paths];
+    }
+
+    /// <summary>
+    /// Same lookup keyed by the string project id the F# snapshot carries.
+    /// Falls back to session-declared data alone when the id is not a Roslyn
+    /// project in this session's solution.
+    /// </summary>
+    public static IReadOnlyList<string> FindUnresolved(IWorkspaceSession session, string projectId)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        try
+        {
+            var project = session.Solution.Projects.FirstOrDefault(p =>
+                string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+            if (project is not null)
+            {
+                return FindUnresolved(session, project);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Fall through to the session-declared path lookup.
+        }
+
+        if (!Guid.TryParse(projectId, out var guid))
+        {
+            return [];
+        }
+
+        var paths = new SortedSet<string>(PathComparer());
+        AddDeclaredPaths(session, ProjectId.CreateFromSerialized(guid), paths);
+        return [.. paths];
+    }
+
+    private static void AddDeclaredPaths(IWorkspaceSession session, ProjectId projectId, ISet<string> paths)
+    {
+        try
+        {
+            foreach (var declared in session.DeclaredUnresolvedAnalyzerPaths(projectId) ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(declared))
+                {
+                    paths.Add(declared);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Session provenance must never fail the diagnostics query.
+        }
+    }
+
+    private static void AddUnmaterializedReferences(Project project, ISet<string> paths)
+    {
+        try
+        {
+            foreach (var reference in project.AnalyzerReferences)
+            {
+                string? fullPath;
+                try
+                {
+                    fullPath = reference.FullPath;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    continue;
+                }
+
+                // No GetGenerators probe — declaring an analyzer that never
+                // materialized is the signal regardless of what it would have
+                // contained, and probing would load assemblies diagnostics never
+                // needed before.
+                if (!string.IsNullOrWhiteSpace(fullPath) &&
+                    (reference is UnresolvedAnalyzerReference || !File.Exists(fullPath)))
+                {
+                    paths.Add(fullPath!);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Best-effort: keep whatever was already proven.
+        }
+    }
+
+    // Mirrors PathPolicy's comparison in DotNetMcp.Server, which Core cannot reference.
+    private static StringComparer PathComparer() =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 }
 
 public sealed record ProjectNotFoundError(string Message, string SuggestedAction)

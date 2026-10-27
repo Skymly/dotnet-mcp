@@ -41,9 +41,10 @@ public sealed partial class RoslynLanguageAdapter
             return (null, cursorError);
         }
 
-        // Structural degraded signal (issue #560): computed before the compile
-        // budget so a budget-hit page still carries it.
+        // Structural degraded signals (issues #560 / #566): computed before the
+        // compile budget so a budget-hit page still carries them.
         var unmaterializedReferences = ProjectReferenceMaterialization.FindUnmaterialized(project);
+        var unresolvedAnalyzers = AnalyzerReferenceMaterialization.FindUnresolved(session, project);
 
         var budget = softBudget ?? _softBudgets.SingleProjectCompile;
         Compilation? compilation;
@@ -74,7 +75,8 @@ public sealed partial class RoslynLanguageAdapter
                         "project_diagnostics",
                         "Project has no error or warning diagnostics."),
                     MissingMetadataDiagnosticCount: 0,
-                    UnmaterializedProjectReferences: unmaterializedReferences), null);
+                    UnmaterializedProjectReferences: unmaterializedReferences,
+                    UnresolvedAnalyzerReferences: unresolvedAnalyzers), null);
             }
             catch (InvalidOperationException ex)
             {
@@ -118,7 +120,8 @@ public sealed partial class RoslynLanguageAdapter
             : (new ProjectDiagnosticsResult(
                 page,
                 MissingMetadataDiagnostics.CountIn(diagnostics),
-                unmaterializedReferences), null);
+                unmaterializedReferences,
+                unresolvedAnalyzers), null);
     }
 
     private static DiagnosticItem ToDiagnosticItem(Diagnostic diagnostic, string projectId)

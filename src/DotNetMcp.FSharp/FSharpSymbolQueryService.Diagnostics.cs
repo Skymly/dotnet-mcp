@@ -30,6 +30,11 @@ public sealed partial class FSharpSymbolQueryService
             return (null, cursorError);
         }
 
+        // Structural degraded signal (issue #566): F# projects declare
+        // <Analyzer> items the same way, and the loader records unresolved
+        // paths under the same project id this snapshot carries.
+        var unresolvedAnalyzers = AnalyzerReferenceMaterialization.FindUnresolved(session, projectId);
+
         var budget = softBudget ?? _softBudgets.SingleProjectCompile;
         var clock = Stopwatch.StartNew();
         var (_, check, _) = await CheckProjectAsync(session.FSharpSnapshot, project, session.FSharpSnapshot.Epoch, cancellationToken).ConfigureAwait(false);
@@ -88,6 +93,7 @@ public sealed partial class FSharpSymbolQueryService
             : (new ProjectDiagnosticsResult(
                 page,
                 MissingMetadataDiagnostics.CountIn(items),
-                project.MissingDependencyOutputs.Count > 0 ? project.MissingDependencyOutputs : null), null);
+                project.MissingDependencyOutputs.Count > 0 ? project.MissingDependencyOutputs : null,
+                unresolvedAnalyzers.Count > 0 ? unresolvedAnalyzers : null), null);
     }
 }

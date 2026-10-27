@@ -320,15 +320,18 @@ public sealed record ProjectDiagnosticsResultDto
 
     /// <summary>
     /// true when the compilation did not resolve all compile inputs — it reported
-    /// CS0006/CS0012 metadata diagnostics, or a declared project reference resolved
-    /// to no usable metadata (issue #560) — so listed errors may be workspace
-    /// artifacts rather than real code defects. Omitted when false (issue #546).
+    /// CS0006/CS0012 metadata diagnostics, a declared project reference resolved
+    /// to no usable metadata (issue #560), or a declared analyzer/generator
+    /// reference did not materialize (issue #566) — so listed errors may be
+    /// workspace artifacts rather than real code defects. Omitted when false
+    /// (issue #546).
     /// </summary>
     public bool? Degraded { get; init; }
 
     /// <summary>
-    /// Why <see cref="Degraded"/> is set: the CS0006/CS0012 count and/or the
-    /// declared project references that produced no usable metadata.
+    /// Why <see cref="Degraded"/> is set: the CS0006/CS0012 count, the declared
+    /// project references that produced no usable metadata, and/or the declared
+    /// analyzer/generator paths that did not materialize.
     /// </summary>
     public string? DegradedReason { get; init; }
 }
@@ -574,8 +577,9 @@ public sealed record DiagnosticsListFixesResultDto
 
     /// <summary>
     /// true when the diagnostic's project did not resolve all compile inputs
-    /// (issue #560): fixes on cascade errors from missing metadata may not apply
-    /// cleanly — verify with dotnet build first. Omitted when not degraded.
+    /// (issues #560/#566): fixes on cascade errors from missing metadata or
+    /// generator output may not apply cleanly — verify with dotnet build
+    /// first. Omitted when not degraded.
     /// </summary>
     public bool? Degraded { get; init; }
 
@@ -596,8 +600,8 @@ public sealed record DiagnosticsPreviewFixResultDto
 
     /// <summary>
     /// true when the diagnostic's project did not resolve all compile inputs
-    /// (issue #560): a preview built on a cascade error can be wrong — verify
-    /// with dotnet build first. Omitted when not degraded.
+    /// (issues #560/#566): a preview built on a cascade error can be wrong —
+    /// verify with dotnet build first. Omitted when not degraded.
     /// </summary>
     public bool? Degraded { get; init; }
 
