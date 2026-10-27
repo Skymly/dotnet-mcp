@@ -39,6 +39,9 @@ public class FSharpMissingReferenceSeamTests
             Assert.Contains(page.Items, d => d.Id == "DependencyOutputNotBuilt");
             Assert.Contains(page.MissingDependencyOutputs ?? [], name =>
                 name.Contains("CsDep", StringComparison.OrdinalIgnoreCase));
+            // An unbuilt project output is the same structural degraded signal (issue #560).
+            Assert.True(page.Degraded);
+            Assert.Contains("dotnet build", page.DegradedReason ?? "", StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

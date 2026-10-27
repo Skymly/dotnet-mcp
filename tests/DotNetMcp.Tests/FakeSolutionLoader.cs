@@ -1990,6 +1990,98 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    public static FakeSolutionLoader ImmediateWithUnmaterializedProjectReference(
+        string root = @"C:\fake") =>
+        new(TimeSpan.Zero, () => CreateUnmaterializedProjectReferenceLoaded(root));
+
+    /// <summary>
+    /// Failed project-reference fixture (issue #560): GhostConsumer declares a
+    /// ProjectReference whose target was never loaded — a ghost ProjectId, the
+    /// shape MSBuildWorkspace leaves behind when a reference resolves to no
+    /// matching metadata reference — so uses of the missing assembly degrade to
+    /// CS0246 cascade errors while no CS0006/CS0012 fires. PlainLib reports the
+    /// ambiguous CS0234/CS1061 ids with every reference resolved, proving the
+    /// flag is structural and not keyed on those diagnostic ids.
+    /// </summary>
+    public static LoadedSolution CreateUnmaterializedProjectReferenceLoaded(string root)
+    {
+        var workspace = new AdhocWorkspace();
+        var consumerId = ProjectId.CreateNewId();
+        var plainId = ProjectId.CreateNewId();
+        var consumerDoc = DocumentId.CreateNewId(consumerId);
+        var plainDoc = DocumentId.CreateNewId(plainId);
+        var refs = TrustedPlatformReferences();
+
+        // MSBuildWorkspace keeps an unresolved project reference as a ProjectId
+        // no loaded project stands behind; its debug name is the declared path.
+        // TryApplyChanges would drop it — ApplyProjectAdded re-adds through
+        // Project.ToProjectInfo(), which carries only the filtered
+        // Project.ProjectReferences — so the workspace mutators apply the
+        // ProjectInfo (and its declared ghost reference) directly.
+        var ghostId = ProjectId.CreateNewId(
+            debugName: Path.Combine(root, "GhostDep", "GhostDep.csproj"));
+
+        const string consumerSource = """
+            namespace GhostConsumer;
+
+            public static class Use
+            {
+                public static GhostDep.GhostType? Typed => null;
+                public static int Read(GhostDep.GhostType t) => t.Value;
+            }
+            """;
+
+        const string plainSource = """
+            namespace PlainLib;
+
+            public static class Use
+            {
+                public static int Read(string s) => s.MissingMethod();
+                public static System.MissingNs.DeepType? Deep => null;
+            }
+            """;
+
+        workspace.AddProject(ProjectInfo.Create(
+            consumerId,
+            VersionStamp.Create(),
+            "GhostConsumer",
+            "GhostConsumer",
+            LanguageNames.CSharp,
+            filePath: Path.Combine(root, "GhostConsumer", "GhostConsumer.csproj"),
+            compilationOptions: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
+            documents:
+            [
+                DocumentInfo.Create(
+                    consumerDoc,
+                    "Use.cs",
+                    loader: TextLoader.From(
+                        TextAndVersion.Create(SourceText.From(consumerSource), VersionStamp.Create())),
+                    filePath: Path.Combine(root, "GhostConsumer", "Use.cs")),
+            ],
+            projectReferences: [new ProjectReference(ghostId)],
+            metadataReferences: refs));
+        workspace.AddProject(ProjectInfo.Create(
+            plainId,
+            VersionStamp.Create(),
+            "PlainLib",
+            "PlainLib",
+            LanguageNames.CSharp,
+            filePath: Path.Combine(root, "PlainLib", "PlainLib.csproj"),
+            compilationOptions: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
+            documents:
+            [
+                DocumentInfo.Create(
+                    plainDoc,
+                    "Use.cs",
+                    loader: TextLoader.From(
+                        TextAndVersion.Create(SourceText.From(plainSource), VersionStamp.Create())),
+                    filePath: Path.Combine(root, "PlainLib", "Use.cs")),
+            ],
+            metadataReferences: refs));
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     private static byte[] EmitLibrary(string assemblyName, string source, IReadOnlyList<MetadataReference> refs)
     {
         var compilation = CSharpCompilation.Create(

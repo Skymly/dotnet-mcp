@@ -507,6 +507,119 @@ public class ProjectDiagnosticsSeamTests
         Assert.Contains(result.Page.Items, d => d.Id == "CS0012");
     }
 
+    [Fact]
+    public async Task project_diagnostics_flags_unmaterialized_project_reference_as_degraded()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithUnmaterializedProjectReference());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var projectId = projects.Projects.Single(p => p.Name == "GhostConsumer").ProjectId;
+
+            var result = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(result);
+            Assert.True(body.Degraded);
+            Assert.NotNull(body.DegradedReason);
+            Assert.Contains("project reference", body.DegradedReason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("GhostDep", body.DegradedReason, StringComparison.Ordinal);
+            Assert.Contains("dotnet build", body.DegradedReason, StringComparison.OrdinalIgnoreCase);
+            // Cascade errors from the missing reference stay listed — the flag does not filter them.
+            Assert.Contains(body.Items, d => d.Id is "CS0234" or "CS0246" or "CS1061");
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task project_diagnostics_omits_degraded_for_typo_ids_with_resolved_references()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithUnmaterializedProjectReference());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var list = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(list);
+            var projectId = projects.Projects.Single(p => p.Name == "PlainLib").ProjectId;
+
+            var result = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(result);
+            Assert.Contains(body.Items, d => d.Id is "CS0234" or "CS1061");
+            Assert.Null(body.Degraded);
+            Assert.Null(body.DegradedReason);
+            Assert.DoesNotContain("\"degraded\"", InProcessMcpFixture.TextOf(result), StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task GetProjectDiagnosticsAsync_unmaterialized_project_reference_reports_degraded()
+    {
+        var loaded = FakeSolutionLoader.CreateUnmaterializedProjectReferenceLoaded(@"C:\fake");
+        var service = new DiagnosticQueryService();
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+        var projectId = loaded.Solution.Projects.Single(p => p.Name == "GhostConsumer").Id.Id.ToString("D");
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.True(
+            result!.Degraded,
+            "diagnostics: " + string.Join(" | ", result.Page.Items.Select(d => $"{d.Id}:{d.Message}")));
+        Assert.Equal(0, result.MissingMetadataDiagnosticCount);
+        var missing = Assert.Single(result.UnmaterializedReferences);
+        Assert.Contains("GhostDep", missing, StringComparison.Ordinal);
+        Assert.Contains(result.Page.Items, d => d.Id is "CS0234" or "CS0246" or "CS1061");
+    }
+
+    [Fact]
+    public async Task GetProjectDiagnosticsAsync_typo_ids_with_resolved_references_is_not_degraded()
+    {
+        var loaded = FakeSolutionLoader.CreateUnmaterializedProjectReferenceLoaded(@"C:\fake");
+        var service = new DiagnosticQueryService();
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+        var projectId = loaded.Solution.Projects.Single(p => p.Name == "PlainLib").Id.Id.ToString("D");
+
+        var (result, error) = await service.GetProjectDiagnosticsAsync(session, projectId);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.False(result!.Degraded);
+        Assert.Empty(result.UnmaterializedReferences);
+        Assert.Contains(result.Page.Items, d => d.Id is "CS0234" or "CS1061");
+    }
+
     private static string CreateTempDir(string label)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-mcp-{label}-{Guid.NewGuid():N}");

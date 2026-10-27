@@ -74,6 +74,11 @@ public sealed class DiagnosticTools
             return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
         }
 
+        // Fixes on cascade errors from an unresolved compilation can be wrong —
+        // surface the same degraded flag project_diagnostics reports (issue #560).
+        var degraded = await DegradedDiagnostics.TryComputeAsync(session!, projectId, cancellationToken)
+            .ConfigureAwait(false);
+
         return McpToolEnvelope.OkResult(new DiagnosticsListFixesResultDto
         {
             IncludesProjectAnalyzers = false,
@@ -83,7 +88,12 @@ public sealed class DiagnosticTools
                 FixIndex = i.FixIndex,
                 Title = i.Title,
                 EquivalenceKey = i.EquivalenceKey
-            }).ToArray()
+            }).ToArray(),
+            Degraded = degraded is { MissingMetadataDiagnosticCount: > 0 }
+                or { UnmaterializedReferences.Count: > 0 } ? true : null,
+            DegradedReason = degraded is { } state
+                ? DegradedDiagnostics.ComposeReason(state.MissingMetadataDiagnosticCount, state.UnmaterializedReferences)
+                : null
         });
     }
 
@@ -154,6 +164,11 @@ public sealed class DiagnosticTools
             return McpToolEnvelope.ErrorResult(held.Error);
         }
 
+        // A preview built on a cascade error can be wrong — surface the same
+        // degraded flag project_diagnostics reports (issue #560).
+        var degraded = await DegradedDiagnostics.TryComputeAsync(session!, projectId, cancellationToken)
+            .ConfigureAwait(false);
+
         return McpToolEnvelope.OkResult(new DiagnosticsPreviewFixResultDto
         {
             PreviewId = held.Value!.PreviewId,
@@ -163,7 +178,12 @@ public sealed class DiagnosticTools
             EquivalenceKey = draft.EquivalenceKey,
             Scope = draft.Scope,
             Documents = ToDocumentDtos(held.Value.Documents),
-            InvalidatedHandles = held.Value.InvalidatedHandles
+            InvalidatedHandles = held.Value.InvalidatedHandles,
+            Degraded = degraded is { MissingMetadataDiagnosticCount: > 0 }
+                or { UnmaterializedReferences.Count: > 0 } ? true : null,
+            DegradedReason = degraded is { } state
+                ? DegradedDiagnostics.ComposeReason(state.MissingMetadataDiagnosticCount, state.UnmaterializedReferences)
+                : null
         });
     }
 

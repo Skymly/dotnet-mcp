@@ -37,7 +37,7 @@ public sealed class ProjectTools
         "Omit projectId to page across projects. A project that fails is a row with error and suggestedAction set, not a Severity=Error diagnostic; do not pass that row to diagnostics_list_fixes. " +
         "Fails with WorkspaceNotReady when the workspace is still loading — call workspace_status instead. " +
         "Cursors bind to the workspace epoch. An unbuilt F# project reference adds DependencyOutputNotBuilt and missingDependencyOutputs instead of only FS0039. " +
-        "degraded marks a project whose compile references did not fully resolve (CS0006/CS0012); verify with dotnet build before trusting fix previews.")]
+        "degraded marks a project whose compile references did not fully resolve — CS0006/CS0012 metadata diagnostics or declared project references that resolved to no usable metadata; verify with dotnet build before trusting fix previews.")]
     public async Task<CallToolResult> ProjectDiagnostics(
         [Description("Optional Roslyn projectId. Omit to page diagnostics across projects. A failed project is a row with error and suggestedAction, not a compile diagnostic.")]
         string? projectId = null,
@@ -326,8 +326,8 @@ public sealed class ProjectTools
         NextCursor = result.Page.NextCursor,
         Message = result.Page.Message,
         Degraded = result.Degraded ? true : null,
-        DegradedReason = result.Degraded
-            ? $"Compilation is missing metadata references ({result.MissingMetadataDiagnosticCount} CS0006/CS0012 diagnostic(s)); reported errors may be workspace artifacts — verify with dotnet build."
-            : null
+        DegradedReason = DegradedDiagnostics.ComposeReason(
+            result.MissingMetadataDiagnosticCount,
+            result.UnmaterializedReferences)
     };
 }
