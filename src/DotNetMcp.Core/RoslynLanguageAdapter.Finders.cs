@@ -647,8 +647,8 @@ public sealed partial class RoslynLanguageAdapter
         return page with
         {
             Message = finished
-                ? $"{noun} page coverage is incomplete: scoped projects were not searched — {details}."
-                : $"{page.Message} Scoped projects were not searched: {details}."
+                ? $"{noun} page coverage is incomplete: {details}."
+                : $"{page.Message} Scope coverage is incomplete: {details}."
         };
     }
 
