@@ -2949,6 +2949,173 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    /// <summary>
+    /// Searched-degraded fixture (issue #572): every Dep* project holds a
+    /// materialized edge to Lib so the engine gate counts it searched, but
+    /// <paramref name="root"/> is a real directory whose project files drive
+    /// the post-search fidelity check. DepUnrestored declares a
+    /// <c>&lt;PackageReference&gt;</c> yet has no
+    /// <c>obj/project.assets.json</c> — the unrestored shape that strips
+    /// every package reference without a trace — and its compilation holds
+    /// no PortableExecutableReference at all, so its calls cannot bind.
+    /// DepNoFramework declares a plain <c>&lt;Reference&gt;</c> (no package
+    /// item, so the assets-file signal does not apply) and likewise holds
+    /// zero PortableExecutableReferences. DepRestored is the control — same
+    /// declared package reference plus a written assets file and real
+    /// framework references — and DepPlain declares only a
+    /// <c>&lt;ProjectReference&gt;</c>, which the fidelity check skips.
+    /// </summary>
+    public static LoadedSolution CreateSearchedDegradedGapLoaded(string root)
+    {
+        Directory.CreateDirectory(Path.Combine(root, "Lib"));
+        Directory.CreateDirectory(Path.Combine(root, "DepUnrestored"));
+        Directory.CreateDirectory(Path.Combine(root, "DepNoFramework"));
+        Directory.CreateDirectory(Path.Combine(root, "DepRestored", "obj"));
+        Directory.CreateDirectory(Path.Combine(root, "DepPlain"));
+
+        File.WriteAllText(Path.Combine(root, "Lib", "Lib.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        File.WriteAllText(Path.Combine(root, "DepUnrestored", "DepUnrestored.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+                <ProjectReference Include="..\Lib\Lib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(root, "DepNoFramework", "DepNoFramework.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <Reference Include="SomeVendor.dll" />
+                <ProjectReference Include="..\Lib\Lib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(root, "DepRestored", "DepRestored.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+                <ProjectReference Include="..\Lib\Lib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(root, "DepRestored", "obj", "project.assets.json"), "{}");
+        File.WriteAllText(Path.Combine(root, "DepPlain", "DepPlain.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <ProjectReference Include="..\Lib\Lib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        var workspace = new AdhocWorkspace();
+        var libId = ProjectId.CreateNewId();
+        var depUnrestoredId = ProjectId.CreateNewId();
+        var depNoFrameworkId = ProjectId.CreateNewId();
+        var depRestoredId = ProjectId.CreateNewId();
+        var depPlainId = ProjectId.CreateNewId();
+        var refs = TrustedPlatformReferences();
+        var solution = workspace.CurrentSolution;
+
+        solution = solution.AddProject(ProjectInfo.Create(
+            libId, VersionStamp.Create(), "Lib", "Lib", LanguageNames.CSharp,
+            filePath: Path.Combine(root, "Lib", "Lib.csproj")));
+        foreach (var (id, name) in new[]
+        {
+            (depUnrestoredId, "DepUnrestored"),
+            (depNoFrameworkId, "DepNoFramework"),
+            (depRestoredId, "DepRestored"),
+            (depPlainId, "DepPlain"),
+        })
+        {
+            solution = solution.AddProject(ProjectInfo.Create(
+                id, VersionStamp.Create(), name, name, LanguageNames.CSharp,
+                filePath: Path.Combine(root, name, name + ".csproj")));
+        }
+
+        const string ops = """
+            namespace Lib;
+
+            public static class LibOps
+            {
+                public static int Jump(int x) => x + 1;
+            }
+            """;
+        const string localUses = """
+            namespace Lib;
+
+            public static class LocalUses
+            {
+                public static int Twice(int x) => LibOps.Jump(x) + LibOps.Jump(x);
+            }
+            """;
+        const string depUses = """
+            namespace Dep;
+
+            using Lib;
+
+            public static class Uses
+            {
+                public static int Go(int x) => LibOps.Jump(x);
+            }
+            """;
+
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(libId), "Ops.cs", SourceText.From(ops),
+            filePath: Path.Combine(root, "Lib", "Ops.cs"));
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(libId), "LocalUses.cs", SourceText.From(localUses),
+            filePath: Path.Combine(root, "Lib", "LocalUses.cs"));
+        foreach (var (id, name) in new[]
+        {
+            (depUnrestoredId, "DepUnrestored"),
+            (depNoFrameworkId, "DepNoFramework"),
+            (depRestoredId, "DepRestored"),
+            (depPlainId, "DepPlain"),
+        })
+        {
+            solution = solution.AddDocument(
+                DocumentId.CreateNewId(id), name + "Uses.cs", SourceText.From(depUses),
+                filePath: Path.Combine(root, name, name + "Uses.cs"));
+        }
+
+        // Every dependent's edge to Lib materializes as a CompilationReference,
+        // so the engine gate counts all four searched — the fidelity check is
+        // what separates DepUnrestored/DepNoFramework (degraded) from
+        // DepRestored/DepPlain (whole).
+        foreach (var id in new[] { depUnrestoredId, depNoFrameworkId, depRestoredId, depPlainId })
+        {
+            solution = solution.AddProjectReference(id, new ProjectReference(libId));
+        }
+
+        foreach (var id in new[]
+        {
+            libId, depUnrestoredId, depNoFrameworkId, depRestoredId, depPlainId,
+        })
+        {
+            solution = solution.WithProjectCompilationOptions(
+                id, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        }
+
+        // Lib, DepRestored, and DepPlain get real framework references;
+        // DepUnrestored and DepNoFramework intentionally get none — zero
+        // PortableExecutableReferences is the extreme unrestored shape.
+        foreach (var id in new[] { libId, depRestoredId, depPlainId })
+        {
+            foreach (var metadata in refs)
+            {
+                solution = solution.AddMetadataReference(id, metadata);
+            }
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace searched-degraded fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithCallers(string projectFilePath = @"C:\fake\CallerLib.csproj") =>
         new(TimeSpan.Zero, () => CreateCallersLoaded(projectFilePath));
 

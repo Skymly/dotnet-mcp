@@ -324,7 +324,10 @@ public sealed class SymbolTools
         "handles in the same paged stream. Scoped C#/VB projects the engine cannot search — a project " +
         "reference whose output did not materialize, or a metadata/package-only reference for a source " +
         "symbol — are named in the message instead of being reported as complete; scoped projects with " +
-        "no usable reference at all collapse to a count rather than individual names. F# handles search the " +
+        "no usable reference at all collapse to a count rather than individual names. A searched project " +
+        "whose declared references never materialized — an unrestored obj/project.assets.json or a " +
+        "compilation holding no assembly references — is named with a searched-degraded reason since its " +
+        "hits may be incomplete. F# handles search the " +
         "defining project plus its F# dependents " +
         "(entireSolution widens to every F# project); C#/VB dependents are never searched and the message " +
         "names them. An engine failure inside the search reports SymbolQueryFailed instead of an invocation " +
@@ -468,7 +471,9 @@ public sealed class SymbolTools
         "Scoped C#/VB projects the engine cannot search — a project reference whose output did not materialize, " +
         "or a metadata/package-only reference for a source symbol — are named in the message instead of being " +
         "reported as complete; scoped projects with no usable reference at all collapse to a count rather " +
-        "than individual names. F# handles search the defining project plus its F# dependents (entireSolution widens to every F# project); " +
+        "than individual names. A searched project whose declared references never materialized — an " +
+        "unrestored obj/project.assets.json or a compilation holding no assembly references — is named " +
+        "with a searched-degraded reason since its hits may be incomplete. F# handles search the defining project plus its F# dependents (entireSolution widens to every F# project); " +
         "C#/VB dependents are never searched and the message names them. An engine failure inside the search " +
         "reports SymbolQueryFailed instead of an invocation error.")]
     public async Task<CallToolResult> SymbolFindCallers(

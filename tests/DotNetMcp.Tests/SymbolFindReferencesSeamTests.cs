@@ -325,7 +325,7 @@ public class SymbolFindReferencesSeamTests
         Assert.DoesNotContain(paths, p => p.Contains("BrokenUses.cs", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(paths, p => p.Contains("MetaUses.cs", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("Reference page complete", page.Message, StringComparison.Ordinal);
-        Assert.Contains("not searched", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("coverage is incomplete", page.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CallerBroken", page.Message, StringComparison.Ordinal);
         Assert.Contains("CallerMeta", page.Message, StringComparison.Ordinal);
     }
@@ -369,6 +369,52 @@ public class SymbolFindReferencesSeamTests
         Assert.DoesNotContain("ZeroRefA", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("ZeroRefB", page.Message, StringComparison.Ordinal);
         Assert.Contains("2 other scoped projects", page.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Issue #572: the references lane applies the same searched-degraded
+    /// fidelity check — searched projects whose declared references never
+    /// materialized are named with their own reason instead of passing
+    /// silently, while whole dependents keep producing hits unmentioned.
+    /// </summary>
+    [Fact]
+    public async Task FindReferencesAsync_entire_solution_names_searched_degraded_projects()
+    {
+        var root = CreateTempDir("degraded-refs");
+        var loaded = FakeSolutionLoader.CreateSearchedDegradedGapLoaded(root);
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var lib = loaded.Solution.Projects.Single(p => p.Name == "Lib");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "Lib.LibOps.Jump",
+            lib.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindReferencesAsync(
+            session,
+            resolved!.Handle,
+            entireSolution: true,
+            limit: 50,
+            cursor: null);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        var paths = page.Items.Select(i => i.FilePath ?? string.Empty).ToArray();
+        Assert.Contains(paths, p => p.Contains("DepRestoredUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, p => p.Contains("DepPlainUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("coverage is incomplete", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("DepUnrestored", page.Message, StringComparison.Ordinal);
+        Assert.Contains("project.assets.json missing", page.Message, StringComparison.Ordinal);
+        Assert.Contains("DepNoFramework", page.Message, StringComparison.Ordinal);
+        Assert.Contains("no assembly references resolved", page.Message, StringComparison.Ordinal);
+        Assert.Contains("may be incomplete", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepRestored", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepPlain", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("other scoped projects", page.Message, StringComparison.Ordinal);
     }
 
     private static async Task<string> ResolveMarkerHandleAsync(InProcessMcpFixture fx)

@@ -32,13 +32,25 @@ namespace DotNetMcp.Core;
 /// into the collapsed count. Scoped projects with no usable reference of any
 /// kind can never contain hits, so they collapse to a count instead of
 /// individual names.
+/// Being inside the searched set is still not a hit guarantee (issue #572):
+/// Roslyn does not count an OverloadResolutionFailure candidate as a
+/// FindCallers/FindReferences hit, and a dependent whose declared references
+/// never materialized binds exactly those — an unrestored project (no
+/// <c>obj/project.assets.json</c>) loses every declared
+/// <c>&lt;PackageReference&gt;</c> without even an unresolved stub, so the
+/// materialized-edge test can pass while the project's call sites silently
+/// produce nothing. Projects failing that structural fidelity check are
+/// named alongside the unsearched list with a searched-degraded reason.
 /// </remarks>
 public static class FinderScopeCoverage
 {
     /// <summary>
-    /// A declared-scope project the finder could not search, with why.
-    /// <see cref="Collapsed"/> marks a project with no usable reference at
-    /// all — it is counted rather than named in the page message.
+    /// A declared-scope project the finder could not search — or searched
+    /// without the references needed to produce hits (issue #572) — with
+    /// why. <see cref="Collapsed"/> marks a project with no usable reference
+    /// at all — it is counted rather than named in the page message.
+    /// Searched-degraded projects are never collapsed: they are the shape
+    /// most likely to be quietly dropping hits.
     /// </summary>
     public sealed record UnsearchedProject(
         string ProjectId,
@@ -61,7 +73,13 @@ public static class FinderScopeCoverage
     /// per-project down-cascade runs after the searched set is fixed, so it
     /// cannot widen coverage and is not mirrored. Internal-visibility
     /// originations additionally require InternalsVisibleTo access, matching
-    /// the engine's visibility filter.
+    /// the engine's visibility filter. A project the gate admits also goes
+    /// through the searched-degraded fidelity check (issue #572): declared
+    /// references that never materialized — an unrestored
+    /// <c>obj/project.assets.json</c> or a compilation holding no
+    /// <see cref="PortableExecutableReference"/> at all — mean its hits may
+    /// be incomplete even though the engine searched it, so it is named with
+    /// a searched-degraded reason rather than passing silently.
     /// </summary>
     public static async Task<IReadOnlyList<UnsearchedProject>> UnsearchedProjectsAsync(
         Solution solution,
@@ -131,9 +149,24 @@ public static class FinderScopeCoverage
                 continue;
             }
 
-            if (await IsSearchedAsync(project, originations, cancellationToken)
-                    .ConfigureAwait(false))
+            var (searched, compilation) = await IsSearchedAsync(
+                    project, originations, cancellationToken)
+                .ConfigureAwait(false);
+            if (searched)
             {
+                // Searched is not the same as able to produce hits (issue
+                // #572): a project whose declared references never
+                // materialized binds OverloadResolutionFailure candidates the
+                // finders do not count, so name it searched-degraded.
+                var degraded = await SearchedDegradedReasonAsync(
+                        project, compilation, cancellationToken)
+                    .ConfigureAwait(false);
+                if (degraded is not null)
+                {
+                    unsearched.Add(new UnsearchedProject(
+                        project.Id.Id.ToString("D"), project.Name, degraded));
+                }
+
                 continue;
             }
 
@@ -155,8 +188,9 @@ public static class FinderScopeCoverage
     /// Text appended to (or replacing) the page message so a covered page never
     /// reads as fully searched (issue #559). Names every plausibly affected
     /// project with its reason, matching the F# adapter's "were not searched"
-    /// disclosure, and collapses projects with no usable reference into a
-    /// count — they could never contain hits (issue #565).
+    /// disclosure — searched-degraded projects (issue #572) join the named
+    /// list with their own reason — and collapses projects with no usable
+    /// reference into a count — they could never contain hits (issue #565).
     /// </summary>
     public static string DescribeUnsearched(IReadOnlyList<UnsearchedProject> unsearched)
     {
@@ -180,7 +214,14 @@ public static class FinderScopeCoverage
         return string.Join("; ", parts);
     }
 
-    private static async Task<bool> IsSearchedAsync(
+    /// <summary>
+    /// The engine's searched verdict plus the compilation the gate already
+    /// materialized while reaching it — handed to the searched-degraded
+    /// fidelity check so a project is never asked for its compilation twice
+    /// (<see cref="Project.GetCompilationAsync"/> caches, but the gate still
+    /// keeps one fetch per project).
+    /// </summary>
+    private static async Task<(bool Searched, Compilation? Compilation)> IsSearchedAsync(
         Project project,
         IReadOnlyList<Origination> originations,
         CancellationToken cancellationToken)
@@ -188,6 +229,7 @@ public static class FinderScopeCoverage
         var candidateIds = project.ProjectReferences
             .Select(static r => r.ProjectId)
             .ToHashSet();
+        Compilation? compilation = null;
         foreach (var origination in originations)
         {
             bool hasReference;
@@ -199,7 +241,7 @@ public static class FinderScopeCoverage
                 // apply to it either.
                 if (project.Id == origination.SourceProjectId)
                 {
-                    return true;
+                    return (true, compilation);
                 }
 
                 // A declared ProjectReference edge is only a candidate: the
@@ -207,15 +249,25 @@ public static class FinderScopeCoverage
                 // the origination's assembly inside this compilation, or the
                 // project contributes zero hits (issue #565).
                 hasReference = candidateIds.Contains(origination.SourceProjectId) &&
-                    await ResolvesToAssemblyAsync(
-                            project, origination.AssemblyName, cancellationToken)
-                        .ConfigureAwait(false);
+                    ResolvesToAssembly(
+                        compilation ??= await project
+                            .GetCompilationAsync(cancellationToken)
+                            .ConfigureAwait(false),
+                        origination.AssemblyName,
+                        cancellationToken);
             }
             else
             {
-                hasReference = await ReferencesAssemblyByNameAsync(
-                        project, origination.AssemblyName, cancellationToken)
-                    .ConfigureAwait(false);
+                var peReferences = project.MetadataReferences
+                    .OfType<PortableExecutableReference>();
+                hasReference = peReferences.Any() &&
+                    ReferencesAssemblyByName(
+                        compilation ??= await project
+                            .GetCompilationAsync(cancellationToken)
+                            .ConfigureAwait(false),
+                        peReferences,
+                        origination.AssemblyName,
+                        cancellationToken);
             }
 
             if (!hasReference)
@@ -228,11 +280,11 @@ public static class FinderScopeCoverage
             if (origination.MinVisibilityRank != InternalRank ||
                 origination.InternalsVisibleTo.Contains(project.AssemblyName ?? string.Empty))
             {
-                return true;
+                return (true, compilation);
             }
         }
 
-        return false;
+        return (false, compilation);
     }
 
     /// <summary>
@@ -365,10 +417,17 @@ public static class FinderScopeCoverage
     private static async Task<bool> ResolvesToAssemblyAsync(
         Project project,
         string assemblyName,
+        CancellationToken cancellationToken) =>
+        ResolvesToAssembly(
+            await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false),
+            assemblyName,
+            cancellationToken);
+
+    private static bool ResolvesToAssembly(
+        Compilation? compilation,
+        string assemblyName,
         CancellationToken cancellationToken)
     {
-        var compilation = await project.GetCompilationAsync(cancellationToken)
-            .ConfigureAwait(false);
         if (compilation is null)
         {
             return false;
@@ -406,8 +465,19 @@ public static class FinderScopeCoverage
             return false;
         }
 
-        var compilation = await project.GetCompilationAsync(cancellationToken)
-            .ConfigureAwait(false);
+        return ReferencesAssemblyByName(
+            await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false),
+            peReferences,
+            assemblyName,
+            cancellationToken);
+    }
+
+    private static bool ReferencesAssemblyByName(
+        Compilation? compilation,
+        IEnumerable<PortableExecutableReference> peReferences,
+        string assemblyName,
+        CancellationToken cancellationToken)
+    {
         if (compilation is null)
         {
             return false;
@@ -424,6 +494,77 @@ public static class FinderScopeCoverage
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Issue #572 fidelity check for a project the engine gate already counts
+    /// as searched: "was searched" is not "can produce hits". An unrestored
+    /// project (no <c>obj/project.assets.json</c> next to the project file)
+    /// loses every declared <c>&lt;PackageReference&gt;</c> without leaving
+    /// even an unresolved stub in the compilation, so call sites in it bind
+    /// OverloadResolutionFailure candidates the finders never count. The
+    /// check stays structural — a declared-items regex over the project file
+    /// plus the reference list the gate already materialized — never a
+    /// semantic diagnostic pass. Returns the searched-degraded reason, or
+    /// <see langword="null"/> when the project is whole enough to produce
+    /// its hits. Projects declaring no <c>&lt;PackageReference&gt;</c> or
+    /// <c>&lt;Reference&gt;</c> item at all (a pure traversal or
+    /// project-reference-only file) depend on no restored output and are
+    /// skipped.
+    /// </summary>
+    private static async Task<string?> SearchedDegradedReasonAsync(
+        Project project,
+        Compilation? compilation,
+        CancellationToken cancellationToken)
+    {
+        if (project.FilePath is null)
+        {
+            return null;
+        }
+
+        string contents;
+        try
+        {
+            if (!File.Exists(project.FilePath))
+            {
+                return null;
+            }
+
+            contents = await File.ReadAllTextAsync(project.FilePath, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+
+        var declaresPackage = PackageReferenceInclude.IsMatch(contents);
+        if (!declaresPackage && !ReferenceInclude.IsMatch(contents))
+        {
+            return null;
+        }
+
+        if (declaresPackage &&
+            Path.GetDirectoryName(project.FilePath) is { } projectDirectory &&
+            !File.Exists(Path.Combine(projectDirectory, "obj", "project.assets.json")))
+        {
+            return "was searched but its declared references never materialized " +
+                "(project.assets.json missing); hits from it may be incomplete";
+        }
+
+        // A compilation holding not even one PortableExecutableReference —
+        // no framework assembly, nothing — cannot bind a call site no matter
+        // what the declared items say (the extreme unrestored shape).
+        compilation ??= await project.GetCompilationAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (compilation is not null &&
+            compilation.References.All(static r => r is not PortableExecutableReference))
+        {
+            return "was searched but its declared references never materialized " +
+                "(no assembly references resolved); hits from it may be incomplete";
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -681,6 +822,25 @@ public static class FinderScopeCoverage
     /// </summary>
     private static readonly Regex ProjectReferenceInclude = new(
         "<ProjectReference\\b[^>]*\\bInclude\\s*=\\s*[\"'](?<include>[^\"']+)[\"']",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Matches a <c>&lt;PackageReference&gt;</c> item carrying an
+    /// <c>Include</c> — a declared package dependency the searched-degraded
+    /// check expects <c>obj/project.assets.json</c> to back (issue #572).
+    /// </summary>
+    private static readonly Regex PackageReferenceInclude = new(
+        "<PackageReference\\b[^>]*\\bInclude\\s*=",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Matches a <c>&lt;Reference&gt;</c> item carrying an <c>Include</c> — a
+    /// declared assembly reference for the searched-degraded check. An
+    /// <c>&lt;Update&gt;</c>/<c>&lt;Remove&gt;</c>-only item does not
+    /// declare a dependency, so <c>Include</c> is required.
+    /// </summary>
+    private static readonly Regex ReferenceInclude = new(
+        "<Reference\\b[^>]*\\bInclude\\s*=",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>

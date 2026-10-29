@@ -289,7 +289,7 @@ public class SymbolFindCallersSeamTests
         Assert.DoesNotContain(paths, p => p.Contains("BrokenUses.cs", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(paths, p => p.Contains("MetaUses.cs", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("Caller page complete", page.Message, StringComparison.Ordinal);
-        Assert.Contains("not searched", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("coverage is incomplete", page.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CallerBroken", page.Message, StringComparison.Ordinal);
         Assert.Contains("CallerMeta", page.Message, StringComparison.Ordinal);
         Assert.Contains("metadata", page.Message, StringComparison.OrdinalIgnoreCase);
@@ -358,7 +358,7 @@ public class SymbolFindCallersSeamTests
         var paths = page.Items.Select(i => i.FilePath ?? string.Empty).ToArray();
         Assert.Contains(paths, p => p.Contains("LocalSub.cs", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(paths, p => p.Contains("DeclUses.cs", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains("not searched", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("coverage is incomplete", page.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CallerDecl", page.Message, StringComparison.Ordinal);
         Assert.Contains("did not materialize", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("ZeroRefA", page.Message, StringComparison.Ordinal);
@@ -438,7 +438,7 @@ public class SymbolFindCallersSeamTests
         Assert.Contains(paths, p => p.Contains("DepNet9Uses.cs", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(paths, p => p.Contains("DepMissingUses.cs", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(paths, p => p.Contains("DepOrphanUses.cs", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains("not searched", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("coverage is incomplete", page.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("DepMissing", page.Message, StringComparison.Ordinal);
         Assert.Contains("DepOrphan", page.Message, StringComparison.Ordinal);
         Assert.Contains(
@@ -486,6 +486,92 @@ public class SymbolFindCallersSeamTests
         Assert.Contains("DepOrphan", page.Message, StringComparison.Ordinal);
         Assert.Contains("did not materialize in the loaded workspace", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("DepNet9", page.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Issue #572: a project the gate counts as searched can still be unable
+    /// to produce hits — DepUnrestored declares a PackageReference with no
+    /// obj/project.assets.json behind it (the unrestored shape that strips
+    /// package references without a trace) and DepNoFramework holds zero
+    /// PortableExecutableReferences — so both are named searched-degraded
+    /// instead of passing silently. DepRestored (assets file written,
+    /// framework references in place) and DepPlain (no package/assembly
+    /// items declared — the fidelity check skips it) keep producing hits
+    /// and stay unmentioned.
+    /// </summary>
+    [Fact]
+    public async Task FindCallersAsync_entire_solution_names_searched_degraded_projects()
+    {
+        var root = CreateTempDir("degraded");
+        var loaded = FakeSolutionLoader.CreateSearchedDegradedGapLoaded(root);
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var lib = loaded.Solution.Projects.Single(p => p.Name == "Lib");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "Lib.LibOps.Jump",
+            lib.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindCallersAsync(
+            session, resolved!.Handle, entireSolution: true);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        var paths = page.Items.Select(i => i.FilePath ?? string.Empty).ToArray();
+        Assert.Contains(paths, p => p.Contains("DepRestoredUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, p => p.Contains("DepPlainUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("Caller page complete", page.Message, StringComparison.Ordinal);
+        Assert.Contains("coverage is incomplete", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("DepUnrestored", page.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "was searched but its declared references never materialized (project.assets.json missing)",
+            page.Message,
+            StringComparison.Ordinal);
+        Assert.Contains("DepNoFramework", page.Message, StringComparison.Ordinal);
+        Assert.Contains("no assembly references resolved", page.Message, StringComparison.Ordinal);
+        Assert.Contains("may be incomplete", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepRestored", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepPlain", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("other scoped projects", page.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Issue #572: the default dependency-closure scope declares the same
+    /// dependents (each holds a materialized edge to Lib), so the
+    /// searched-degraded naming appears there too.
+    /// </summary>
+    [Fact]
+    public async Task FindCallersAsync_default_scope_names_searched_degraded_projects()
+    {
+        var root = CreateTempDir("degraded-closure");
+        var loaded = FakeSolutionLoader.CreateSearchedDegradedGapLoaded(root);
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var lib = loaded.Solution.Projects.Single(p => p.Name == "Lib");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "Lib.LibOps.Jump",
+            lib.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindCallersAsync(
+            session, resolved!.Handle, entireSolution: false);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        Assert.Contains("DepUnrestored", page.Message, StringComparison.Ordinal);
+        Assert.Contains("DepNoFramework", page.Message, StringComparison.Ordinal);
+        Assert.Contains("may be incomplete", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepRestored", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepPlain", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("other scoped projects", page.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
