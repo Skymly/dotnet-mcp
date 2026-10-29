@@ -2783,6 +2783,172 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
     }
 
+    /// <summary>
+    /// Declared-edge gap fixture (issue #570), multi-TFM: LibNet8 and LibNet9
+    /// are two project units of one project file sharing a linked document,
+    /// LibNetStd is a third unit of the same file that does not link the
+    /// declaring document. DepMissing and DepOrphan declare a
+    /// <c>&lt;ProjectReference&gt;</c> to Lib.csproj only in their project
+    /// files — the loaded graph holds no edge (or an edge whose synthesized
+    /// id resolves to no project), matching what MSBuildWorkspace leaves
+    /// when it cannot resolve the target. DepNet9's declared edge
+    /// materialized normally (calls bind, the engine searches it), DepAlt's
+    /// materialized to the non-origination LibNetStd unit, and ZeroRef never
+    /// referenced anything. <paramref name="root"/> must be a real directory:
+    /// the coverage check reads the declared items from the project files,
+    /// so the fixture writes them to disk.
+    /// </summary>
+    public static LoadedSolution CreateDeclaredEdgeGapLoaded(string root)
+    {
+        Directory.CreateDirectory(Path.Combine(root, "Lib"));
+        Directory.CreateDirectory(Path.Combine(root, "DepMissing"));
+        Directory.CreateDirectory(Path.Combine(root, "DepOrphan"));
+        Directory.CreateDirectory(Path.Combine(root, "DepNet9"));
+        Directory.CreateDirectory(Path.Combine(root, "DepAlt"));
+        Directory.CreateDirectory(Path.Combine(root, "ZeroRef"));
+
+        File.WriteAllText(Path.Combine(root, "Lib", "Lib.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        File.WriteAllText(Path.Combine(root, "ZeroRef", "ZeroRef.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        const string declaresLib = """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <ProjectReference Include="..\Lib\Lib.csproj" />
+              </ItemGroup>
+            </Project>
+            """;
+        File.WriteAllText(Path.Combine(root, "DepMissing", "DepMissing.csproj"), declaresLib);
+        File.WriteAllText(Path.Combine(root, "DepOrphan", "DepOrphan.csproj"), declaresLib);
+        File.WriteAllText(Path.Combine(root, "DepNet9", "DepNet9.csproj"), declaresLib);
+        File.WriteAllText(Path.Combine(root, "DepAlt", "DepAlt.csproj"), declaresLib);
+
+        var workspace = new AdhocWorkspace();
+        var libNet8Id = ProjectId.CreateNewId();
+        var libNet9Id = ProjectId.CreateNewId();
+        var libNetStdId = ProjectId.CreateNewId();
+        var depMissingId = ProjectId.CreateNewId();
+        var depOrphanId = ProjectId.CreateNewId();
+        var depNet9Id = ProjectId.CreateNewId();
+        var depAltId = ProjectId.CreateNewId();
+        var zeroRefId = ProjectId.CreateNewId();
+        var refs = TrustedPlatformReferences();
+        var solution = workspace.CurrentSolution;
+
+        ProjectId AddUnit(ProjectId id, string name)
+        {
+            solution = solution.AddProject(ProjectInfo.Create(
+                id,
+                VersionStamp.Create(),
+                name,
+                "Lib",
+                LanguageNames.CSharp,
+                filePath: Path.Combine(root, "Lib", "Lib.csproj")));
+            return id;
+        }
+
+        AddUnit(libNet8Id, "LibNet8");
+        AddUnit(libNet9Id, "LibNet9");
+        AddUnit(libNetStdId, "LibNetStd");
+        foreach (var (id, name) in new[]
+        {
+            (depMissingId, "DepMissing"),
+            (depOrphanId, "DepOrphan"),
+            (depNet9Id, "DepNet9"),
+            (depAltId, "DepAlt"),
+            (zeroRefId, "ZeroRef"),
+        })
+        {
+            solution = solution.AddProject(ProjectInfo.Create(
+                id,
+                VersionStamp.Create(),
+                name,
+                name,
+                LanguageNames.CSharp,
+                filePath: Path.Combine(root, name, name + ".csproj")));
+        }
+
+        const string ops = """
+            namespace Lib;
+
+            public static class LibOps
+            {
+                public static int Jump(int x) => x + 1;
+            }
+            """;
+        var linkedOpsPath = Path.Combine(root, "Lib", "Ops.cs");
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(libNet8Id), "Ops.cs", SourceText.From(ops), filePath: linkedOpsPath);
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(libNet9Id), "Ops.cs", SourceText.From(ops), filePath: linkedOpsPath);
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(libNetStdId),
+            "OpsNetStandard.cs",
+            SourceText.From(ops),
+            filePath: Path.Combine(root, "Lib", "OpsNetStandard.cs"));
+
+        const string uses = """
+            namespace Dep;
+
+            using Lib;
+
+            public static class Uses
+            {
+                public static int Go(int x) => LibOps.Jump(x);
+            }
+            """;
+        foreach (var (id, file) in new[]
+        {
+            (depMissingId, "DepMissingUses.cs"),
+            (depOrphanId, "DepOrphanUses.cs"),
+            (depNet9Id, "DepNet9Uses.cs"),
+            (depAltId, "DepAltUses.cs"),
+        })
+        {
+            solution = solution.AddDocument(
+                DocumentId.CreateNewId(id), file, SourceText.From(uses),
+                filePath: Path.Combine(root, id == depMissingId ? "DepMissing"
+                    : id == depOrphanId ? "DepOrphan"
+                    : id == depNet9Id ? "DepNet9"
+                    : "DepAlt", file));
+        }
+
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(zeroRefId),
+            "Idle.cs",
+            SourceText.From("namespace ZeroRef; public static class Idle { public static int Answer() => 42; }"),
+            filePath: Path.Combine(root, "ZeroRef", "Idle.cs"));
+
+        // DepMissing: declared in the project file only — no graph edge at
+        // all. DepOrphan: an edge whose synthesized id resolves to no loaded
+        // project. DepNet9 / DepAlt: materialized edges (to the net9 twin and
+        // to the non-origination netstandard unit respectively).
+        solution = solution.AddProjectReference(depOrphanId, new ProjectReference(ProjectId.CreateNewId()));
+        solution = solution.AddProjectReference(depNet9Id, new ProjectReference(libNet9Id));
+        solution = solution.AddProjectReference(depAltId, new ProjectReference(libNetStdId));
+
+        foreach (var id in new[]
+        {
+            libNet8Id, libNet9Id, libNetStdId,
+            depMissingId, depOrphanId, depNet9Id, depAltId, zeroRefId,
+        })
+        {
+            solution = solution.WithProjectCompilationOptions(
+                id, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+            foreach (var metadata in refs)
+            {
+                solution = solution.AddMetadataReference(id, metadata);
+            }
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace declared-edge-gap fixture.");
+        }
+
+        return new LoadedSolution(workspace, workspace.CurrentSolution, warnings: []);
+    }
+
     public static FakeSolutionLoader ImmediateWithCallers(string projectFilePath = @"C:\fake\CallerLib.csproj") =>
         new(TimeSpan.Zero, () => CreateCallersLoaded(projectFilePath));
 
