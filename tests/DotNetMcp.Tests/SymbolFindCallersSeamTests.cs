@@ -402,6 +402,93 @@ public class SymbolFindCallersSeamTests
     }
 
     /// <summary>
+    /// Issue #570: multi-TFM origination — DepMissing declares its edge to
+    /// Lib.csproj only in the project file (the load produced no graph edge)
+    /// and DepOrphan's declared edge resolves to no loaded project, so the
+    /// coverage message must name both with the declared-not-materialized
+    /// reason instead of folding them into the collapsed count. DepAlt's edge
+    /// materialized to a non-origination TFM unit of the same project file,
+    /// which stays a "different load" naming; DepNet9's materialized edge is
+    /// searched and returns hits; LibNetStd and ZeroRef hold no reference and
+    /// collapse to the count.
+    /// </summary>
+    [Fact]
+    public async Task FindCallersAsync_entire_solution_names_declared_but_dropped_edges()
+    {
+        var root = CreateTempDir("edge-gap");
+        var loaded = FakeSolutionLoader.CreateDeclaredEdgeGapLoaded(root);
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var libNet8 = loaded.Solution.Projects.Single(p => p.Name == "LibNet8");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "Lib.LibOps.Jump",
+            libNet8.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindCallersAsync(
+            session, resolved!.Handle, entireSolution: true);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.False(page!.Truncated);
+        var paths = page.Items.Select(i => i.FilePath ?? string.Empty).ToArray();
+        Assert.Contains(paths, p => p.Contains("DepNet9Uses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, p => p.Contains("DepMissingUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, p => p.Contains("DepOrphanUses.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("not searched", page.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("DepMissing", page.Message, StringComparison.Ordinal);
+        Assert.Contains("DepOrphan", page.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "declared project reference to 'Lib' did not materialize in the loaded workspace",
+            page.Message,
+            StringComparison.Ordinal);
+        Assert.Contains("DepAlt", page.Message, StringComparison.Ordinal);
+        Assert.Contains("a different load of the assembly", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepNet9", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("ZeroRef", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("'LibNetStd' (", page.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "2 other scoped projects with no usable reference to 'Lib'",
+            page.Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Issue #570: the verdicts must not vary with which TFM unit originated
+    /// the handle — resolving through the net9 unit names the same
+    /// declared-but-dropped dependents.
+    /// </summary>
+    [Fact]
+    public async Task FindCallersAsync_declared_edge_gap_is_consistent_across_tfm_originations()
+    {
+        var root = CreateTempDir("edge-gap-net9");
+        var loaded = FakeSolutionLoader.CreateDeclaredEdgeGapLoaded(root);
+        var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
+        var libNet9 = loaded.Solution.Projects.Single(p => p.Name == "LibNet9");
+        using var session = new WorkspaceSession(loaded, epoch: 1);
+
+        var (resolved, resolveError) = await service.ResolveByNameAsync(
+            session,
+            "Lib.LibOps.Jump",
+            libNet9.Id.Id.ToString("D"));
+        Assert.Null(resolveError);
+        Assert.NotNull(resolved);
+
+        var (page, error) = await service.FindCallersAsync(
+            session, resolved!.Handle, entireSolution: true);
+
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Contains("DepMissing", page!.Message, StringComparison.Ordinal);
+        Assert.Contains("DepOrphan", page.Message, StringComparison.Ordinal);
+        Assert.Contains("did not materialize in the loaded workspace", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepNet9", page.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Issue #559 no-regression: a scope whose projects are all searchable keeps
     /// the complete message and no coverage note.
     /// </summary>

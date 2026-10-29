@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FindSymbols;
 
@@ -25,8 +26,12 @@ namespace DotNetMcp.Core;
 /// even though the edge was declared. The gate therefore verifies that a
 /// declared edge actually materialized a resolvable reference to the
 /// origination's assembly name before counting the project as searched.
-/// Scoped projects with no usable reference of any kind can never contain
-/// hits, so they collapse to a count instead of individual names.
+/// A <see cref="ProjectReference"/> the loader could not resolve may leave
+/// no graph edge at all (issue #570), so the gap descriptor also reads the
+/// declared items from the dependent's own project file before folding it
+/// into the collapsed count. Scoped projects with no usable reference of any
+/// kind can never contain hits, so they collapse to a count instead of
+/// individual names.
 /// </remarks>
 public static class FinderScopeCoverage
 {
@@ -234,11 +239,13 @@ public static class FinderScopeCoverage
     /// Why the gate skips <paramref name="project"/>: a declared project
     /// reference to an origination that materialized no usable reference (the
     /// "project reference without matching metadata reference" load failure),
-    /// an assembly-name reference that exists only as metadata/package
-    /// content, a project edge that lands on a different load of the defining
-    /// assembly, a transitive declared chain with no usable reference at the
-    /// end, or no usable reference at all — the only shape that collapses to a
-    /// count instead of a name.
+    /// a <c>&lt;ProjectReference&gt;</c> the loader dropped entirely so the
+    /// declared edge exists only in the project file, an assembly-name
+    /// reference that exists only as metadata/package content, a project edge
+    /// that lands on a different load of the defining assembly, a transitive
+    /// declared chain with no usable reference at the end, or no usable
+    /// reference at all — the only shape that collapses to a count instead of
+    /// a name.
     /// </summary>
     private static async Task<UnsearchedProject> DescribeGapAsync(
         Solution solution,
@@ -279,6 +286,28 @@ public static class FinderScopeCoverage
             {
                 return Gap($"declared project reference to '{targetName}' but lacks InternalsVisibleTo access");
             }
+        }
+
+        // A <ProjectReference> the loader could not resolve leaves no graph
+        // edge at all (or only an edge to a synthesized ProjectId that maps to
+        // no loaded project): the engine's exact-ProjectId dependent gate
+        // skips the project, and every reference-based check above also fails.
+        // The declared intent survives only in the project file itself —
+        // reading it keeps the folded count from swallowing a project that
+        // asked for the dependency (issue #570: Reactive.Tests collapsed this
+        // way on a multi-TFM solution).
+        var originationPaths = originations
+            .Select(static o => o.FilePath)
+            .Where(static p => p is not null)
+            .Select(static p => Path.GetFullPath(p!))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var declaredPath = await DeclaredOriginationPathAsync(
+                solution, project, originationPaths, cancellationToken)
+            .ConfigureAwait(false);
+        if (declaredPath is not null)
+        {
+            return Gap(
+                $"declared project reference to '{Path.GetFileNameWithoutExtension(declaredPath)}' did not materialize in the loaded workspace");
         }
 
         var metadataOnly = false;
@@ -447,6 +476,7 @@ public static class FinderScopeCoverage
                     metadataOriginations[assembly.Name] = new Origination(
                         assembly.Name,
                         SourceProjectId: null,
+                        FilePath: null,
                         EffectiveVisibilityRank(mapped),
                         InternalsVisibleToSet(assembly));
                 }
@@ -471,6 +501,7 @@ public static class FinderScopeCoverage
                         sourceOriginations[project.Id] = new Origination(
                             project.AssemblyName ?? mapped.ContainingAssembly?.Name ?? string.Empty,
                             project.Id,
+                            project.FilePath,
                             rank,
                             internalsVisibleTo);
                     }
@@ -644,9 +675,101 @@ public static class FinderScopeCoverage
         return set;
     }
 
+    /// <summary>
+    /// Matches a <c>&lt;ProjectReference Include="…"&gt;</c> item in a project
+    /// file; the <c>include</c> group carries the declared path.
+    /// </summary>
+    private static readonly Regex ProjectReferenceInclude = new(
+        "<ProjectReference\\b[^>]*\\bInclude\\s*=\\s*[\"'](?<include>[^\"']+)[\"']",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The normalized path of a <c>&lt;ProjectReference&gt;</c> item the
+    /// project file declares to an origination unit's project file but that
+    /// never became a usable graph edge — the loader drops an unresolvable
+    /// reference entirely or leaves an edge whose synthesized
+    /// <see cref="ProjectId"/> resolves to no project. Returns
+    /// <see langword="null"/> when the project file is missing/unreadable,
+    /// when no declaration matches, or when a loaded edge already lands on
+    /// the origination's project file (the edge materialized — it points at
+    /// a different unit, which the "different load" check describes).
+    /// </summary>
+    private static async Task<string?> DeclaredOriginationPathAsync(
+        Solution solution,
+        Project project,
+        HashSet<string> originationPaths,
+        CancellationToken cancellationToken)
+    {
+        if (project.FilePath is null || originationPaths.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var reference in project.ProjectReferences)
+        {
+            var target = solution.GetProject(reference.ProjectId);
+            if (target?.FilePath is { } targetPath &&
+                originationPaths.Contains(Path.GetFullPath(targetPath)))
+            {
+                return null;
+            }
+        }
+
+        string contents;
+        try
+        {
+            if (!File.Exists(project.FilePath))
+            {
+                return null;
+            }
+
+            contents = await File.ReadAllTextAsync(project.FilePath, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+
+        var projectDirectory = Path.GetDirectoryName(project.FilePath);
+        if (projectDirectory is null)
+        {
+            return null;
+        }
+
+        foreach (Match match in ProjectReferenceInclude.Matches(contents))
+        {
+            if (match.Value.Contains("ReferenceOutputAssembly=\"false\"", StringComparison.OrdinalIgnoreCase) ||
+                match.Value.Contains("ReferenceOutputAssembly='false'", StringComparison.OrdinalIgnoreCase))
+            {
+                // Analyzer/generator edges never materialize an assembly
+                // reference by design — not a declaration gap.
+                continue;
+            }
+
+            var include = match.Groups["include"].Value;
+            if (include.Contains('$'))
+            {
+                continue; // Property-expanded paths cannot be evaluated here.
+            }
+
+            var normalized = include
+                .Replace('/', Path.DirectorySeparatorChar)
+                .Replace('\\', Path.DirectorySeparatorChar);
+            var declared = Path.GetFullPath(Path.Combine(projectDirectory, normalized));
+            if (originationPaths.Contains(declared))
+            {
+                return declared;
+            }
+        }
+
+        return null;
+    }
+
     private sealed record Origination(
         string AssemblyName,
         ProjectId? SourceProjectId,
+        string? FilePath,
         int MinVisibilityRank,
         HashSet<string> InternalsVisibleTo);
 }
