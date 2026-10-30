@@ -35,12 +35,20 @@ namespace DotNetMcp.Core;
 /// Being inside the searched set is still not a hit guarantee (issue #572):
 /// Roslyn does not count an OverloadResolutionFailure candidate as a
 /// FindCallers/FindReferences hit, and a dependent whose declared references
-/// never materialized binds exactly those — an unrestored project (no
-/// <c>obj/project.assets.json</c>) loses every declared
-/// <c>&lt;PackageReference&gt;</c> without even an unresolved stub, so the
-/// materialized-edge test can pass while the project's call sites silently
-/// produce nothing. Projects failing that structural fidelity check are
-/// named alongside the unsearched list with a searched-degraded reason.
+/// never materialized binds exactly those — an unrestored project loses every
+/// declared <c>&lt;PackageReference&gt;</c> without even an unresolved stub,
+/// so the materialized-edge test can pass while the project's call sites
+/// silently produce nothing. The fidelity signal itself reads the
+/// compilation snapshot, not the live file system (issue #577): a declared
+/// package reference only counts when a
+/// <see cref="PortableExecutableReference"/> under a NuGet package-cache
+/// root materialized in the same compilation the hits were searched
+/// against, so a restore/build in flight — <c>project.assets.json</c>
+/// already on disk while the snapshot still lacks the packages — no longer
+/// opens a false-pass window. A declared <c>&lt;Reference&gt;</c> path that
+/// never materialized degrades the same way. Projects failing that
+/// structural fidelity check are named alongside the unsearched list with a
+/// searched-degraded reason.
 /// </remarks>
 public static class FinderScopeCoverage
 {
@@ -74,9 +82,12 @@ public static class FinderScopeCoverage
     /// cannot widen coverage and is not mirrored. Internal-visibility
     /// originations additionally require InternalsVisibleTo access, matching
     /// the engine's visibility filter. A project the gate admits also goes
-    /// through the searched-degraded fidelity check (issue #572): declared
-    /// references that never materialized — an unrestored
-    /// <c>obj/project.assets.json</c> or a compilation holding no
+    /// through the searched-degraded fidelity check (issues #572/#577):
+    /// declared references absent from the loaded compilation — a declared
+    /// <c>&lt;PackageReference&gt;</c> with no
+    /// <see cref="PortableExecutableReference"/> under a NuGet package-cache
+    /// root, a declared <c>&lt;Reference&gt;</c> path that never
+    /// materialized, or a compilation holding no
     /// <see cref="PortableExecutableReference"/> at all — mean its hits may
     /// be incomplete even though the engine searched it, so it is named with
     /// a searched-degraded reason rather than passing silently.
@@ -497,20 +508,30 @@ public static class FinderScopeCoverage
     }
 
     /// <summary>
-    /// Issue #572 fidelity check for a project the engine gate already counts
-    /// as searched: "was searched" is not "can produce hits". An unrestored
-    /// project (no <c>obj/project.assets.json</c> next to the project file)
-    /// loses every declared <c>&lt;PackageReference&gt;</c> without leaving
-    /// even an unresolved stub in the compilation, so call sites in it bind
-    /// OverloadResolutionFailure candidates the finders never count. The
-    /// check stays structural — a declared-items regex over the project file
-    /// plus the reference list the gate already materialized — never a
-    /// semantic diagnostic pass. Returns the searched-degraded reason, or
-    /// <see langword="null"/> when the project is whole enough to produce
-    /// its hits. Projects declaring no <c>&lt;PackageReference&gt;</c> or
-    /// <c>&lt;Reference&gt;</c> item at all (a pure traversal or
-    /// project-reference-only file) depend on no restored output and are
-    /// skipped.
+    /// Issue #572/#577 fidelity check for a project the engine gate already
+    /// counts as searched: "was searched" is not "can produce hits". The
+    /// primary signal lives in the compilation snapshot itself — a declared
+    /// <c>&lt;PackageReference&gt;</c> only counts as materialized when a
+    /// <see cref="PortableExecutableReference"/> under a NuGet package-cache
+    /// root resolved in the same compilation the finders searched, so a
+    /// restore/build in flight cannot pass the check on a written
+    /// <c>project.assets.json</c> the snapshot has not caught up with yet
+    /// (framework ref-pack references under the dotnet install tree never
+    /// count — a project holding only those is still degraded). The assets
+    /// file on disk stays as evidence that chooses the wording, never the
+    /// verdict. Secondary shapes: a compilation holding not even one
+    /// <see cref="PortableExecutableReference"/> cannot bind a call site no
+    /// matter what the declared items say, and a declared
+    /// <c>&lt;Reference&gt;</c> file path (a <c>&lt;HintPath&gt;</c> or an
+    /// <c>Include</c> that is itself a path) missing on disk never made it
+    /// into the compilation either. The check stays structural — a
+    /// declared-items regex over the project file plus the reference list
+    /// the gate already materialized — never a semantic diagnostic pass.
+    /// Returns the searched-degraded reason, or <see langword="null"/> when
+    /// the project is whole enough to produce its hits. Projects declaring
+    /// no <c>&lt;PackageReference&gt;</c> or <c>&lt;Reference&gt;</c> item at
+    /// all (a pure traversal or project-reference-only file) depend on no
+    /// restored output and are skipped.
     /// </summary>
     private static async Task<string?> SearchedDegradedReasonAsync(
         Project project,
@@ -538,25 +559,47 @@ public static class FinderScopeCoverage
             return null;
         }
 
+        // Commented-out items are not declarations; match the declared-items
+        // surface the same way MSBuild sees it.
+        contents = XmlComment.Replace(contents, string.Empty);
+
         var declaresPackage = PackageReferenceInclude.IsMatch(contents);
-        if (!declaresPackage && !ReferenceInclude.IsMatch(contents))
+        var declaresReference = ReferenceInclude.IsMatch(contents);
+        if (!declaresPackage && !declaresReference)
         {
             return null;
         }
 
-        if (declaresPackage &&
-            Path.GetDirectoryName(project.FilePath) is { } projectDirectory &&
-            !File.Exists(Path.Combine(projectDirectory, "obj", "project.assets.json")))
+        var projectDirectory = Path.GetDirectoryName(project.FilePath);
+        compilation ??= await project.GetCompilationAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // Primary signal (issue #577): the compilation snapshot. The file
+        // system can run ahead of the snapshot — dotnet restore writes
+        // obj/project.assets.json before the loaded compilation picks the
+        // packages up — so "assets.json exists" alone proved nothing. An
+        // undeterminable package-cache root set fails conservative instead
+        // of degrading a project the check cannot honestly judge.
+        if (declaresPackage && compilation is not null)
         {
-            return "was searched but its declared references never materialized " +
-                "(project.assets.json missing); hits from it may be incomplete";
+            var packageRoots = NuGetPackageRoots();
+            if (packageRoots.Count > 0 &&
+                !HoldsPackageCacheReference(compilation, packageRoots))
+            {
+                var assetsMissing = projectDirectory is null ||
+                    !File.Exists(Path.Combine(
+                        projectDirectory, "obj", "project.assets.json"));
+                return assetsMissing
+                    ? "was searched but its declared package references are absent from the loaded compilation " +
+                        "(obj/project.assets.json missing); hits from it may be incomplete"
+                    : "was searched but its declared package references are absent from the loaded compilation " +
+                        "(stale snapshot; a restore may still be in progress); hits from it may be incomplete";
+            }
         }
 
         // A compilation holding not even one PortableExecutableReference —
         // no framework assembly, nothing — cannot bind a call site no matter
         // what the declared items say (the extreme unrestored shape).
-        compilation ??= await project.GetCompilationAsync(cancellationToken)
-            .ConfigureAwait(false);
         if (compilation is not null &&
             compilation.References.All(static r => r is not PortableExecutableReference))
         {
@@ -564,8 +607,259 @@ public static class FinderScopeCoverage
                 "(no assembly references resolved); hits from it may be incomplete";
         }
 
+        // A declared <Reference> file path that does not exist — a missing
+        // HintPath target or a missing declared dll — is the same gap one
+        // level narrower: the rest of the compilation materialized, the one
+        // declared input did not.
+        if (declaresReference &&
+            projectDirectory is not null &&
+            MissingDeclaredReferencePath(contents, projectDirectory) is { } missing)
+        {
+            return $"was searched but a declared <Reference> did not materialize ('{missing}' not found); " +
+                "hits from it may be incomplete";
+        }
+
         return null;
     }
+
+    /// <summary>
+    /// The declared path of the first <c>&lt;Reference&gt;</c> item whose
+    /// file is missing — its <c>&lt;HintPath&gt;</c> child when one is
+    /// declared, else an <c>Include</c> that is itself a path (contains a
+    /// directory separator or names a <c>.dll</c>, e.g.
+    /// <c>SomeVendor.dll</c>). Bare assembly names carry no resolvable path —
+    /// they bind through framework/GAC resolution the structural check
+    /// cannot judge — and property-expanded or wildcard paths cannot be
+    /// evaluated, so all three shapes are skipped. Returns
+    /// <see langword="null"/> when every declared path exists or none can be
+    /// resolved to a path at all.
+    /// </summary>
+    private static string? MissingDeclaredReferencePath(string contents, string projectDirectory)
+    {
+        foreach (Match match in ReferenceItem.Matches(contents))
+        {
+            var hint = match.Groups["body"].Success &&
+                HintPathElement.Match(match.Groups["body"].Value) is { Success: true } hintMatch
+                    ? hintMatch.Groups["hint"].Value.Trim()
+                    : null;
+            var include = match.Groups["include"].Value.Trim();
+            var declared = !string.IsNullOrWhiteSpace(hint)
+                ? hint
+                : LooksLikeReferencePath(include) ? include : null;
+            if (declared is null || declared.Contains('$') || declared.Contains('*'))
+            {
+                continue;
+            }
+
+            var normalized = declared
+                .Replace('/', Path.DirectorySeparatorChar)
+                .Replace('\\', Path.DirectorySeparatorChar);
+            string full;
+            try
+            {
+                full = Path.GetFullPath(Path.Combine(projectDirectory, normalized));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                continue;
+            }
+
+            if (!File.Exists(full))
+            {
+                return declared;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// An <c>Include</c> that names a file rather than an assembly identity:
+    /// contains a directory separator or ends in <c>.dll</c>. A bare name
+    /// like <c>System.Data</c> is an assembly reference, not a path.
+    /// </summary>
+    private static bool LooksLikeReferencePath(string include) =>
+        include.Contains('/') ||
+        include.Contains('\\') ||
+        include.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The package-cache roots a <see cref="PortableExecutableReference"/>
+    /// must sit under to count as a materialized package reference (issue
+    /// #577): the environment-derived set computed once — process
+    /// environment and profile paths do not change mid-process — plus any
+    /// roots the test seam adds.
+    /// </summary>
+    private static IReadOnlyList<string> NuGetPackageRoots()
+    {
+        var computed = NuGetPackageRootsCache.Value;
+        var extra = ExtraNuGetPackageRoots.Value;
+        if (extra is not { Count: > 0 })
+        {
+            return computed;
+        }
+
+        var merged = new List<string>(computed.Count + extra.Count);
+        merged.AddRange(computed);
+        merged.AddRange(extra);
+        return merged;
+    }
+
+    /// <summary>
+    /// The global package cache plus every fallback folder NuGet consults:
+    /// <paramref name="nugetPackagesEnv"/> (<c>NUGET_PACKAGES</c>) replaces
+    /// the profile default <c>~/.nuget/packages</c>, and
+    /// <paramref name="nugetFallbackEnv"/> (<c>NUGET_FALLBACK_PACKAGES</c>)
+    /// is a comma/semicolon list of extra roots — a fallback folder still
+    /// counts as materialization. The dotnet SDK's own
+    /// <c>NuGetFallbackFolder</c> is deliberately not derived: ref-pack
+    /// assemblies under it are not package restore output, and counting it
+    /// would let a framework-only compilation pass as restored. Entries are
+    /// normalized to full paths and deduplicated; anything that cannot be
+    /// resolved is dropped — an empty result means "cannot tell", and the
+    /// caller stays conservative rather than degrade.
+    /// </summary>
+    internal static IReadOnlyList<string> ComputeNuGetPackageRoots(
+        string? nugetPackagesEnv,
+        string? nugetFallbackEnv,
+        string? userProfilePath)
+    {
+        var roots = new List<string>();
+        if (!string.IsNullOrWhiteSpace(nugetPackagesEnv))
+        {
+            AddRoot(nugetPackagesEnv.Trim());
+        }
+        else if (!string.IsNullOrWhiteSpace(userProfilePath))
+        {
+            AddRoot(Path.Combine(userProfilePath, ".nuget", "packages"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(nugetFallbackEnv))
+        {
+            foreach (var entry in nugetFallbackEnv.Split(
+                         [';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                AddRoot(entry);
+            }
+        }
+
+        return roots;
+
+        void AddRoot(string candidate)
+        {
+            string full;
+            try
+            {
+                full = Path.GetFullPath(candidate);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return;
+            }
+
+            var trimmed = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (trimmed.Length == 0 || roots.Contains(trimmed, PathComparer))
+            {
+                return;
+            }
+
+            roots.Add(trimmed);
+        }
+    }
+
+    /// <summary>
+    /// Whether any <see cref="PortableExecutableReference"/> in the
+    /// compilation resolves under a NuGet package-cache root — the
+    /// snapshot-level proof that a declared <c>&lt;PackageReference&gt;</c>
+    /// materialized (issue #577). Framework ref-pack references land under
+    /// the dotnet install tree, never a package-cache root, so a project
+    /// holding only those still reports degraded. <see langword="internal"/>
+    /// so tests can feed the root set directly.
+    /// </summary>
+    internal static bool HoldsPackageCacheReference(
+        Compilation? compilation,
+        IReadOnlyList<string> packageRoots)
+    {
+        if (compilation is null)
+        {
+            return false;
+        }
+
+        foreach (var reference in compilation.References)
+        {
+            if (reference is not PortableExecutableReference pe)
+            {
+                continue;
+            }
+
+            var path = pe.FilePath ?? pe.Display;
+            if (path is not null && PathUnderAnyRoot(path, packageRoots))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// <paramref name="path"/> is at or below one of
+    /// <paramref name="roots"/> — full-path normalized, separator-boundary
+    /// prefix match under the OS path-comparison rule (a sibling directory
+    /// sharing the root's name prefix does not count).
+    /// </summary>
+    private static bool PathUnderAnyRoot(string path, IReadOnlyList<string> roots)
+    {
+        if (!Path.IsPathRooted(path))
+        {
+            return false;
+        }
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+
+        foreach (var root in roots)
+        {
+            if (full.Equals(root, PathComparison) ||
+                full.StartsWith(root + Path.DirectorySeparatorChar, PathComparison))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static readonly StringComparer PathComparer = OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
+
+    private static StringComparison PathComparison => OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+
+    private static readonly Lazy<IReadOnlyList<string>> NuGetPackageRootsCache = new(
+        static () => ComputeNuGetPackageRoots(
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
+            Environment.GetEnvironmentVariable("NUGET_FALLBACK_PACKAGES"),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
+
+    /// <summary>
+    /// Test seam (issue #577): extra package-cache roots appended to the
+    /// environment-derived set, so a fixture can park a fake feed under its
+    /// own temp dir without touching the real cache or the process
+    /// environment. AsyncLocal so tests running in parallel never observe
+    /// each other's roots.
+    /// </summary>
+    internal static readonly AsyncLocal<IReadOnlyList<string>?> ExtraNuGetPackageRoots = new();
 
     /// <summary>
     /// Originating assemblies the way the engine's initial search set sees them:
@@ -842,6 +1136,33 @@ public static class FinderScopeCoverage
     private static readonly Regex ReferenceInclude = new(
         "<Reference\\b[^>]*\\bInclude\\s*=",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Matches one <c>&lt;Reference&gt;</c> item with its <c>include</c>
+    /// attribute value and — for the element form — its <c>body</c> so a
+    /// declared <c>&lt;HintPath&gt;</c> can be read out of it (issue #577).
+    /// </summary>
+    private static readonly Regex ReferenceItem = new(
+        "<Reference\\b[^>]*?\\bInclude\\s*=\\s*[\"'](?<include>[^\"']+)[\"'][^>]*?(?:/>|>(?<body>.*?)</Reference\\s*>)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline);
+
+    /// <summary>
+    /// Matches a <c>&lt;HintPath&gt;</c> element inside a
+    /// <c>&lt;Reference&gt;</c> body; the <c>hint</c> group carries the
+    /// declared path text (issue #577).
+    /// </summary>
+    private static readonly Regex HintPathElement = new(
+        "<HintPath\\b[^>]*>(?<hint>[^<]+)</HintPath\\s*>",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Matches an XML comment — commented-out items are stripped before the
+    /// declared-items checks so a kept-for-later declaration never counts
+    /// as a real one.
+    /// </summary>
+    private static readonly Regex XmlComment = new(
+        "<!--.*?-->",
+        RegexOptions.Singleline | RegexOptions.CultureInvariant);
 
     /// <summary>
     /// The normalized path of a <c>&lt;ProjectReference&gt;</c> item the

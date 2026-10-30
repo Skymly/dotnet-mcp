@@ -1,3 +1,4 @@
+using DotNetMcp.Core;
 using DotNetMcp.Server;
 using DotNetMcp.FSharp;
 using Microsoft.CodeAnalysis;
@@ -2950,19 +2951,33 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
     }
 
     /// <summary>
-    /// Searched-degraded fixture (issue #572): every Dep* project holds a
-    /// materialized edge to Lib so the engine gate counts it searched, but
+    /// The temp-dir package feed <see cref="CreateSearchedDegradedGapLoaded"/>
+    /// parks the fake package dll under; the fixture also points the
+    /// <see cref="FinderScopeCoverage.ExtraNuGetPackageRoots"/> test seam at
+    /// it so the fidelity check counts it as a real package-cache root.
+    /// </summary>
+    public const string SearchedDegradedNuGetCache = "NuGetCache";
+
+    /// <summary>
+    /// Searched-degraded fixture (issues #572/#577): every Dep* project holds
+    /// a materialized edge to Lib so the engine gate counts it searched, but
     /// <paramref name="root"/> is a real directory whose project files drive
-    /// the post-search fidelity check. DepUnrestored declares a
-    /// <c>&lt;PackageReference&gt;</c> yet has no
-    /// <c>obj/project.assets.json</c> — the unrestored shape that strips
-    /// every package reference without a trace — and its compilation holds
-    /// no PortableExecutableReference at all, so its calls cannot bind.
-    /// DepNoFramework declares a plain <c>&lt;Reference&gt;</c> (no package
-    /// item, so the assets-file signal does not apply) and likewise holds
-    /// zero PortableExecutableReferences. DepRestored is the control — same
-    /// declared package reference plus a written assets file and real
-    /// framework references — and DepPlain declares only a
+    /// the post-search fidelity check — now read from the compilation
+    /// snapshot rather than the live file system. DepUnrestored declares a
+    /// <c>&lt;PackageReference&gt;</c> with no
+    /// <c>obj/project.assets.json</c> and no package-cache reference — the
+    /// unrestored shape. DepStale has the assets file written yet a
+    /// compilation holding only framework references — the restore-in-flight
+    /// stale snapshot, and also the "ref-pack only" shape (PE references
+    /// exist, none under a package-cache root). DepRestored is the control —
+    /// same declared package reference plus a package-cache PE reference out
+    /// of the fake <see cref="SearchedDegradedNuGetCache"/> feed. DepVendorRef
+    /// declares a <c>&lt;Reference&gt;</c> whose HintPath file is missing;
+    /// DepBareRef declares a bare-assembly-name <c>&lt;Reference&gt;</c>
+    /// (no path to check — not degraded). DepNoFramework declares a plain
+    /// missing dll <c>&lt;Reference&gt;</c> and holds zero
+    /// PortableExecutableReferences — the extreme unrestored shape the
+    /// auxiliary check still catches. DepPlain declares only a
     /// <c>&lt;ProjectReference&gt;</c>, which the fidelity check skips.
     /// </summary>
     public static LoadedSolution CreateSearchedDegradedGapLoaded(string root)
@@ -2971,7 +2986,22 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         Directory.CreateDirectory(Path.Combine(root, "DepUnrestored"));
         Directory.CreateDirectory(Path.Combine(root, "DepNoFramework"));
         Directory.CreateDirectory(Path.Combine(root, "DepRestored", "obj"));
+        Directory.CreateDirectory(Path.Combine(root, "DepStale", "obj"));
+        Directory.CreateDirectory(Path.Combine(root, "DepVendorRef"));
+        Directory.CreateDirectory(Path.Combine(root, "DepBareRef"));
         Directory.CreateDirectory(Path.Combine(root, "DepPlain"));
+
+        var fakeFeed = Path.Combine(root, SearchedDegradedNuGetCache);
+        var fakePackageDir = Path.Combine(
+            fakeFeed, "fixture.fakepkg", "1.0.0", "lib", "net8.0");
+        Directory.CreateDirectory(fakePackageDir);
+        var fakePackageDll = Path.Combine(fakePackageDir, "Fixture.FakePkg.dll");
+        File.Copy(typeof(object).Assembly.Location, fakePackageDll);
+
+        // Test seam: the fake feed joins the environment-derived package
+        // cache roots for this flow only (AsyncLocal — parallel tests keep
+        // their own sets).
+        FinderScopeCoverage.ExtraNuGetPackageRoots.Value = [fakeFeed];
 
         File.WriteAllText(Path.Combine(root, "Lib", "Lib.csproj"),
             "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
@@ -3000,6 +3030,31 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             </Project>
             """);
         File.WriteAllText(Path.Combine(root, "DepRestored", "obj", "project.assets.json"), "{}");
+        File.WriteAllText(Path.Combine(root, "DepStale", "DepStale.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+                <ProjectReference Include="..\Lib\Lib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(root, "DepStale", "obj", "project.assets.json"), "{}");
+        File.WriteAllText(Path.Combine(root, "DepVendorRef", "DepVendorRef.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <Reference Include="Vendor"><HintPath>..\lib\Vendor.dll</HintPath></Reference>
+                <ProjectReference Include="..\Lib\Lib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(root, "DepBareRef", "DepBareRef.csproj"), """
+            <Project Sdk="Microsoft.NET.Sdk">
+              <ItemGroup>
+                <Reference Include="System.Data" />
+                <ProjectReference Include="..\Lib\Lib.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
         File.WriteAllText(Path.Combine(root, "DepPlain", "DepPlain.csproj"), """
             <Project Sdk="Microsoft.NET.Sdk">
               <ItemGroup>
@@ -3013,6 +3068,9 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         var depUnrestoredId = ProjectId.CreateNewId();
         var depNoFrameworkId = ProjectId.CreateNewId();
         var depRestoredId = ProjectId.CreateNewId();
+        var depStaleId = ProjectId.CreateNewId();
+        var depVendorRefId = ProjectId.CreateNewId();
+        var depBareRefId = ProjectId.CreateNewId();
         var depPlainId = ProjectId.CreateNewId();
         var refs = TrustedPlatformReferences();
         var solution = workspace.CurrentSolution;
@@ -3025,6 +3083,9 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             (depUnrestoredId, "DepUnrestored"),
             (depNoFrameworkId, "DepNoFramework"),
             (depRestoredId, "DepRestored"),
+            (depStaleId, "DepStale"),
+            (depVendorRefId, "DepVendorRef"),
+            (depBareRefId, "DepBareRef"),
             (depPlainId, "DepPlain"),
         })
         {
@@ -3071,6 +3132,9 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
             (depUnrestoredId, "DepUnrestored"),
             (depNoFrameworkId, "DepNoFramework"),
             (depRestoredId, "DepRestored"),
+            (depStaleId, "DepStale"),
+            (depVendorRefId, "DepVendorRef"),
+            (depBareRefId, "DepBareRef"),
             (depPlainId, "DepPlain"),
         })
         {
@@ -3080,33 +3144,50 @@ public sealed partial class FakeSolutionLoader : ISolutionLoader
         }
 
         // Every dependent's edge to Lib materializes as a CompilationReference,
-        // so the engine gate counts all four searched — the fidelity check is
-        // what separates DepUnrestored/DepNoFramework (degraded) from
-        // DepRestored/DepPlain (whole).
-        foreach (var id in new[] { depUnrestoredId, depNoFrameworkId, depRestoredId, depPlainId })
+        // so the engine gate counts all of them searched — the fidelity check
+        // is what separates DepUnrestored/DepNoFramework/DepStale/DepVendorRef
+        // (degraded) from DepRestored/DepBareRef/DepPlain (whole).
+        foreach (var id in new[]
+        {
+            depUnrestoredId, depNoFrameworkId, depRestoredId,
+            depStaleId, depVendorRefId, depBareRefId, depPlainId,
+        })
         {
             solution = solution.AddProjectReference(id, new ProjectReference(libId));
         }
 
         foreach (var id in new[]
         {
-            libId, depUnrestoredId, depNoFrameworkId, depRestoredId, depPlainId,
+            libId, depUnrestoredId, depNoFrameworkId, depRestoredId,
+            depStaleId, depVendorRefId, depBareRefId, depPlainId,
         })
         {
             solution = solution.WithProjectCompilationOptions(
                 id, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         }
 
-        // Lib, DepRestored, and DepPlain get real framework references;
-        // DepUnrestored and DepNoFramework intentionally get none — zero
-        // PortableExecutableReferences is the extreme unrestored shape.
-        foreach (var id in new[] { libId, depRestoredId, depPlainId })
+        // Lib, DepRestored, DepStale, DepVendorRef, DepBareRef, and DepPlain
+        // get real framework references; DepUnrestored and DepNoFramework
+        // intentionally get none — zero PortableExecutableReferences is the
+        // extreme unrestored shape. DepStale's framework-only references are
+        // also the ref-pack-only shape: PE references exist, none under a
+        // package-cache root.
+        foreach (var id in new[]
+        {
+            libId, depRestoredId, depStaleId, depVendorRefId, depBareRefId, depPlainId,
+        })
         {
             foreach (var metadata in refs)
             {
                 solution = solution.AddMetadataReference(id, metadata);
             }
         }
+
+        // DepRestored additionally holds a PE reference under the fake NuGet
+        // cache feed — the materialized package reference that keeps its
+        // declared <PackageReference> whole.
+        solution = solution.AddMetadataReference(
+            depRestoredId, MetadataReference.CreateFromFile(fakePackageDll));
 
         if (!workspace.TryApplyChanges(solution))
         {
