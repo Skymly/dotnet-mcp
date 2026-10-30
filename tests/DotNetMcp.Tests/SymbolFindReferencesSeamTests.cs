@@ -372,10 +372,12 @@ public class SymbolFindReferencesSeamTests
     }
 
     /// <summary>
-    /// Issue #572: the references lane applies the same searched-degraded
-    /// fidelity check — searched projects whose declared references never
-    /// materialized are named with their own reason instead of passing
-    /// silently, while whole dependents keep producing hits unmentioned.
+    /// Issues #572/#577: the references lane applies the same
+    /// searched-degraded fidelity check — read from the compilation
+    /// snapshot, so a stale snapshot (assets file written, package
+    /// references not yet materialized under a cache root) is named with
+    /// the same force as a missing one — while whole dependents keep
+    /// producing hits unmentioned.
     /// </summary>
     [Fact]
     public async Task FindReferencesAsync_entire_solution_names_searched_degraded_projects()
@@ -409,10 +411,15 @@ public class SymbolFindReferencesSeamTests
         Assert.Contains("coverage is incomplete", page.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("DepUnrestored", page.Message, StringComparison.Ordinal);
         Assert.Contains("project.assets.json missing", page.Message, StringComparison.Ordinal);
+        Assert.Contains("DepStale", page.Message, StringComparison.Ordinal);
+        Assert.Contains("stale snapshot", page.Message, StringComparison.Ordinal);
         Assert.Contains("DepNoFramework", page.Message, StringComparison.Ordinal);
         Assert.Contains("no assembly references resolved", page.Message, StringComparison.Ordinal);
+        Assert.Contains("DepVendorRef", page.Message, StringComparison.Ordinal);
+        Assert.Contains("did not materialize", page.Message, StringComparison.Ordinal);
         Assert.Contains("may be incomplete", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("DepRestored", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepBareRef", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("DepPlain", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("other scoped projects", page.Message, StringComparison.Ordinal);
     }
