@@ -45,33 +45,17 @@ public class ReadmeInstallSeamTests
     }
 
     [Fact]
-    public void server_json_does_not_advertise_unpublished_nuget_dnx_package()
+    public void server_json_declares_the_nuget_package_for_the_registry()
     {
         var path = Path.Combine(FindRepoRoot(), "src", "DotNetMcp.Server", ".mcp", "server.json");
         using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
         var root = doc.RootElement;
-        var nugetOrDnx = false;
-        if (root.TryGetProperty("packages", out var packages) && packages.ValueKind == System.Text.Json.JsonValueKind.Array)
-        {
-            foreach (var package in packages.EnumerateArray())
-            {
-                var registry = package.TryGetProperty("registryType", out var registryType)
-                    ? registryType.GetString()
-                    : null;
-                var hint = package.TryGetProperty("runtimeHint", out var runtimeHint)
-                    ? runtimeHint.GetString()
-                    : null;
-                if (string.Equals(registry, "nuget", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(hint, "dnx", StringComparison.OrdinalIgnoreCase))
-                {
-                    nugetOrDnx = true;
-                }
-            }
-        }
 
-        Assert.False(
-            nugetOrDnx,
-            "server.json must not advertise a NuGet/dnx package while Skymly.DotNetMcp is unpublished.");
+        var package = Assert.Single(root.GetProperty("packages").EnumerateArray());
+        Assert.Equal("nuget", package.GetProperty("registryType").GetString());
+        Assert.Equal("Skymly.DotNetMcp", package.GetProperty("identifier").GetString());
+        Assert.Equal("stdio", package.GetProperty("transport").GetProperty("type").GetString());
+        Assert.Equal(root.GetProperty("version").GetString(), package.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -88,7 +72,7 @@ public class ReadmeInstallSeamTests
 
         var json = FenceBody(quick, IndexOfFence(quick, "```json"));
         using var doc = System.Text.Json.JsonDocument.Parse(json);
-        var server = doc.RootElement.GetProperty("mcpServers").GetProperty("dotnet-mcp");
+        var server = doc.RootElement.GetProperty("mcpServers").GetProperty("dnmcp");
         Assert.Equal("dotnet", server.GetProperty("command").GetString());
         var args = server.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToArray();
         Assert.Equal(new[] { "run", "--project", "src/DotNetMcp.Server", "--", "--roots", "/path/to/repo" }, args);

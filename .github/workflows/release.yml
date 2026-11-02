@@ -1,0 +1,123 @@
+name: Release
+
+# Tag-driven publish: v* tag -> pack -> nuget.org (trusted publishing) -> wait for indexing ->
+# MCP Registry (github-oidc) -> GitHub Release. Tag only commits whose main CI run is green;
+# this workflow does not rerun the test matrix.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  id-token: write   # NuGet/login and `mcp-publisher login github-oidc` both exchange OIDC tokens
+  contents: write   # gh release create
+
+# Overlapping publishes must never happen; a cancelled run could leave a half-published release.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # No `environment:` here — the nuget.org Trusted Publishing policy for this repo has none
+    # configured, and a mismatched environment makes the OIDC token exchange fail.
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          # Pack only needs the product SDK; the net8/net9 fixture SDKs are test-only.
+          global-json-file: global.json
+
+      - name: Verify the tag matches the version chain
+        id: version
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          $csproj = Get-Content src/DotNetMcp.Server/DotNetMcp.Server.csproj -Raw
+          if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw "csproj <Version> missing" }
+          $version = $Matches[1]
+          if ($tag -ne $version) { throw "tag '$env:GITHUB_REF_NAME' != csproj Version '$version'" }
+          $json = Get-Content src/DotNetMcp.Server/.mcp/server.json -Raw | ConvertFrom-Json
+          if ($json.version -ne $version) { throw "server.json version '$($json.version)' != '$version'" }
+          $pkg = @($json.packages | Where-Object { $_.registryType -eq 'nuget' }) | Select-Object -First 1
+          if ($null -eq $pkg) { throw "server.json has no nuget package entry" }
+          if ($pkg.identifier -ne 'Skymly.DotNetMcp') { throw "server.json nuget identifier '$($pkg.identifier)' != Skymly.DotNetMcp" }
+          if ($pkg.version -ne $version) { throw "server.json nuget package version '$($pkg.version)' != '$version'" }
+          "PACKAGE_VERSION=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Pack
+        run: dotnet pack src/DotNetMcp.Server -c Release -o artifacts
+
+      - name: Verify MCP package metadata
+        # Same checks as ci.yml: a nupkg that lacks the embedded server.json would only be
+        # caught by the registry's own validation after it is already on nuget.org.
+        shell: pwsh
+        run: |
+          $nupkg = Get-ChildItem artifacts/*.nupkg | Select-Object -First 1
+          if (-not $nupkg) { throw "nupkg missing" }
+          if ($nupkg.Name -notlike "Skymly.DotNetMcp.*") { throw "unexpected package file $($nupkg.Name)" }
+          $tmp = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $tmp | Out-Null
+          Copy-Item $nupkg.FullName (Join-Path $tmp "pkg.zip")
+          Expand-Archive (Join-Path $tmp "pkg.zip") -DestinationPath $tmp -Force
+          $nuspec = Get-ChildItem $tmp -Filter *.nuspec | Select-Object -First 1
+          if (-not $nuspec) { throw "nuspec missing" }
+          $xml = Get-Content $nuspec.FullName -Raw
+          if ($xml -notmatch "<id>Skymly.DotNetMcp</id>") { throw "PackageId missing in nuspec" }
+          if ($xml -notmatch "McpServer") { throw "PackageType McpServer missing" }
+          $serverJson = Join-Path $tmp ".mcp/server.json"
+          if (-not (Test-Path $serverJson)) { throw "embedded .mcp/server.json missing" }
+
+      - name: NuGet login (trusted publishing OIDC)
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          # nuget.org profile name (not the account email), stored as the NUGET_USER secret.
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push to nuget.org
+        # --skip-duplicate keeps a re-run of this workflow working after a partial failure.
+        run: dotnet nuget push artifacts/*.nupkg --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Wait for the package to be indexed
+        # The MCP registry validates by downloading the nupkg, so it must be publicly
+        # resolvable first; nuget.org indexing can take several minutes.
+        shell: pwsh
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.PACKAGE_VERSION }}
+        run: |
+          $deadline = (Get-Date).AddMinutes(30)
+          while ($true) {
+            try {
+              $versions = (Invoke-RestMethod -Uri "https://api.nuget.org/v3-flatcontainer/skymly.dotnetmcp/index.json").versions
+              if ($versions -contains $env:PACKAGE_VERSION) {
+                Write-Host "Skymly.DotNetMcp $env:PACKAGE_VERSION is live on nuget.org"
+                return
+              }
+            } catch {
+              Write-Host "flatcontainer not reachable yet: $($_.Exception.Message)"
+            }
+            if ((Get-Date) -gt $deadline) { throw "Skymly.DotNetMcp $env:PACKAGE_VERSION did not appear on nuget.org within 30 minutes" }
+            Write-Host "waiting for nuget.org indexing..."
+            Start-Sleep -Seconds 30
+          }
+
+      - name: Install mcp-publisher
+        run: curl -sL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.7/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+
+      - name: Publish to MCP Registry
+        # github-oidc grants the io.github.skymly/* namespace; no stored credential needed.
+        # Re-running after this step already succeeded fails on the duplicate server version —
+        # only re-run the workflow if this step did not complete.
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish src/DotNetMcp.Server/.mcp/server.json
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" artifacts/*.nupkg --title "$GITHUB_REF_NAME" --generate-notes
