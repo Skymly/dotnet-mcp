@@ -113,15 +113,31 @@ public class PackageIdentitySeamTests
         var version = Regex.Match(csproj, @"<Version>([^<]+)</Version>").Groups[1].Value;
         var released = Regex.Match(changelog, @"^## (\d+\.\d+\.\d+)\b", RegexOptions.Multiline);
         Assert.True(released.Success);
-        Assert.NotEqual(version, released.Groups[1].Value);
-        var stuck = Regex.Replace(
-            changelog,
-            @"^## \d+\.\d+\.\d+\b",
-            "## " + version,
-            RegexOptions.Multiline);
-        var error = PackageIdentityGate.Evaluate(csproj, serverJson, stuck);
-        Assert.NotNull(error);
-        Assert.Contains("Unreleased", error, StringComparison.OrdinalIgnoreCase);
+        if (released.Groups[1].Value == version)
+        {
+            // Release-cut state: drift the released heading away from the csproj version.
+            var drifted = Regex.Replace(
+                changelog,
+                @"^## \d+\.\d+\.\d+\b",
+                "## 0.0.0",
+                RegexOptions.Multiline);
+            var driftError = PackageIdentityGate.Evaluate(csproj, serverJson, drifted);
+            Assert.NotNull(driftError);
+            Assert.Contains("CHANGELOG version", driftError, StringComparison.Ordinal);
+        }
+        else
+        {
+            // Development state: the heading staying at the previous release while
+            // Unreleased holds product entries must fail the gate.
+            var stuck = Regex.Replace(
+                changelog,
+                @"^## \d+\.\d+\.\d+\b",
+                "## " + version,
+                RegexOptions.Multiline);
+            var error = PackageIdentityGate.Evaluate(csproj, serverJson, stuck);
+            Assert.NotNull(error);
+            Assert.Contains("Unreleased", error, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Theory]

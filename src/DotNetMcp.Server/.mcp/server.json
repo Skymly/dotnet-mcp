@@ -1,5 +1,5 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.skymly/dotnet-mcp",
   "version": "5.0.0",
   "description": "MCP server for .NET symbols, XAML, source generators, and restricted workspace edit",
@@ -7,5 +7,15 @@
   "repository": {
     "url": "https://github.com/Skymly/dotnet-mcp",
     "source": "github"
-  }
+  },
+  "packages": [
+    {
+      "registryType": "nuget",
+      "registryBaseUrl": "https://api.nuget.org/v3/index.json",
+      "identifier": "Skymly.DotNetMcp",
+      "version": "5.0.0",
+      "runtimeHint": "dnx",
+      "transport": { "type": "stdio" }
+    }
+  ]
 }

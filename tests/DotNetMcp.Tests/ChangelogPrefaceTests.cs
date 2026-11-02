@@ -39,14 +39,14 @@ public class ChangelogPrefaceTests
     }
 
     [Fact]
-    public void unreleased_records_csharp_vb_illegal_rename_rejection()
+    public void release_5_0_0_records_csharp_vb_illegal_rename_rejection()
     {
         var changelog = File.ReadAllText(Path.Combine(FindRepoRoot(), "CHANGELOG.md"));
-        var unreleased = System.Text.RegularExpressions.Regex.Match(
+        var released = System.Text.RegularExpressions.Regex.Match(
             changelog,
-            "(?ms)^## Unreleased\\b(.*?)(?=^## |\\z)").Groups[1].Value;
-        Assert.Contains("(`#292`)", unreleased, StringComparison.Ordinal);
-        Assert.Contains("InvalidRenameName", unreleased, StringComparison.Ordinal);
+            "(?ms)^## 5\\.0\\.0\\b(.*?)(?=^## |\\z)").Groups[1].Value;
+        Assert.Contains("(`#292`)", released, StringComparison.Ordinal);
+        Assert.Contains("InvalidRenameName", released, StringComparison.Ordinal);
     }
 
     private static string FindRepoRoot()
