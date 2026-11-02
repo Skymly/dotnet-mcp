@@ -4,7 +4,7 @@
 
 An MCP (Model Context Protocol) server for .NET workspaces. It gives coding agents **compiler-accurate** symbol navigation, source-generator attribution, Avalonia/MAUI XAML queries, and a **restricted** Workspace Edit surface (rename / diagnostic fix / code refactoring). It is not a generic file writer, shell, or LSP proxy.
 
-Package id on NuGet: **`Skymly.DotNetMcp`** (CLI command remains `dotnet-mcp`). Requires .NET 10+.
+Package id on NuGet: **`Skymly.DotNetMcp`** (CLI command: `dnmcp`). Requires .NET 10+.
 
 ## What it can do
 
@@ -33,7 +33,7 @@ Tool names are locked by a snapshot test. Domain vocabulary: [`CONTEXT.md`](CONT
 Trusted roots are **required**. The process working directory is never an implicit trusted root.
 On Windows, separate multiple roots with `;`. You can also set `DOTNET_MCP_TRUSTED_ROOTS`. When both are set, startup uses their union; neither replaces the other. `--roots=path` is the same as `--roots path`; an empty value is rejected. A missing or empty roots configuration exits with code 1 and writes one JSON object to stderr (`error`, `message`, `suggestedAction`) instead of a stack trace.
 
-The NuGet package **`Skymly.DotNetMcp` is not published yet**. Use a source build or a local pack until it is.
+The NuGet package **`Skymly.DotNetMcp`** is published — `dnx` below is the preferred install. A source build or a local pack works too.
 
 ### Development run
 
@@ -46,7 +46,7 @@ MCP client (stdio), from a clone of this repo:
 ```json
 {
   "mcpServers": {
-    "dotnet-mcp": {
+    "dnmcp": {
       "command": "dotnet",
       "args": ["run", "--project", "src/DotNetMcp.Server", "--", "--roots", "/path/to/repo"]
     }
@@ -69,7 +69,7 @@ Once `Skymly.DotNetMcp` is on nuget.org, `dnx` can become the preferred install 
 dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
 ```
 
-Equivalent after publish: `dotnet tool exec Skymly.DotNetMcp --yes -- --roots /path/to/repo`, or `dotnet tool install -g Skymly.DotNetMcp` then `dotnet-mcp --roots /path/to/repo`.
+Equivalent after publish: `dotnet tool exec Skymly.DotNetMcp --yes -- --roots /path/to/repo`, or `dotnet tool install -g Skymly.DotNetMcp` then `dnmcp --roots /path/to/repo`.
 
 stdio only. Framework-dependent .NET tool; NativeAOT is not required.
 
@@ -177,9 +177,9 @@ This repo uses [mattpocock/skills](https://github.com/mattpocock/skills); see `A
 
 面向 Agent 的 .NET MCP 服务器：C# / VB / F# 符号导航、源生成器归因、Avalonia/MAUI XAML、以及受限 Workspace Edit（rename / Diagnostic fix / Code Refactoring）。**不是**通用写文件、shell 或 LSP 代理。
 
-NuGet 包 id 为 **`Skymly.DotNetMcp`**（命令名仍是 `dotnet-mcp`）。必须通过 `--roots`、`--roots=path` 或 `DOTNET_MCP_TRUSTED_ROOTS` 配置受信根，**不再默认使用进程工作目录**。两者同时设置时取并集，而不是互相覆盖。配置缺失或空值时进程以退出码 1 结束，并在 stderr 写一行 JSON，而不是异常堆栈。`workspace_open` 会运行 MSBuild 与 analyzer/源生成器，不要对不受信任的仓库使用。
+NuGet 包 id 为 **`Skymly.DotNetMcp`**（命令名为 `dnmcp`）。必须通过 `--roots`、`--roots=path` 或 `DOTNET_MCP_TRUSTED_ROOTS` 配置受信根，**不再默认使用进程工作目录**。两者同时设置时取并集，而不是互相覆盖。配置缺失或空值时进程以退出码 1 结束，并在 stderr 写一行 JSON，而不是异常堆栈。`workspace_open` 会运行 MSBuild 与 analyzer/源生成器，不要对不受信任的仓库使用。
 
-安装（包尚未上架，请先源码运行或本地 pack）：
+安装（NuGet 已上架，`dnx` 为首选；也可源码运行或本地 pack）：
 
 ```bash
 dotnet run --project src/DotNetMcp.Server -- --roots /path/to/repo
