@@ -1,6 +1,6 @@
 # dotnet-mcp
 
-<!-- mcp-name: io.github.skymly/dotnet-mcp -->
+<!-- mcp-name: io.github.Skymly/dotnet-mcp -->
 
 An MCP (Model Context Protocol) server for .NET workspaces. It gives coding agents **compiler-accurate** symbol navigation, source-generator attribution, Avalonia/MAUI XAML queries, and a **restricted** Workspace Edit surface (rename / diagnostic fix / code refactoring). It is not a generic file writer, shell, or LSP proxy.
 
@@ -33,15 +33,34 @@ Tool names are locked by a snapshot test. Domain vocabulary: [`CONTEXT.md`](CONT
 Trusted roots are **required**. The process working directory is never an implicit trusted root.
 On Windows, separate multiple roots with `;`. You can also set `DOTNET_MCP_TRUSTED_ROOTS`. When both are set, startup uses their union; neither replaces the other. `--roots=path` is the same as `--roots path`; an empty value is rejected. A missing or empty roots configuration exits with code 1 and writes one JSON object to stderr (`error`, `message`, `suggestedAction`) instead of a stack trace.
 
-The NuGet package **`Skymly.DotNetMcp`** is published — `dnx` below is the preferred install. A source build or a local pack works too.
+`Skymly.DotNetMcp` is published on NuGet. `dnx` is the preferred install. A source build or a local pack works too.
+
+```bash
+dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
+```
+
+MCP client (stdio):
+
+```json
+{
+  "mcpServers": {
+    "dnmcp": {
+      "command": "dnx",
+      "args": ["Skymly.DotNetMcp", "--yes", "--", "--roots", "/path/to/repo"]
+    }
+  }
+}
+```
+
+Equivalent: `dotnet tool exec Skymly.DotNetMcp --yes -- --roots /path/to/repo`, or `dotnet tool install -g Skymly.DotNetMcp` then `dnmcp --roots /path/to/repo`.
 
 ### Development run
+
+From a clone of this repo:
 
 ```bash
 dotnet run --project src/DotNetMcp.Server -- --roots /path/to/repo
 ```
-
-MCP client (stdio), from a clone of this repo:
 
 ```json
 {
@@ -60,16 +79,6 @@ MCP client (stdio), from a clone of this repo:
 dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts
 dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo
 ```
-
-### From NuGet (after the package is published)
-
-Once `Skymly.DotNetMcp` is on nuget.org, `dnx` can become the preferred install path again:
-
-```bash
-dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
-```
-
-Equivalent after publish: `dotnet tool exec Skymly.DotNetMcp --yes -- --roots /path/to/repo`, or `dotnet tool install -g Skymly.DotNetMcp` then `dnmcp --roots /path/to/repo`.
 
 stdio only. Framework-dependent .NET tool; NativeAOT is not required.
 
@@ -101,6 +110,8 @@ On paged results (`items` / `truncated` / `nextCursor`), `message` is optional a
 `symbol_resolve_at` accepts positions inside registered XAML documents too: a covering usage point resolves to its target handle with `resolvedFrom` = `Reference` and `matched` set to the exact usage span, while a position outside every usage returns `NoSymbolAtPosition`.
 
 `symbol_preview_rename` keeps XAML in sync for C#/VB handles: `Exact` usage points in registered XAML documents (bindings, `x:Class`, element/attribute names, `x:DataType`, markup type refs, `x:Name` values, event-handler values) become ordinary old/new slices in the same preview — each edits only the symbol's simple-name occurrence inside its span — and `symbol_apply_rename` writes them through the same pipeline (WriteSuppression, encoding/BOM preserved, no files added or removed). Name-matched `Unverified` usages are reported under `unverifiedXamlMentions` without being written. The `Origin = SourceGenerator` refusal stays, with one exception: a generated `x:Name` field is renamed through its XAML value plus handwritten references, and the generator re-emits the field on its next run. Diagnostic fix and code refactoring previews never slice XAML documents.
+
+Rename's write set is compiler-visible references plus those `Exact` XAML usages. It does not rewrite metadata-name strings (a `GetTypeByMetadataName` or `ForAttributeWithMetadataName` argument, for example), short attribute names the compiler did not bind, documentation, comments, or PublicAPI lists. Those hits are not listed — `unverifiedMentions` is not a field — so do not expect a whole-repository rename.
 
 All located outputs share one position model: `line` and `column` are 1-based, columns count UTF-16 code units (a tab is one column), and `endColumn` is exclusive — the same `file(line,col)` convention the compilers print. `start`/`length` remain as UTF-16 offsets for slicing. Locations without a source position (`InMetadata`, `None`) omit the position fields, and positions in source-generated documents are coordinates inside the generated text. A position reported by one tool feeds the next tool verbatim — for example a `project_diagnostics` row's `line`/`column`/`endLine`/`endColumn` are exactly the locator arguments of `diagnostics_list_fixes` and `diagnostics_preview_fix`.
 
@@ -162,7 +173,7 @@ dotnet format whitespace . --folder --include src/ tests/DotNetMcp.Tests/ benche
 
 Each `--include` folder needs its trailing slash. Without it the value is read as a file name, nothing matches, and the check passes without looking at a file.
 
-Product benches: [`docs/perf/benchmark.md`](docs/perf/benchmark.md).
+Product benches: [`docs/perf/benchmark.md`](docs/perf/benchmark.md). The task-level A/B record, including the losses, is [`docs/perf/agent-eval.md`](docs/perf/agent-eval.md). That record does not close the `#528` publish gate.
 
 ```bash
 dotnet run --project benches/DotNetMcp.Bench -c Release -- --suite fixtures
@@ -182,6 +193,12 @@ NuGet 包 id 为 **`Skymly.DotNetMcp`**（命令名为 `dnmcp`）。必须通过
 安装（NuGet 已上架，`dnx` 为首选；也可源码运行或本地 pack）：
 
 ```bash
+dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
+```
+
+源码运行：
+
+```bash
 dotnet run --project src/DotNetMcp.Server -- --roots /path/to/repo
 ```
 
@@ -191,7 +208,5 @@ dotnet run --project src/DotNetMcp.Server -- --roots /path/to/repo
 dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts
 dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo
 ```
-
-NuGet 上架后可用：`dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo`。
 
 Agent 接入：[docs/agent-guidance.md](docs/agent-guidance.md) 提供可直接粘贴到消费方 `AGENTS.md` / `CLAUDE.md` 的片段；服务器 initialize 结果携带相同的 `instructions`，并附带 `trace_symbol` / `safe_rename` 两个 prompt。

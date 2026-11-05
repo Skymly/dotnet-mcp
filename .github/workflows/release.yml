@@ -110,7 +110,9 @@ jobs:
         run: curl -sL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.7/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
 
       - name: Publish to MCP Registry
-        # github-oidc grants the io.github.skymly/* namespace; no stored credential needed.
+        # github-oidc grants io.github.<repository_owner>/* using the owner's exact case.
+        # This login is Skymly, so the server name must be io.github.Skymly/dotnet-mcp.
+        # A lowercase owner is a 403, not a warning. No stored credential.
         # Re-running after this step already succeeded fails on the duplicate server version —
         # only re-run the workflow if this step did not complete.
         run: |

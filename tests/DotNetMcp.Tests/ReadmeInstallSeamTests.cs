@@ -4,7 +4,7 @@ namespace DotNetMcp.Tests;
 public class ReadmeInstallSeamTests
 {
     [Fact]
-    public void quick_start_leads_with_source_run_not_unpublished_dnx()
+    public void quick_start_leads_with_published_dnx()
     {
         var readme = File.ReadAllText(Path.Combine(FindRepoRoot(), "README.md"));
         var start = readme.IndexOf("## Quick Start", StringComparison.Ordinal);
@@ -17,13 +17,16 @@ public class ReadmeInstallSeamTests
         Assert.True(json >= 0, "Quick Start has no mcpServers json fence.");
 
         var firstBash = FenceBody(rest, bash);
-        Assert.DoesNotContain("dnx Skymly.DotNetMcp", firstBash, StringComparison.Ordinal);
+        Assert.Contains("dnx Skymly.DotNetMcp", firstBash, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet run --project", firstBash, StringComparison.Ordinal);
 
         var firstJson = FenceBody(rest, json);
-        Assert.DoesNotContain("\"command\": \"dnx\"", firstJson, StringComparison.Ordinal);
+        Assert.Contains("\"command\": \"dnx\"", firstJson, StringComparison.Ordinal);
 
-        Assert.Contains("dnx Skymly.DotNetMcp", rest, StringComparison.Ordinal);
-        Assert.Contains("after the package is published", rest, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("dotnet run --project src/DotNetMcp.Server", rest, StringComparison.Ordinal);
+        Assert.Contains("dotnet pack src/DotNetMcp.Server", rest, StringComparison.Ordinal);
+        Assert.DoesNotContain("after the package is published", rest, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("上架后可用", readme, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -66,12 +69,23 @@ public class ReadmeInstallSeamTests
 
         var quick = Section(english, "## Quick Start", "## MCP tools");
         var commands = BashCommands(quick).ToArray();
+        Assert.Contains(commands, c => c.StartsWith("dnx Skymly.DotNetMcp", StringComparison.Ordinal));
         Assert.Contains(commands, c => c.StartsWith("dotnet run --project src/DotNetMcp.Server", StringComparison.Ordinal));
         Assert.Contains(commands, c => c.StartsWith("dotnet pack src/DotNetMcp.Server", StringComparison.Ordinal));
         Assert.True(Directory.Exists(Path.Combine(root, "src", "DotNetMcp.Server")));
 
-        var json = FenceBody(quick, IndexOfFence(quick, "```json"));
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var published = FenceBody(quick, IndexOfFence(quick, "```json"));
+        using (var publishedDoc = System.Text.Json.JsonDocument.Parse(published))
+        {
+            var publishedServer = publishedDoc.RootElement.GetProperty("mcpServers").GetProperty("dnmcp");
+            Assert.Equal("dnx", publishedServer.GetProperty("command").GetString());
+            var publishedArgs = publishedServer.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToArray();
+            Assert.Equal(new[] { "Skymly.DotNetMcp", "--yes", "--", "--roots", "/path/to/repo" }, publishedArgs);
+        }
+
+        var sourceFence = quick.IndexOf("src/DotNetMcp.Server", StringComparison.Ordinal);
+        var sourceJson = FenceBody(quick, IndexOfFence(quick[(sourceFence)..], "```json") + sourceFence);
+        using var doc = System.Text.Json.JsonDocument.Parse(sourceJson);
         var server = doc.RootElement.GetProperty("mcpServers").GetProperty("dnmcp");
         Assert.Equal("dotnet", server.GetProperty("command").GetString());
         var args = server.GetProperty("args").EnumerateArray().Select(a => a.GetString()).ToArray();
