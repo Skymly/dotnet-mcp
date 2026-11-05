@@ -58,10 +58,15 @@ jobs:
               $id = ([string]$pkg.identifier).ToLowerInvariant()
               $pkgVersion = if ($pkg.version) { [string]$pkg.version } else { $version }
               $url = "https://api.nuget.org/v3-flatcontainer/$id/index.json"
-              try {
-                $resp = Invoke-WebRequest -Uri $url -UseBasicParsing
-              } catch {
-                throw "server.json nuget package $id@$pkgVersion is not on nuget.org"
+              $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -SkipHttpErrorCheck
+              # A package id that has never been published is expected before the first release;
+              # once any version exists on nuget.org the registry must not point ahead of it.
+              if ($resp.StatusCode -eq 404) {
+                Write-Host "::warning::server.json nuget package $id is not on nuget.org yet; skipping the version check"
+                continue
+              }
+              if ($resp.StatusCode -ne 200) {
+                throw "nuget.org returned HTTP $($resp.StatusCode) for $id"
               }
               $published = ($resp.Content | ConvertFrom-Json).versions
               if ($published -notcontains $pkgVersion) {
