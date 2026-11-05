@@ -175,6 +175,34 @@ public class PackageIdentitySeamTests
     }
 
     [Fact]
+    public void ci_powershell_gate_rejects_nuget_package_version_that_differs_from_csproj()
+    {
+        var serverJson =
+            "{\"name\":\"io.github.skymly/dotnet-mcp\",\"description\":\"test\",\"version\":\"4.0.1\"," +
+            "\"packages\":[{\"registryType\":\"nuget\",\"identifier\":\"Skymly.DotNetMcp\",\"version\":\"9.9.9\"}]}";
+        var (exit, output) = RunExtractedCiGate(
+            Csproj("4.0.1"),
+            serverJson,
+            UnreleasedChangelog("4.0.1", unreleasedBody: null));
+
+        Assert.NotEqual(0, exit);
+        Assert.Contains("9.9.9", output, StringComparison.Ordinal);
+        Assert.Contains("4.0.1", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ci_powershell_gate_accepts_the_on_disk_release_cut()
+    {
+        var root = FindRepoRoot();
+        var (exit, output) = RunExtractedCiGate(
+            File.ReadAllText(Path.Combine(root, "src", "DotNetMcp.Server", "DotNetMcp.Server.csproj")),
+            File.ReadAllText(Path.Combine(root, "src", "DotNetMcp.Server", ".mcp", "server.json")),
+            File.ReadAllText(Path.Combine(root, "CHANGELOG.md")));
+
+        Assert.True(exit == 0, output);
+    }
+
+    [Fact]
     public void readme_embed_and_mcp_name_match_package_identity()
     {
         var root = FindRepoRoot();

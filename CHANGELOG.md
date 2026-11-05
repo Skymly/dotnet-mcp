@@ -23,6 +23,7 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 ### Tests
 
 - Readme install seam tests now require the published `dnx`-first Quick Start and reject the unpublished hedge (`#529`)
+- The CI version gate warns, instead of failing, when `server.json`'s nuget package version matches the csproj but is not on nuget.org yet. The tag workflow is what publishes that version. A package version that differs from the csproj still fails. The old hard fail made every release after the first one red
 
 ## 5.0.0 - 2026-11-02
 
