@@ -40,4 +40,7 @@ Writes are always preview → apply: `symbol_preview_rename` → `symbol_apply_r
 edit/write/shell tool. Review every preview slice before applying — including
 XAML slices and `unverifiedXamlMentions` on rename — then re-check
 `project_diagnostics` after an apply that touched compiled code.
+Rename writes compiler-visible references and Exact XAML usages only. It does
+not rewrite metadata-name strings, unbound short attribute names, docs, or
+PublicAPI files, and it does not list those hits.
 ```

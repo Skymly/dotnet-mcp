@@ -57,12 +57,16 @@ jobs:
               if ([string]$pkg.registryType -ne 'nuget') { continue }
               $id = ([string]$pkg.identifier).ToLowerInvariant()
               $pkgVersion = if ($pkg.version) { [string]$pkg.version } else { $version }
+              if ($pkgVersion -ne $version) { throw "server.json nuget package version '$pkgVersion' != csproj '$version'" }
               $url = "https://api.nuget.org/v3-flatcontainer/$id/index.json"
               $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -SkipHttpErrorCheck
-              # A package id that has never been published is expected before the first release;
-              # once any version exists on nuget.org the registry must not point ahead of it.
+              # A package id that has never been published is expected before the first release.
+              # A later cut writes the new version into server.json before the tag workflow
+              # publishes it. Failing that state makes every release after the first one red,
+              # so an unpublished version that matches csproj is a warning. A package version
+              # that is not the csproj version already failed above.
               if ($resp.StatusCode -eq 404) {
-                Write-Host "::warning::server.json nuget package $id is not on nuget.org yet; skipping the version check"
+                Write-Host "::warning::server.json nuget package $id is not on nuget.org yet; the tag workflow publishes it"
                 continue
               }
               if ($resp.StatusCode -ne 200) {
@@ -70,7 +74,7 @@ jobs:
               }
               $published = ($resp.Content | ConvertFrom-Json).versions
               if ($published -notcontains $pkgVersion) {
-                throw "server.json nuget package $id@$pkgVersion is not on nuget.org"
+                Write-Host "::warning::server.json nuget package $id@$pkgVersion is not on nuget.org yet; the tag workflow publishes it"
               }
             }
           }

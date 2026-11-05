@@ -489,15 +489,19 @@ public class SymbolFindCallersSeamTests
     }
 
     /// <summary>
-    /// Issue #572: a project the gate counts as searched can still be unable
-    /// to produce hits — DepUnrestored declares a PackageReference with no
-    /// obj/project.assets.json behind it (the unrestored shape that strips
-    /// package references without a trace) and DepNoFramework holds zero
-    /// PortableExecutableReferences — so both are named searched-degraded
-    /// instead of passing silently. DepRestored (assets file written,
-    /// framework references in place) and DepPlain (no package/assembly
-    /// items declared — the fidelity check skips it) keep producing hits
-    /// and stay unmentioned.
+    /// Issues #572/#577: a project the gate counts as searched can still be
+    /// unable to produce hits — the fidelity check now reads the compilation
+    /// snapshot, not the live file system. DepUnrestored declares a
+    /// PackageReference with no package-cache reference materialized and no
+    /// obj/project.assets.json (the unrestored shape); DepStale has the
+    /// assets file written yet a snapshot holding only framework references —
+    /// the restore-in-flight shape the file-system check used to pass;
+    /// DepNoFramework holds zero PortableExecutableReferences; DepVendorRef
+    /// declares a HintPath file that does not exist. All four are named
+    /// searched-degraded. DepRestored (package-cache reference materialized),
+    /// DepBareRef (bare assembly-name Reference — no path to check), and
+    /// DepPlain (project-reference only — skipped) keep producing hits and
+    /// stay unmentioned.
     /// </summary>
     [Fact]
     public async Task FindCallersAsync_entire_solution_names_searched_degraded_projects()
@@ -528,20 +532,29 @@ public class SymbolFindCallersSeamTests
         Assert.Contains("coverage is incomplete", page.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("DepUnrestored", page.Message, StringComparison.Ordinal);
         Assert.Contains(
-            "was searched but its declared references never materialized (project.assets.json missing)",
+            "was searched but its declared package references are absent from the loaded compilation " +
+            "(obj/project.assets.json missing)",
             page.Message,
             StringComparison.Ordinal);
+        Assert.Contains("DepStale", page.Message, StringComparison.Ordinal);
+        Assert.Contains("stale snapshot", page.Message, StringComparison.Ordinal);
         Assert.Contains("DepNoFramework", page.Message, StringComparison.Ordinal);
         Assert.Contains("no assembly references resolved", page.Message, StringComparison.Ordinal);
+        Assert.Contains("DepVendorRef", page.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "a declared <Reference> did not materialize ('..\\lib\\Vendor.dll' not found)",
+            page.Message,
+            StringComparison.Ordinal);
         Assert.Contains("may be incomplete", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("DepRestored", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepBareRef", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("DepPlain", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("other scoped projects", page.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Issue #572: the default dependency-closure scope declares the same
-    /// dependents (each holds a materialized edge to Lib), so the
+    /// Issues #572/#577: the default dependency-closure scope declares the
+    /// same dependents (each holds a materialized edge to Lib), so the
     /// searched-degraded naming appears there too.
     /// </summary>
     [Fact]
@@ -567,9 +580,12 @@ public class SymbolFindCallersSeamTests
         Assert.NotNull(page);
         Assert.False(page!.Truncated);
         Assert.Contains("DepUnrestored", page.Message, StringComparison.Ordinal);
+        Assert.Contains("DepStale", page.Message, StringComparison.Ordinal);
         Assert.Contains("DepNoFramework", page.Message, StringComparison.Ordinal);
+        Assert.Contains("DepVendorRef", page.Message, StringComparison.Ordinal);
         Assert.Contains("may be incomplete", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("DepRestored", page.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("DepBareRef", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("DepPlain", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("other scoped projects", page.Message, StringComparison.Ordinal);
     }

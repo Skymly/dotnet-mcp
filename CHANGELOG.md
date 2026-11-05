@@ -4,6 +4,27 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ## Unreleased
 
+## 5.0.1 - 2026-11-06
+
+### Changed
+
+- initialize `instructions` now state that rename writes compiler-visible references and Exact XAML usages only. Metadata-name strings, unbound short attribute names, docs, and PublicAPI files are not written and are not listed. `docs/agent-guidance.md` says the same. `unverifiedMentions` is still not a returned field (`#562`)
+
+### Fixed
+
+- symbol_find_callers and symbol_find_references searched-degraded fidelity now reads the compilation snapshot instead of the live file system: a scoped project declaring `<PackageReference>` is named degraded whenever the loaded compilation holds no PortableExecutableReference under a NuGet package-cache root (`NUGET_PACKAGES`, `~/.nuget/packages`, or `NUGET_FALLBACK_PACKAGES` entries — framework ref-pack assemblies under the dotnet install never count), so a restore or build in flight — `obj/project.assets.json` already written while the snapshot still lacks the packages — no longer slips past as searched-and-whole; the assets file only chooses the reason wording ("missing" vs "stale snapshot"), a declared `<Reference>` file path (HintPath or a declared dll) that does not exist is named the same way, and the zero-assembly-reference check is unchanged (`#577`)
+- The MCP Registry server name is `io.github.Skymly/dotnet-mcp`. GitHub OIDC grants `io.github.<repository owner>/*` using the owner's exact case, and this repository's login is `Skymly`. The lowercase `io.github.skymly/dotnet-mcp` packed in 5.0.0 was rejected with 403 and was never searchable. `server.json` `name` and the README `mcp-name` comment now use that exact string
+
+### Docs
+
+- README Quick Start leads with the published `dnx Skymly.DotNetMcp` install in English and Chinese, and the "after the package is published" / "上架后可用" hedge is gone. The rename write-set boundary above is also stated on the README (`#529`, `#562`)
+- `docs/perf/agent-eval.md` records the readable A/B rounds (4 and 6), including the losses. Rounds 1–3 and 5 are absent because those reports are not readable from this checkout. This does not close `#528`: the task bank is not in the repo, n is 2 rather than 3, and 5.0.0 shipped before the per-category gate
+
+### Tests
+
+- Readme install seam tests now require the published `dnx`-first Quick Start and reject the unpublished hedge (`#529`)
+- The CI version gate warns, instead of failing, when `server.json`'s nuget package version matches the csproj but is not on nuget.org yet. The tag workflow is what publishes that version. A package version that differs from the csproj still fails. The old hard fail made every release after the first one red
+
 ## 5.0.0 - 2026-11-02
 
 ### Added

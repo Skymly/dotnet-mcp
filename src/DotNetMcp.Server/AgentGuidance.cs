@@ -31,7 +31,9 @@ internal static class AgentGuidance
         "Writes are always preview → apply: symbol_preview_rename → symbol_apply_rename, " +
         "diagnostics_preview_fix → diagnostics_apply_fix, symbol_preview_refactoring → " +
         "symbol_apply_refactoring. There is no generic edit / write / shell. Review every preview slice — " +
-        "including XAML slices and unverifiedXamlMentions on rename — before applying.\n" +
+        "including XAML slices and unverifiedXamlMentions on rename — before applying. Rename writes " +
+        "compiler-visible references and Exact XAML usages only; metadata-name strings, unbound short " +
+        "attribute names, docs, and PublicAPI files are not written and are not listed.\n" +
         "Positions are 1-based line / column in UTF-16 code units; endColumn is exclusive. A position " +
         "from one tool feeds the next verbatim. Paged results return nextCursor — continue from it " +
         "instead of restarting.";
