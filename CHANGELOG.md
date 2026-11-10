@@ -4,6 +4,14 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ## Unreleased
 
+### Added
+
+- `symbol_preview_rename` now returns `unverifiedMentions` — the source-side counterpart of `unverifiedXamlMentions`: name-matched hits outside the write set, reported read-only and never written. Three kinds are distinguished by `kind` plus a human `reason`: `metadataName` string literals holding the symbol's qualified/metadata name (`GetTypeByMetadataName` / `ForAttributeWithMetadataName` arguments, assembly-qualified names) are reported on every preview; `unboundAttribute` usages whose short or full name is unbound, ambiguous, or bound to another type — including spellings of the new name that may silently bind after apply; `documentation` hits in comments, doc comments, disabled text, non-exact strings, and additional documents such as PublicAPI files are collected only with the new optional `includeDocMentions` parameter. Bound attribute usages and bound crefs stay in the write set and are not double-reported. F# previews report none; apply semantics are unchanged (#562)
+
+### Fixed
+
+- `symbol_resolve` now resolves `Type.Member` names the same way the F# catalog already did — the query matches a symbol's namespace + containing-type + name path on whole trailing segments, so `Calculator.Clear`, `Outer.Inner.P`, and `Widget.M()` resolve the member directly instead of reporting `SymbolNotFound` while the bare member name is `SymbolAmbiguous`. Single-project ambiguities (overloads, same-name members across types) now list candidate signatures instead of only a projectId, and `SymbolNotFound` / `SoftBudgetExceeded` on a dotted name plus the single-project `SymbolAmbiguous` point at the "resolve the type, then `symbol_members` on its handle" path (`#561`)
+
 ## 5.0.1 - 2026-11-06
 
 ### Changed

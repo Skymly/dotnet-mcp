@@ -112,9 +112,18 @@ public interface ILanguageAdapter
         TimeSpan? softBudget = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// <paramref name="includeDocMentions"/> opts the draft's
+    /// <see cref="RenamePreviewDraft.UnverifiedMentions"/> into the
+    /// low-confidence <see cref="UnverifiedMentionKind.Documentation"/> class
+    /// (comments, doc comments, additional documents). Metadata-name strings
+    /// and unbound attribute spellings are reported regardless (issue #562).
+    /// Adapters that cannot classify these hits return none.
+    /// </summary>
     Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
         IWorkspaceSession session,
         string handle,
         string newName,
+        bool includeDocMentions = false,
         CancellationToken cancellationToken = default);
 }

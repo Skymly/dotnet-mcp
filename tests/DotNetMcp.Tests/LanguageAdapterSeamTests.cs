@@ -338,6 +338,7 @@ public class LanguageAdapterSeamTests
             IWorkspaceSession session,
             string handle,
             string newName,
+            bool includeDocMentions = false,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<(RenamePreviewDraft?, SymbolQueryError?)>((null, NotFound()));
 
