@@ -559,12 +559,12 @@ public sealed partial class RoslynLanguageAdapter
 
     private static SyntaxToken RightmostNameIdentifier(
         Microsoft.CodeAnalysis.CSharp.Syntax.NameSyntax? name) => name switch
-    {
-        Microsoft.CodeAnalysis.CSharp.Syntax.SimpleNameSyntax simple => simple.Identifier,
-        Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => RightmostNameIdentifier(qualified.Right),
-        Microsoft.CodeAnalysis.CSharp.Syntax.AliasQualifiedNameSyntax alias => RightmostNameIdentifier(alias.Name),
-        _ => default
-    };
+        {
+            Microsoft.CodeAnalysis.CSharp.Syntax.SimpleNameSyntax simple => simple.Identifier,
+            Microsoft.CodeAnalysis.CSharp.Syntax.QualifiedNameSyntax qualified => RightmostNameIdentifier(qualified.Right),
+            Microsoft.CodeAnalysis.CSharp.Syntax.AliasQualifiedNameSyntax alias => RightmostNameIdentifier(alias.Name),
+            _ => default
+        };
 
     private static SyntaxToken RightmostNameIdentifier(
         Microsoft.CodeAnalysis.VisualBasic.Syntax.AttributeSyntax attribute) =>
@@ -572,11 +572,11 @@ public sealed partial class RoslynLanguageAdapter
 
     private static SyntaxToken RightmostNameIdentifier(
         Microsoft.CodeAnalysis.VisualBasic.Syntax.TypeSyntax? name) => name switch
-    {
-        Microsoft.CodeAnalysis.VisualBasic.Syntax.SimpleNameSyntax simple => simple.Identifier,
-        Microsoft.CodeAnalysis.VisualBasic.Syntax.QualifiedNameSyntax qualified => RightmostNameIdentifier(qualified.Right),
-        _ => default
-    };
+        {
+            Microsoft.CodeAnalysis.VisualBasic.Syntax.SimpleNameSyntax simple => simple.Identifier,
+            Microsoft.CodeAnalysis.VisualBasic.Syntax.QualifiedNameSyntax qualified => RightmostNameIdentifier(qualified.Right),
+            _ => default
+        };
 
     private static bool IsStringTextToken(SyntaxToken token, bool vb) => vb
         ? token.IsKind(Microsoft.CodeAnalysis.VisualBasic.SyntaxKind.StringLiteralToken) ||
