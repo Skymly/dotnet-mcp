@@ -530,7 +530,11 @@ public sealed class SymbolTools
         "Does not write disk. Registered XAML documents (Avalonia .axaml, MAUI .xaml) join the edit as ordinary " +
         "slices: Exact usage points — x:Class, element types, property/event attributes, x:DataType, markup type " +
         "refs, binding segments, x:Name values, event-handler values — are rewritten; name-matched Unverified " +
-        "mentions are reported under unverifiedXamlMentions without being changed. A generated x:Name field is " +
+        "mentions are reported under unverifiedXamlMentions without being changed. Source-side hits outside the " +
+        "write set are reported under unverifiedMentions: string literals holding the symbol's qualified/metadata " +
+        "name, attribute usages whose short or full name is not bound to the renamed type (or spells the new " +
+        "name), and — only with includeDocMentions — qualified-name hits in comments, doc comments, and " +
+        "additional documents such as PublicAPI lists. Mentions are never written. A generated x:Name field is " +
         "renamed through its XAML value plus handwritten references; other SourceGenerator Origin is refused. " +
         "An F# preview covers the defining project plus " +
         "its F# dependents; a visible F# symbol with C#/VB dependents is refused with " +
@@ -541,6 +545,8 @@ public sealed class SymbolTools
         string handle,
         [Description("New identifier (unqualified).")]
         string newName,
+        [Description("Also report low-confidence qualified-name hits in comments, doc comments, and additional documents under unverifiedMentions (report only).")]
+        bool includeDocMentions = false,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -552,7 +558,7 @@ public sealed class SymbolTools
         }
 
         var (draft, error) = await _languages
-            .BuildRenamePreviewAsync(session!, handle, newName, cancellationToken)
+            .BuildRenamePreviewAsync(session!, handle, newName, includeDocMentions, cancellationToken)
             .ConfigureAwait(false);
         if (error is not null)
         {
@@ -586,6 +592,19 @@ public sealed class SymbolTools
                     EndLine = m.EndLine,
                     EndColumn = m.EndColumn,
                     Text = m.Text
+                }).ToArray()
+                : null,
+            UnverifiedMentions = draft.UnverifiedMentions is { Count: > 0 } sourceMentions
+                ? sourceMentions.Select(static m => new UnverifiedMentionDto
+                {
+                    Path = m.Path,
+                    Line = m.Line,
+                    Column = m.Column,
+                    EndLine = m.EndLine,
+                    EndColumn = m.EndColumn,
+                    Text = m.Text,
+                    Kind = m.Kind,
+                    Reason = m.Reason
                 }).ToArray()
                 : null
         });

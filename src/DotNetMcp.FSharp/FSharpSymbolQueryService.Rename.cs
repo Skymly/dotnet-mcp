@@ -12,6 +12,7 @@ public sealed partial class FSharpSymbolQueryService
         IWorkspaceSession session,
         string handle,
         string newName,
+        bool includeDocMentions = false,
         CancellationToken cancellationToken = default)
     {
         using var epochHold = EnterRequest(session.FSharpSnapshot.Epoch);

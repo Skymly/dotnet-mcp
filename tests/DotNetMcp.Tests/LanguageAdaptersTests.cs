@@ -268,6 +268,7 @@ public class LanguageAdaptersTests
             IWorkspaceSession session,
             string handle,
             string newName,
+            bool includeDocMentions = false,
             CancellationToken cancellationToken = default)
         {
             RenameCalls++;

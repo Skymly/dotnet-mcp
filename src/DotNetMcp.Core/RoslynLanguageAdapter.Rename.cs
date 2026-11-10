@@ -12,6 +12,7 @@ public sealed partial class RoslynLanguageAdapter
         IWorkspaceSession session,
         string handle,
         string newName,
+        bool includeDocMentions = false,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(newName))
@@ -73,7 +74,7 @@ public sealed partial class RoslynLanguageAdapter
                     .ConfigureAwait(false))
             {
                 return await BuildXNameFieldRenameDraftAsync(
-                        session, handle, symbol, newName, xamlSource, cancellationToken)
+                        session, handle, symbol, newName, includeDocMentions, xamlSource, cancellationToken)
                     .ConfigureAwait(false);
             }
 
@@ -145,7 +146,11 @@ public sealed partial class RoslynLanguageAdapter
             ? slices
             : slices.Concat(xaml.Slices).ToArray();
 
-        return (new RenamePreviewDraft(handle, newName, documents, invalidated, xaml.Mentions), null);
+        var mentions = await CollectUnverifiedMentionsAsync(
+                session, symbol!, newName, includeDocMentions, xamlSource, cancellationToken)
+            .ConfigureAwait(false);
+
+        return (new RenamePreviewDraft(handle, newName, documents, invalidated, xaml.Mentions, mentions), null);
     }
 
     private static bool IsValidIdentifier(string language, string newName)
