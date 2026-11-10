@@ -156,6 +156,37 @@ public class SymbolResolveSeamTests
     }
 
     [Fact]
+    public async Task symbol_resolve_type_dot_member_returns_member_handle()
+    {
+        var root = CreateTempDir("root");
+        var solution = Path.Combine(root, "App.slnx");
+        await File.WriteAllTextAsync(solution, "<Solution></Solution>");
+
+        try
+        {
+            await using var fx = new InProcessMcpFixture(
+                TrustedRoots.Create([root]),
+                FakeSolutionLoader.ImmediateWithSymbols());
+
+            await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
+
+            var result = await fx.Client.CallToolAsync(
+                "symbol_resolve",
+                new Dictionary<string, object?> { ["name"] = "Calculator.Clear" });
+
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            var body = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(result);
+            Assert.True(SymbolHandle.TryParse(body.Handle, out _, out _), body.Handle);
+            Assert.Equal("Method", body.Summary.Kind);
+            Assert.Equal("Clear", body.Summary.DisplayName);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task symbol_resolve_errors_with_workspace_not_ready_while_loading()
     {
         var root = CreateTempDir("root");

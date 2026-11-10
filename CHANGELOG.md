@@ -4,6 +4,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ## Unreleased
 
+### Fixed
+
+- `symbol_resolve` now resolves `Type.Member` names the same way the F# catalog already did — the query matches a symbol's namespace + containing-type + name path on whole trailing segments, so `Calculator.Clear`, `Outer.Inner.P`, and `Widget.M()` resolve the member directly instead of reporting `SymbolNotFound` while the bare member name is `SymbolAmbiguous`. Single-project ambiguities (overloads, same-name members across types) now list candidate signatures instead of only a projectId, and `SymbolNotFound` / `SoftBudgetExceeded` on a dotted name plus the single-project `SymbolAmbiguous` point at the "resolve the type, then `symbol_members` on its handle" path (`#561`)
+
 ## 5.0.1 - 2026-11-06
 
 ### Changed
