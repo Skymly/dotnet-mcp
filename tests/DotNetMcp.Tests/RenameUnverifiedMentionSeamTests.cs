@@ -96,9 +96,9 @@ public class RenameUnverifiedMentionSeamTests
     private static RoslynLanguageAdapter Adapter() => new(new GeneratorQueryService());
 
     private static async Task<string> ResolveAsync(
-        RoslynLanguageAdapter adapter, IWorkspaceSession session, string name)
+        RoslynLanguageAdapter adapter, IWorkspaceSession session, string name, string? projectId = null)
     {
-        var (resolved, error) = await adapter.ResolveByNameAsync(session, name);
+        var (resolved, error) = await adapter.ResolveByNameAsync(session, name, projectId);
         Assert.Null(error);
         Assert.NotNull(resolved);
         return resolved!.Handle;
@@ -178,14 +178,22 @@ public class RenameUnverifiedMentionSeamTests
         Assert.NotNull(draft);
         var mentions = draft!.UnverifiedMentions!;
 
-        // Comment, doc-comment, and disabled-text hits.
+        // Exactly the non-cref hits: the line-1 comment and the remarks text in
+        // DocsSource.cs, the disabled-text hit in Inactive.cs, and the PublicAPI
+        // additional document. The .axaml additional document is XAML-shaped and
+        // never a documentation mention, even with no usage source wired.
         var docHits = mentions
             .Where(m => m.Kind == UnverifiedMentionKind.Documentation)
             .ToList();
-        Assert.True(docHits.Count >= 4, $"expected >= 4 documentation mentions, got {docHits.Count}");
-        Assert.Contains(docHits, m => m.Path.EndsWith("DocsSource.cs", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(docHits, m => m.Path.EndsWith("Inactive.cs", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(docHits, m => m.Path.EndsWith("PublicAPI.Shipped.txt", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(4, docHits.Count);
+        Assert.Equal(2, docHits.Count(m =>
+            m.Path.EndsWith("DocsSource.cs", StringComparison.OrdinalIgnoreCase)));
+        Assert.Single(docHits, m =>
+            m.Path.EndsWith("Inactive.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(docHits, m =>
+            m.Path.EndsWith("PublicAPI.Shipped.txt", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(docHits, m =>
+            m.Path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase));
 
         // The cref that binds to the renamed type is a written reference, not a mention.
         Assert.DoesNotContain(docHits, m =>
@@ -249,6 +257,80 @@ public class RenameUnverifiedMentionSeamTests
         Assert.EndsWith("Uses.vb", literal.Path, StringComparison.OrdinalIgnoreCase);
         var attr = Assert.Single(mentions, m => m.Kind == UnverifiedMentionKind.UnboundAttribute);
         Assert.Equal("HubSend", attr.Text);
+    }
+
+    [Fact]
+    public async Task bound_attribute_in_referencing_project_is_not_double_reported()
+    {
+        using var workspace = CreateTwoProjectWorkspace();
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var adapter = Adapter();
+        var libId = workspace.CurrentSolution.Projects.Single(p =>
+            string.Equals(p.Name, "Lib", StringComparison.Ordinal)).Id.Id.ToString("D");
+        var handle = await ResolveAsync(adapter, session, "Ns.HubSendAttribute", libId);
+
+        var (draft, error) = await adapter.BuildRenamePreviewAsync(session, handle, "HubPublishAttribute");
+        Assert.Null(error);
+
+        // App's [HubSend] binds to the Lib type through the project reference: it
+        // is rewritten and must not also surface as an unboundAttribute mention,
+        // even though the symbols come from different compilations.
+        var appUse = Assert.Single(draft!.Documents, d =>
+            d.Path.EndsWith("AppUse.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("[HubPublish", appUse.NewText, StringComparison.Ordinal);
+        Assert.DoesNotContain(draft.UnverifiedMentions ?? [], m =>
+            m.Path.EndsWith("AppUse.cs", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task bound_constructed_generic_attribute_is_not_double_reported()
+    {
+        using var workspace = CreateGenericAttributeWorkspace();
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var adapter = Adapter();
+        var handle = await ResolveAsync(adapter, session, "Ns.TagAttribute");
+
+        var (draft, error) = await adapter.BuildRenamePreviewAsync(session, handle, "LabelAttribute");
+        Assert.Null(error);
+
+        // [Tag<int>] binds to a construction of the renamed generic: rewritten,
+        // not an unboundAttribute mention.
+        var use = Assert.Single(draft!.Documents, d =>
+            d.Path.EndsWith("GenericUse.cs", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("[Label<int>", use.NewText, StringComparison.Ordinal);
+        Assert.DoesNotContain(draft.UnverifiedMentions ?? [], m =>
+            m.Path.EndsWith("GenericUse.cs", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task vb_attribute_spelling_match_is_case_insensitive()
+    {
+        using var workspace = CreateVbWorkspace(("Lower.vb", """
+            <hubsend>
+            Public Class LowerOld
+            End Class
+            <hubpublish>
+            Public Class LowerNew
+            End Class
+            """));
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var adapter = Adapter();
+        var handle = await ResolveAsync(adapter, session, "Ns.HubSendAttribute");
+
+        var (draft, error) = await adapter.BuildRenamePreviewAsync(session, handle, "HubPublishAttribute");
+        Assert.Null(error);
+
+        // VB identifier binding is case-insensitive, so the spelling gate is too:
+        // a lowercase old-name attribute and a lowercase new-name attribute are
+        // both reported (both are unbound without Imports Ns).
+        var lower = draft!.UnverifiedMentions!
+            .Where(m => m.Kind == UnverifiedMentionKind.UnboundAttribute &&
+                        m.Path.EndsWith("Lower.vb", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        Assert.Equal(2, lower.Count);
+        Assert.Contains(lower, m => m.Text == "hubsend");
+        var newHit = Assert.Single(lower, m => m.Text == "hubpublish");
+        Assert.Contains("new name", newHit.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     private static int DocsSourceCrefLine
@@ -324,7 +406,90 @@ public class RenameUnverifiedMentionSeamTests
         return workspace;
     }
 
-    private static AdhocWorkspace CreateVbWorkspace()
+    private static AdhocWorkspace CreateTwoProjectWorkspace()
+    {
+        var workspace = new AdhocWorkspace();
+        var libId = ProjectId.CreateNewId();
+        var appId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution
+            .AddProject(ProjectInfo.Create(
+                libId, VersionStamp.Create(), "Lib", "Lib", LanguageNames.CSharp,
+                filePath: @"C:\fake-mentions\Lib.csproj"))
+            .AddProject(ProjectInfo.Create(
+                appId, VersionStamp.Create(), "App", "App", LanguageNames.CSharp,
+                filePath: @"C:\fake-mentions\App.csproj"));
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(libId), "Attributes.cs", SourceText.From(AttributeSource),
+            filePath: @"C:\fake-mentions\Attributes.cs");
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(appId), "AppUse.cs", SourceText.From("""
+                using Ns;
+                [HubSend]
+                public class AppComponent { }
+                """),
+            filePath: @"C:\fake-mentions\AppUse.cs");
+        solution = solution.AddProjectReference(appId, new ProjectReference(libId));
+        foreach (var id in new[] { libId, appId })
+        {
+            solution = solution.WithProjectCompilationOptions(
+                id,
+                new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+            solution = solution.AddMetadataReference(
+                id,
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        }
+
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace.");
+        }
+
+        return workspace;
+    }
+
+    private static AdhocWorkspace CreateGenericAttributeWorkspace()
+    {
+        var workspace = new AdhocWorkspace();
+        var projectId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution.AddProject(ProjectInfo.Create(
+            projectId,
+            VersionStamp.Create(),
+            "Lib",
+            "Lib",
+            LanguageNames.CSharp,
+            filePath: @"C:\fake-mentions\Lib.csproj",
+            parseOptions: Microsoft.CodeAnalysis.CSharp.CSharpParseOptions.Default
+                .WithLanguageVersion(Microsoft.CodeAnalysis.CSharp.LanguageVersion.Latest)));
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(projectId), "Attributes.cs", SourceText.From("""
+                namespace Ns
+                {
+                    public class TagAttribute<T> : System.Attribute { }
+                }
+                """),
+            filePath: @"C:\fake-mentions\Attributes.cs");
+        solution = solution.AddDocument(
+            DocumentId.CreateNewId(projectId), "GenericUse.cs", SourceText.From("""
+                using Ns;
+                [Tag<int>]
+                public class Uses { }
+                """),
+            filePath: @"C:\fake-mentions\GenericUse.cs");
+        solution = solution.WithProjectCompilationOptions(
+            projectId,
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        solution = solution.AddMetadataReference(
+            projectId,
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+        if (!workspace.TryApplyChanges(solution))
+        {
+            throw new InvalidOperationException("Failed to apply AdhocWorkspace.");
+        }
+
+        return workspace;
+    }
+
+    private static AdhocWorkspace CreateVbWorkspace(params (string Name, string Source)[] extraDocs)
     {
         var workspace = new AdhocWorkspace();
         var projectId = ProjectId.CreateNewId();
@@ -354,6 +519,13 @@ public class RenameUnverifiedMentionSeamTests
         solution = solution.AddDocument(
             DocumentId.CreateNewId(projectId), "Uses.vb", SourceText.From(usesSource),
             filePath: @"C:\fake-mentions\Uses.vb");
+        foreach (var (name, source) in extraDocs)
+        {
+            solution = solution.AddDocument(
+                DocumentId.CreateNewId(projectId), name, SourceText.From(source),
+                filePath: $@"C:\fake-mentions\{name}");
+        }
+
         solution = solution.WithProjectCompilationOptions(
             projectId,
             new Microsoft.CodeAnalysis.VisualBasic.VisualBasicCompilationOptions(OutputKind.DynamicallyLinkedLibrary));

@@ -46,6 +46,11 @@ public sealed partial class RoslynLanguageAdapter
 
         var generatedIds = await GeneratedDocumentIdsAsync(session.Solution, cancellationToken)
             .ConfigureAwait(false);
+        // The display key is compilation-independent: a symbol resolved in the
+        // defining project still matches its retargeted twin in referencing
+        // projects' SemanticModels, and OriginalDefinition collapses
+        // constructed generics.
+        var symbolKey = SymbolKey(symbol.OriginalDefinition);
         var mentions = new List<UnverifiedMention>();
         foreach (var project in session.Solution.Projects)
         {
@@ -65,7 +70,7 @@ public sealed partial class RoslynLanguageAdapter
                 }
 
                 await ScanSourceDocumentAsync(
-                        document, symbol, qualified, spellings, includeDocMentions, mentions, cancellationToken)
+                        document, symbol, symbolKey, qualified, spellings, includeDocMentions, mentions, cancellationToken)
                     .ConfigureAwait(false);
             }
 
@@ -77,8 +82,11 @@ public sealed partial class RoslynLanguageAdapter
             foreach (var document in project.AdditionalDocuments)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                // Unwired sessions still skip XAML-shaped paths: the XAML channel
+                // owns them when a source is registered, and a bare .axaml/.xaml
+                // additional document is not a documentation mention.
                 if (string.IsNullOrWhiteSpace(document.FilePath) ||
-                    xamlSource?.IsXamlDocumentPath(document.FilePath) == true)
+                    (xamlSource?.IsXamlDocumentPath(document.FilePath) ?? IsXamlPathExtension(document.FilePath)))
                 {
                     continue;
                 }
@@ -195,23 +203,28 @@ public sealed partial class RoslynLanguageAdapter
     private static async Task ScanSourceDocumentAsync(
         Document document,
         ISymbol symbol,
+        string symbolKey,
         IReadOnlyList<string> qualified,
         IReadOnlyList<AttributeSpelling> spellings,
         bool includeDocMentions,
         List<UnverifiedMention> mentions,
         CancellationToken cancellationToken)
     {
+        var vb = document.Project.Language == LanguageNames.VisualBasic;
+        var spellingComparison = vb ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
         var source = text.ToString();
         var hits = QualifiedNameHits(source, qualified);
+        // Bounded spelling hits only: a bare IndexOf makes every preview pay for
+        // a syntax root + walk on documents that merely contain the text inside
+        // a longer word. VB identifiers are case-insensitive.
         var attributeHit = spellings.Count > 0 &&
-            spellings.Any(s => source.IndexOf(s.Text, StringComparison.Ordinal) >= 0);
+            spellings.Any(s => ContainsBounded(source, s.Text, spellingComparison));
         if (hits.Count == 0 && !attributeHit)
         {
             return;
         }
 
-        var vb = document.Project.Language == LanguageNames.VisualBasic;
         var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
         if (root is null)
         {
@@ -234,7 +247,7 @@ public sealed partial class RoslynLanguageAdapter
                 // A cref already bound to the renamed symbol is a real reference:
                 // it lands in the write set, not in the mention report.
                 model ??= await document.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
-                if (model is not null && InsideBoundCref(root, start, symbol, model, vb))
+                if (model is not null && InsideBoundCref(root, start, symbolKey, model, vb))
                 {
                     continue;
                 }
@@ -287,10 +300,16 @@ public sealed partial class RoslynLanguageAdapter
 
         if (attributeHit)
         {
-            model ??= await document.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
-            if (model is not null)
+            // Syntax first: only pay for a semantic model when an attribute's
+            // rightmost identifier actually spells an old or new name.
+            var candidates = CollectAttributeCandidates(root, spellings, vb, spellingComparison);
+            if (candidates.Count > 0)
             {
-                ScanAttributeUsages(root, model, symbol, spellings, vb, document.FilePath!, text, mentions);
+                model ??= await document.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
+                if (model is not null)
+                {
+                    ScanAttributeUsages(candidates, model, symbol, symbolKey, document.FilePath!, text, mentions);
+                }
             }
         }
     }
@@ -368,11 +387,14 @@ public sealed partial class RoslynLanguageAdapter
         return end == text.Length || !IsNameChar(text[end]);
     }
 
-    private static bool ContainsBounded(string text, string needle)
+    private static bool ContainsBounded(string text, string needle) =>
+        ContainsBounded(text, needle, StringComparison.Ordinal);
+
+    private static bool ContainsBounded(string text, string needle, StringComparison comparison)
     {
-        for (var at = text.IndexOf(needle, StringComparison.Ordinal);
+        for (var at = text.IndexOf(needle, comparison);
              at >= 0;
-             at = text.IndexOf(needle, at + 1, StringComparison.Ordinal))
+             at = text.IndexOf(needle, at + 1, comparison))
         {
             if (HasNameBoundaries(text, at, needle.Length))
             {
@@ -394,7 +416,7 @@ public sealed partial class RoslynLanguageAdapter
     private static bool InsideBoundCref(
         SyntaxNode root,
         int start,
-        ISymbol symbol,
+        string symbolKey,
         SemanticModel model,
         bool vb)
     {
@@ -417,19 +439,35 @@ public sealed partial class RoslynLanguageAdapter
         }
 
         var info = model.GetSymbolInfo(cref);
-        return SymbolEqualityComparer.Default.Equals(info.Symbol, symbol);
+        return IsRenamedSymbol(info.Symbol, symbolKey);
     }
 
-    private static void ScanAttributeUsages(
+    /// <summary>
+    /// Display-key equality against the renamed symbol's original definition:
+    /// retargeted symbols in referencing projects' compilations and
+    /// constructed generics still match, so bound references are not
+    /// double-reported as mentions.
+    /// </summary>
+    private static bool IsRenamedSymbol(ISymbol? candidate, string symbolKey) =>
+        candidate is not null &&
+        string.Equals(SymbolKey(candidate.OriginalDefinition), symbolKey, StringComparison.Ordinal);
+
+    private static bool IsXamlPathExtension(string path) =>
+        path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase) ||
+        path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Syntax-only pass: attribute nodes whose rightmost name identifier
+    /// matches an old or new spelling. A semantic model is only worth its
+    /// cost when this list is non-empty.
+    /// </summary>
+    private static List<AttributeCandidate> CollectAttributeCandidates(
         SyntaxNode root,
-        SemanticModel model,
-        ISymbol symbol,
         IReadOnlyList<AttributeSpelling> spellings,
         bool vb,
-        string path,
-        SourceText text,
-        List<UnverifiedMention> mentions)
+        StringComparison comparison)
     {
+        var candidates = new List<AttributeCandidate>();
         foreach (var node in root.DescendantNodes())
         {
             var isAttribute = vb
@@ -449,15 +487,32 @@ public sealed partial class RoslynLanguageAdapter
             }
 
             var spelling = spellings.FirstOrDefault(s =>
-                string.Equals(identifier.Text, s.Text, StringComparison.Ordinal));
+                string.Equals(identifier.Text, s.Text, comparison));
             if (spelling.Text is null)
             {
                 continue;
             }
 
+            candidates.Add(new AttributeCandidate(node, identifier, spelling));
+        }
+
+        return candidates;
+    }
+
+    private static void ScanAttributeUsages(
+        List<AttributeCandidate> candidates,
+        SemanticModel model,
+        ISymbol symbol,
+        string symbolKey,
+        string path,
+        SourceText text,
+        List<UnverifiedMention> mentions)
+    {
+        foreach (var (node, identifier, spelling) in candidates)
+        {
             var info = model.GetSymbolInfo(node);
             var bound = BoundType(info.Symbol);
-            if (SymbolEqualityComparer.Default.Equals(bound, symbol))
+            if (IsRenamedSymbol(bound, symbolKey))
             {
                 // Bound to the renamed type: a compiler-visible reference that
                 // is already rewritten by the rename.
@@ -465,7 +520,7 @@ public sealed partial class RoslynLanguageAdapter
             }
 
             var binding = info.CandidateSymbols.Any(candidate =>
-                    SymbolEqualityComparer.Default.Equals(BoundType(candidate), symbol))
+                    IsRenamedSymbol(BoundType(candidate), symbolKey))
                 ? "resolves ambiguously, the renamed type among the candidates"
                 : bound is not null
                     ? $"binds to '{bound.ToDisplayString()}'"
@@ -486,7 +541,7 @@ public sealed partial class RoslynLanguageAdapter
     }
 
     private static string SpellingKind(string spelling, string oldName) =>
-        string.Equals(spelling, oldName, StringComparison.Ordinal)
+        string.Equals(spelling, oldName, StringComparison.OrdinalIgnoreCase)
             ? "matches the renamed type's name "
             : $"spells the renamed type as a short name '{spelling}' ";
 
@@ -557,4 +612,9 @@ public sealed partial class RoslynLanguageAdapter
     }
 
     private readonly record struct AttributeSpelling(string Text, bool NewSpelling);
+
+    private readonly record struct AttributeCandidate(
+        SyntaxNode Node,
+        SyntaxToken Identifier,
+        AttributeSpelling Spelling);
 }
