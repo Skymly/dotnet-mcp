@@ -57,8 +57,8 @@ _Avoid_: treating the whole server as read-only after 2.0; apply_edit / patch_fi
 _Avoid_: apply_edit, patch_file, generic write; applying a preview under a different kind; RenamePreviewStore as the contract
 
 **Rename preview**:
-针对手写符号的 Workspace Edit 预览（`symbol_preview_rename`）。带 Epoch + TTL 的不透明 previewId；`Origin = SourceGenerator` 拒绝——唯一定义项目内存在匹配 `XName` 使用点的 `x:Name` 生成字段除外（改 XAML 值 + 手写引用，生成声明不写入）。已注册 XAML 文档作为普通切片并入同一 preview（ADR-0005 Amendment 1），`Unverified` 同名提及只经 `unverifiedXamlMentions` 报告。apply 走自写抑制并推进 Epoch，编码/BOM 保持。
-_Avoid_: renaming generated members; writing disk from preview; editing Unverified XAML mentions
+针对手写符号的 Workspace Edit 预览（`symbol_preview_rename`）。带 Epoch + TTL 的不透明 previewId；`Origin = SourceGenerator` 拒绝——唯一定义项目内存在匹配 `XName` 使用点的 `x:Name` 生成字段除外（改 XAML 值 + 手写引用，生成声明不写入）。已注册 XAML 文档作为普通切片并入同一 preview（ADR-0005 Amendment 1），`Unverified` 同名提及只经 `unverifiedXamlMentions` 报告。源码侧同名命中同样只报告不写盘（`unverifiedMentions`）：元数据名字符串字面量（`metadataName`）、未绑定/歧义/绑到他处的特性名拼写（`unboundAttribute`，含匹配新名的用法），以及注释/文档/附加文档中的限定名命中（`documentation`，仅 `includeDocMentions` 时收集）。apply 走自写抑制并推进 Epoch，编码/BOM 保持。
+_Avoid_: renaming generated members; writing disk from preview; editing Unverified XAML mentions; writing unverifiedMentions hits
 
 **XAML document**:
 已注册框架的 UI 文档：Avalonia `.axaml`，或根 xmlns 为 MAUI URI 的 `.xaml`。工具名不分裂。

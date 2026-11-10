@@ -4,6 +4,10 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ## Unreleased
 
+### Added
+
+- `symbol_preview_rename` now returns `unverifiedMentions` — the source-side counterpart of `unverifiedXamlMentions`: name-matched hits outside the write set, reported read-only and never written. Three kinds are distinguished by `kind` plus a human `reason`: `metadataName` string literals holding the symbol's qualified/metadata name (`GetTypeByMetadataName` / `ForAttributeWithMetadataName` arguments, assembly-qualified names) are reported on every preview; `unboundAttribute` usages whose short or full name is unbound, ambiguous, or bound to another type — including spellings of the new name that may silently bind after apply; `documentation` hits in comments, doc comments, disabled text, non-exact strings, and additional documents such as PublicAPI files are collected only with the new optional `includeDocMentions` parameter. Bound attribute usages and bound crefs stay in the write set and are not double-reported. F# previews report none; apply semantics are unchanged (#562)
+
 ## 5.0.1 - 2026-11-06
 
 ### Changed

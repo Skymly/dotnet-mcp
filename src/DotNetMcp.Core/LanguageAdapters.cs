@@ -324,10 +324,12 @@ public sealed class LanguageAdapters
         IWorkspaceSession session,
         string handle,
         string newName,
+        bool includeDocMentions = false,
         CancellationToken cancellationToken = default) =>
         Dispatch(
             handle,
-            adapter => adapter.BuildRenamePreviewAsync(session, handle, newName, cancellationToken));
+            adapter => adapter.BuildRenamePreviewAsync(
+                session, handle, newName, includeDocMentions, cancellationToken));
 
     private Task<(T? Success, SymbolQueryError? Error)> Dispatch<T>(
         string handle,

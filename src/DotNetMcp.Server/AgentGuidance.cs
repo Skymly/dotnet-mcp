@@ -31,9 +31,10 @@ internal static class AgentGuidance
         "Writes are always preview → apply: symbol_preview_rename → symbol_apply_rename, " +
         "diagnostics_preview_fix → diagnostics_apply_fix, symbol_preview_refactoring → " +
         "symbol_apply_refactoring. There is no generic edit / write / shell. Review every preview slice — " +
-        "including XAML slices and unverifiedXamlMentions on rename — before applying. Rename writes " +
-        "compiler-visible references and Exact XAML usages only; metadata-name strings, unbound short " +
-        "attribute names, docs, and PublicAPI files are not written and are not listed.\n" +
+        "including XAML slices and unverifiedXamlMentions — before applying. " +
+        "Rename writes compiler-visible references and Exact XAML usages only; unverifiedMentions reports, " +
+        "never writes, metadata-name strings, unbound attribute names, docs, and PublicAPI hits " +
+        "(doc hits need includeDocMentions).\n" +
         "Positions are 1-based line / column in UTF-16 code units; endColumn is exclusive. A position " +
         "from one tool feeds the next verbatim. Paged results return nextCursor — continue from it " +
         "instead of restarting.";
@@ -96,11 +97,14 @@ public static class AgentPrompts
            (UTF-16 code units). Renames cover handwritten C# / VB / F# symbols; SourceGenerator origin is
            refused except a generated x:Name field, which renames its XAML value plus handwritten references.
         2. Preview: call symbol_preview_rename with the handle and newName = "{newName}". It returns a
-           previewId, per-document old/new slices, invalidatedHandles, and unverifiedXamlMentions.
+           previewId, per-document old/new slices, invalidatedHandles, unverifiedXamlMentions, and
+           unverifiedMentions.
         3. Review before applying — read every slice, including XAML (.axaml/.xaml) slices that keep
            bindings, x:Class, element/attribute names, x:Name values, and event handlers in sync.
-           unverifiedXamlMentions are name-matched XAML usages the edit does NOT write; decide whether
-           they need manual follow-up. Every handle in invalidatedHandles must be re-resolved after apply.
+           unverifiedXamlMentions are name-matched XAML usages the edit does NOT write; unverifiedMentions
+           are name-matched source hits the edit does NOT write — metadata-name strings, unbound short
+           attribute names, and (with includeDocMentions) comments/docs/PublicAPI. Decide whether each
+           needs manual follow-up. Every handle in invalidatedHandles must be re-resolved after apply.
         4. Apply: symbol_apply_rename with the previewId while the workspace Epoch is unchanged and the
            preview unexpired. There is no apply path that skips preview.
         5. Re-check: project_diagnostics on the affected projects — expect no new errors — and

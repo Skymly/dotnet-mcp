@@ -42,5 +42,7 @@ XAML slices and `unverifiedXamlMentions` on rename — then re-check
 `project_diagnostics` after an apply that touched compiled code.
 Rename writes compiler-visible references and Exact XAML usages only. It does
 not rewrite metadata-name strings, unbound short attribute names, docs, or
-PublicAPI files, and it does not list those hits.
+PublicAPI files — those name-matched hits are reported under
+`unverifiedMentions` (documentation-class hits only when `includeDocMentions`
+is set).
 ```
