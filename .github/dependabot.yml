@@ -28,3 +28,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # init/analyze must move together: the action fails when step versions differ.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
