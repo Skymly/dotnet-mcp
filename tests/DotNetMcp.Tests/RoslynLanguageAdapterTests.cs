@@ -71,6 +71,116 @@ namespace B { public class Widget {} }
         Assert.IsType<SymbolAmbiguousError>(error);
     }
 
+    [Theory]
+    [InlineData("Widget.M")]
+    [InlineData("Lib.Widget.M")]
+    [InlineData("Widget.M()")]
+    [InlineData("Lib.Widget.M()")]
+    public async Task resolve_by_name_type_dot_member_resolves_method(string name)
+    {
+        using var workspace = CreateWorkspace(WidgetSource);
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var (success, error) = await Adapter().ResolveByNameAsync(session, name);
+
+        Assert.Null(error);
+        Assert.NotNull(success);
+        Assert.Equal("Method", success!.Summary.Kind);
+        Assert.Equal("M", success.Summary.DisplayName);
+        Assert.True(SymbolHandle.TryParse(success.Handle, out _, out _), success.Handle);
+    }
+
+    [Fact]
+    public async Task resolve_by_name_type_dot_member_resolves_property()
+    {
+        using var workspace = CreateWorkspace(WidgetSource);
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var (success, error) = await Adapter().ResolveByNameAsync(session, "Widget.N");
+
+        Assert.Null(error);
+        Assert.NotNull(success);
+        Assert.Equal("Property", success!.Summary.Kind);
+        Assert.Equal("N", success.Summary.DisplayName);
+    }
+
+    [Fact]
+    public async Task resolve_by_name_type_dot_member_missing_member_hints_at_symbol_members()
+    {
+        using var workspace = CreateWorkspace(WidgetSource);
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var (_, error) = await Adapter().ResolveByNameAsync(session, "Widget.Nope");
+
+        var notFound = Assert.IsType<SymbolNotFoundError>(error);
+        Assert.Contains("symbol_members", notFound.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task resolve_by_name_type_dot_overloaded_member_is_ambiguous_with_signatures()
+    {
+        using var workspace = CreateWorkspace("""
+namespace Lib;
+public class Widget
+{
+    public void O(int x) { }
+    public void O(string x) { }
+}
+""");
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var (_, error) = await Adapter().ResolveByNameAsync(session, "Widget.O");
+
+        var ambiguous = Assert.IsType<SymbolAmbiguousError>(error);
+        Assert.Contains("O(int", ambiguous.Message, StringComparison.Ordinal);
+        Assert.Contains("O(string", ambiguous.Message, StringComparison.Ordinal);
+        Assert.Contains("symbol_members", ambiguous.SuggestedAction, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task resolve_by_name_signature_qualified_member_picks_one_overload()
+    {
+        using var workspace = CreateWorkspace("""
+namespace Lib;
+public class Widget
+{
+    public void O(int x) { }
+    public void O(string x) { }
+}
+""");
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var (success, error) = await Adapter().ResolveByNameAsync(session, "Lib.Widget.O(int)");
+
+        Assert.Null(error);
+        Assert.NotNull(success);
+        Assert.Equal("O", success!.Summary.DisplayName);
+    }
+
+    [Fact]
+    public async Task resolve_by_name_nested_type_paths_resolve_type_and_member()
+    {
+        using var workspace = CreateWorkspace("""
+namespace Lib;
+public class Outer
+{
+    public class Inner
+    {
+        public void P() { }
+    }
+}
+""");
+        using var session = new FakeSession(workspace.CurrentSolution);
+        var adapter = Adapter();
+
+        var (type, typeError) = await adapter.ResolveByNameAsync(session, "Lib.Outer.Inner");
+        Assert.Null(typeError);
+        Assert.Equal("Inner", type!.Summary.DisplayName);
+
+        var (byTail, tailError) = await adapter.ResolveByNameAsync(session, "Outer.Inner.P");
+        Assert.Null(tailError);
+        Assert.Equal("P", byTail!.Summary.DisplayName);
+
+        var (byShortTail, shortError) = await adapter.ResolveByNameAsync(session, "Inner.P");
+        Assert.Null(shortError);
+        Assert.Equal("P", byShortTail!.Summary.DisplayName);
+    }
+
     [Fact]
     public async Task get_members_returns_first_page_not_truncated()
     {

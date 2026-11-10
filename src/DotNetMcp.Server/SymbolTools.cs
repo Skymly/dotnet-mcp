@@ -31,9 +31,10 @@ public sealed class SymbolTools
 
     [McpServerTool(Name = "symbol_resolve", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Resolve a C# / VB / F# symbol by name or FQN in the ready workspace and return a verifiable SymbolHandle " +
-        "plus a lightweight summary (no member tree). Optional projectId from workspace_list_projects disambiguates multi-TFM / multi-project hits.")]
+        "plus a lightweight summary (no member tree). 'Type.Member' names resolve members directly; " +
+        "optional projectId from workspace_list_projects disambiguates multi-TFM / multi-project hits.")]
     public async Task<CallToolResult> SymbolResolve(
-        [Description("Type or member name / FQN (e.g. SampleLib.Calculator).")]
+        [Description("Type or member name / FQN (e.g. SampleLib.Calculator or Calculator.Clear); 'Type.Member' resolves the member.")]
         string name,
         [Description("Optional projectId GUID string from workspace_list_projects.")]
         string? projectId = null,

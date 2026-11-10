@@ -85,18 +85,22 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             }
         }
 
+        var memberHint = query.Contains('.')
+            ? " For a 'Type.Member' name, resolve the type part with symbol_resolve first, then call symbol_members on its handle."
+            : string.Empty;
+
         if (matches.Count == 0)
         {
             if (timedOut)
             {
                 return (null, new SoftBudgetExceededError(
                     $"Timed out while resolving '{name}' before any match was found.",
-                    "Pass projectId from workspace_list_projects, or retry symbol_resolve."));
+                    "Pass projectId from workspace_list_projects, or retry symbol_resolve." + memberHint));
             }
 
             return (null, new SymbolNotFoundError(
                 $"No symbol named '{name}' was found in the ready workspace.",
-                "Confirm the name/FQN, or pass projectId from workspace_list_projects, then call symbol_resolve again."));
+                "Confirm the name/FQN, or pass projectId from workspace_list_projects, then call symbol_resolve again." + memberHint));
         }
 
         // Deduplicate identical symbols within the same project (walk may hit twice).
@@ -118,17 +122,30 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
         if (matches.Count > 1)
         {
-            var ids = string.Join(", ", matches.Select(m => m.Project.Id.Id.ToString("D")).Distinct());
+            var projectIds = matches.Select(m => m.Project.Id.Id.ToString("D")).Distinct().ToList();
+            if (projectIds.Count > 1)
+            {
+                var ids = string.Join(", ", projectIds);
+                return (null, new SymbolAmbiguousError(
+                    $"Symbol '{name}' matched {matches.Count} candidates across projectId(s): {ids}.",
+                    "Pass projectId (and a more specific FQN if needed) to symbol_resolve to disambiguate."));
+            }
+
+            var signatures = matches
+                .Select(m => m.Symbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified))
+                .Distinct()
+                .ToList();
+            var listed = string.Join("; ", signatures.Take(5)) + (signatures.Count > 5 ? "; …" : string.Empty);
             return (null, new SymbolAmbiguousError(
-                $"Symbol '{name}' matched {matches.Count} candidates across projectId(s): {ids}.",
-                "Pass projectId (and a more specific FQN if needed) to symbol_resolve to disambiguate."));
+                $"Symbol '{name}' matched {matches.Count} candidates in projectId {projectIds[0]}: {listed}.",
+                "Pass a signature-qualified name to symbol_resolve, or resolve the containing type first and call symbol_members on its handle."));
         }
 
         if (timedOut)
         {
             return (null, new SoftBudgetExceededError(
                 $"Timed out while resolving '{name}' after finding a candidate; remaining projects were not scanned.",
-                "Pass projectId from workspace_list_projects, or retry symbol_resolve."));
+                "Pass projectId from workspace_list_projects, or retry symbol_resolve." + memberHint));
         }
 
         var (projectHit, symbolHit) = matches[0];
@@ -809,16 +826,12 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             yield break;
         }
 
+        var queryHasDot = query.Contains('.');
         foreach (var type in EnumerateAllTypes(compilation.GlobalNamespace))
         {
-            var signature = type.ToDisplayString(SymbolDisplayFormats.SignatureQualified);
-            var metadataStyle = type.ContainingNamespace is { IsGlobalNamespace: false } ns
-                ? $"{ns.ToDisplayString()}.{type.Name}"
-                : type.Name;
-
-            if (string.Equals(signature, query, StringComparison.Ordinal) ||
-                string.Equals(metadataStyle, query, StringComparison.Ordinal) ||
-                string.Equals(type.Name, query, StringComparison.Ordinal))
+            var typePath = ResolvePath(type);
+            if (MatchesResolvePath(typePath, query) ||
+                MatchesResolvePath(type.ToDisplayString(SymbolDisplayFormats.SignatureQualified), query))
             {
                 yield return type;
                 continue;
@@ -831,16 +844,55 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                     continue;
                 }
 
-                var memberSig = member.ToDisplayString(SymbolDisplayFormats.SignatureQualified);
-                if (string.Equals(memberSig, query, StringComparison.Ordinal) ||
-                    string.Equals(member.Name, query, StringComparison.Ordinal) ||
-                    string.Equals($"{metadataStyle}.{member.Name}", query, StringComparison.Ordinal))
+                if (string.Equals(member.Name, query, StringComparison.Ordinal))
+                {
+                    yield return member;
+                    continue;
+                }
+
+                // A member path needs at least one '.': "Type.Member" through
+                // "Ns.Outer.Inner.Member" resolve, as do signature-qualified forms.
+                if (queryHasDot &&
+                    (MatchesResolvePath(typePath + "." + member.Name, query) ||
+                     MatchesResolvePath(member.ToDisplayString(SymbolDisplayFormats.SignatureQualified), query)))
                 {
                     yield return member;
                 }
             }
         }
     }
+
+    /// <summary>
+    /// Dotted namespace + containing-type path for a symbol ("Ns.Outer.Inner"), built from
+    /// <see cref="ISymbol.Name"/> segments so generic arity never leaks into resolve queries.
+    /// </summary>
+    private static string ResolvePath(ISymbol symbol)
+    {
+        var segments = new List<string> { symbol.Name };
+        for (var parent = symbol.ContainingType; parent is not null; parent = parent.ContainingType)
+        {
+            segments.Add(parent.Name);
+        }
+
+        if (symbol.ContainingNamespace is { IsGlobalNamespace: false } ns)
+        {
+            segments.Add(ns.ToDisplayString());
+        }
+
+        segments.Reverse();
+        return string.Join(".", segments);
+    }
+
+    /// <summary>
+    /// A resolve query matches a candidate path on full equality or a trailing run of whole
+    /// segments: "Ns.Type.Member", "Type.Member", and "Outer.Inner.Member" all match
+    /// "Ns.Outer.Inner.Member"; the leading '.' anchors the match on a segment boundary so
+    /// "Service.For" cannot match "GrpcService.For". Mirrors the F# catalog matcher so all
+    /// languages resolve the same query forms.
+    /// </summary>
+    private static bool MatchesResolvePath(string path, string query) =>
+        string.Equals(path, query, StringComparison.Ordinal) ||
+        path.EndsWith("." + query, StringComparison.Ordinal);
 
     private static ISymbol? FindBySignature(Compilation compilation, string signatureQualifiedName)
     {
