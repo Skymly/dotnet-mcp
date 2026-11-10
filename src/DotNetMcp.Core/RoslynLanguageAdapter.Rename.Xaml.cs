@@ -182,6 +182,7 @@ public sealed partial class RoslynLanguageAdapter
         string handle,
         ISymbol field,
         string newName,
+        bool includeDocMentions,
         IXamlUsageSource xamlSource,
         CancellationToken cancellationToken)
     {
@@ -206,7 +207,11 @@ public sealed partial class RoslynLanguageAdapter
                 "Change the generator input (handwritten partial / attribute) and call symbol_preview_rename on that symbol."));
         }
 
-        return (new RenamePreviewDraft(handle, newName, documents, [handle], xaml.Mentions), null);
+        var mentions = await CollectUnverifiedMentionsAsync(
+                session, field, newName, includeDocMentions, xamlSource, cancellationToken)
+            .ConfigureAwait(false);
+
+        return (new RenamePreviewDraft(handle, newName, documents, [handle], xaml.Mentions, mentions), null);
     }
 
     /// <summary>

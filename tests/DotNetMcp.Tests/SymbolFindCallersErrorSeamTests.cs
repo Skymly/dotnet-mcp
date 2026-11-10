@@ -366,7 +366,7 @@ public class SymbolFindCallersErrorSeamTests
             TimeSpan? softBudget = null, CancellationToken cancellationToken = default) => throw exception;
 
         public Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
-            IWorkspaceSession session, string handle, string newName,
+            IWorkspaceSession session, string handle, string newName, bool includeDocMentions = false,
             CancellationToken cancellationToken = default) => throw exception;
     }
 

@@ -175,7 +175,9 @@ public sealed class LanguageAdapters
 
         return (null, new SymbolNotFoundError(
             $"No symbol named '{name}' was found in the ready workspace.",
-            "Confirm the name/FQN (and optional projectId), then call symbol_resolve again."));
+            name.Trim().Contains('.')
+                ? "For a 'Type.Member' name, resolve the type part with symbol_resolve first and call symbol_members on its handle; otherwise confirm the FQN or pass projectId from workspace_list_projects."
+                : "Confirm the name/FQN (and optional projectId), then call symbol_resolve again."));
     }
 
     public Task<(SymbolResolveSuccess? Success, SymbolQueryError? Error)> GetSummaryAsync(
@@ -324,10 +326,12 @@ public sealed class LanguageAdapters
         IWorkspaceSession session,
         string handle,
         string newName,
+        bool includeDocMentions = false,
         CancellationToken cancellationToken = default) =>
         Dispatch(
             handle,
-            adapter => adapter.BuildRenamePreviewAsync(session, handle, newName, cancellationToken));
+            adapter => adapter.BuildRenamePreviewAsync(
+                session, handle, newName, includeDocMentions, cancellationToken));
 
     private Task<(T? Success, SymbolQueryError? Error)> Dispatch<T>(
         string handle,

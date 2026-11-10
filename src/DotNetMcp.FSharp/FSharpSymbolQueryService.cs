@@ -94,7 +94,9 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         {
             return (null, new SymbolNotFoundError(
                 $"No symbol named '{name}' was found in the ready workspace.",
-                "Confirm the name/FQN (and optional projectId), then call symbol_resolve again."));
+                query.Contains('.')
+                    ? "For a 'Type.Member' name, resolve the type part with symbol_resolve first and call symbol_members on its handle; otherwise confirm the FQN or pass projectId from workspace_list_projects."
+                    : "Confirm the name/FQN (and optional projectId), then call symbol_resolve again."));
         }
 
         if (matches.Count > 1)
@@ -115,10 +117,20 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
                 }
                 else
                 {
-                    var ids = string.Join(", ", matches.Select(m => m.ProjectId).Distinct());
+                    var projectIds = matches.Select(m => m.ProjectId).Distinct().ToList();
+                    if (projectIds.Count > 1)
+                    {
+                        var ids = string.Join(", ", projectIds);
+                        return (null, new SymbolAmbiguousError(
+                            $"Symbol '{name}' matched {matches.Count} candidates across projectId(s): {ids}.",
+                            "Pass projectId (and a more specific FQN if needed) to symbol_resolve to disambiguate."));
+                    }
+
+                    var signatures = matches.Select(m => m.SignatureQualifiedName).Distinct().ToList();
+                    var listed = string.Join("; ", signatures.Take(5)) + (signatures.Count > 5 ? "; …" : string.Empty);
                     return (null, new SymbolAmbiguousError(
-                        $"Symbol '{name}' matched {matches.Count} candidates across projectId(s): {ids}.",
-                        "Pass projectId (and a more specific FQN if needed) to symbol_resolve to disambiguate."));
+                        $"Symbol '{name}' matched {matches.Count} candidates in projectId {projectIds[0]}: {listed}.",
+                        "Pass a signature-qualified name to symbol_resolve, or resolve the containing type first and call symbol_members on its handle."));
                 }
             }
         }

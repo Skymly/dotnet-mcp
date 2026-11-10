@@ -206,6 +206,7 @@ public class AgentGuidanceSeamTests
             "symbol_preview_rename",
             "symbol_apply_rename",
             "unverifiedXamlMentions",
+            "unverifiedMentions",
         })
         {
             Assert.Contains(term, snippet, StringComparison.Ordinal);

@@ -599,6 +599,7 @@ public class DiagnosticQueryServiceTests
             IWorkspaceSession session,
             string handle,
             string newName,
+            bool includeDocMentions = false,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }

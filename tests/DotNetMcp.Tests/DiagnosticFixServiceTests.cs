@@ -477,7 +477,8 @@ public class DiagnosticFixServiceTests
             throw new NotSupportedException();
 
         public Task<(RenamePreviewDraft? Draft, SymbolQueryError? Error)> BuildRenamePreviewAsync(
-            IWorkspaceSession session, string handle, string newName, CancellationToken cancellationToken = default) =>
+            IWorkspaceSession session, string handle, string newName, bool includeDocMentions = false,
+            CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
 }
