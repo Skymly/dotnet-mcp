@@ -15,6 +15,7 @@ public sealed record DocumentDrift(
 public sealed class LoadedSolution : IAsyncDisposable
 {
     private readonly Workspace _workspace;
+    private readonly Solution _workspaceSolutionAtLoad;
     private Dictionary<string, DocumentId> _docsByPath;
     private readonly Dictionary<string, DateTime> _projectFileMtimes = new(PathPolicy.Comparer);
     // Concurrent: refresh PLANNING reads it outside the workspace gate while a committing
@@ -28,6 +29,7 @@ public sealed class LoadedSolution : IAsyncDisposable
         IReadOnlyDictionary<ProjectId, IReadOnlyList<string>>? unresolvedAnalyzerPaths = null)
     {
         _workspace = workspace;
+        _workspaceSolutionAtLoad = workspace.CurrentSolution;
         Solution = solution;
         Warnings = warnings;
         UnresolvedAnalyzerPaths = unresolvedAnalyzerPaths
@@ -42,9 +44,15 @@ public sealed class LoadedSolution : IAsyncDisposable
         RecordProjectFileSnapshots(projectPaths);
     }
 
+    // The session owns this immutable snapshot. MSBuildWorkspace.TryApplyChanges would
+    // persist bookkeeping changes to user files.
     public Solution Solution { get; private set; }
     public IReadOnlyList<string> Warnings { get; }
     public Workspace Workspace => _workspace;
+
+    // Session-only forks are expected. An independently advanced Roslyn workspace
+    // invalidates the base of a pending Workspace Edit, just as TryApplyChanges did.
+    internal bool IsWorkspaceBaseCurrent => ReferenceEquals(_workspace.CurrentSolution, _workspaceSolutionAtLoad);
 
     /// <summary>
     /// Analyzer paths MSBuild declared but no file materialized for, keyed by project —
@@ -86,12 +94,12 @@ public sealed class LoadedSolution : IAsyncDisposable
             : Solution.GetAdditionalDocument(documentId) is not null
                 ? Solution.WithAdditionalDocumentText(documentId, text)
                 : null;
-        if (updated is null || !_workspace.TryApplyChanges(updated))
+        if (updated is null)
         {
             return false;
         }
 
-        Solution = _workspace.CurrentSolution;
+        Solution = updated;
         _docsByPath = BuildIndex(Solution);
         return true;
     }
@@ -264,9 +272,8 @@ public sealed class LoadedSolution : IAsyncDisposable
     /// <see cref="NonLockingAnalyzerLoader"/> — the DLL is never memory-mapped, so it is
     /// never locked for the session — and records each analyzer path's file stamp for
     /// <see cref="PlanAnalyzerReferenceRefresh"/>. Runs once after the trusted-graph gate,
-    /// before the workspace is published. Returns the number of swapped references, or a
-    /// negative number when the workspace refused the apply — the original references
-    /// stay in place either way (today's behavior).
+    /// before the workspace is published. Returns the number of swapped references; the
+    /// swap is session-snapshot only — nothing is written through the workspace.
     /// </summary>
     internal int ConvertToNonLockingAnalyzerReferences(Func<string, bool> allowRead)
     {
@@ -314,11 +321,7 @@ public sealed class LoadedSolution : IAsyncDisposable
             }
         }
 
-        if (swapped > 0 && !TryApplySolutionChanges(updated))
-        {
-            return -swapped;
-        }
-
+        Solution = updated;
         return swapped;
     }
 
@@ -400,8 +403,7 @@ public sealed class LoadedSolution : IAsyncDisposable
 
     /// <summary>
     /// Applies a <see cref="PlanAnalyzerReferenceRefresh"/> result. Call under the workspace
-    /// gate. A refused apply leaves references as they were (stale-but-stable, today's
-    /// behavior) and skips the stamp update so the next epoch retries.
+    /// gate. Session-snapshot only — nothing is written through the workspace.
     /// </summary>
     internal void ApplyAnalyzerReferenceRefresh(AnalyzerRefreshPlan plan)
     {
@@ -415,36 +417,16 @@ public sealed class LoadedSolution : IAsyncDisposable
             }
         }
 
-        if (ReferenceEquals(updated, Solution) || !TryApplySolutionChanges(updated))
+        if (ReferenceEquals(updated, Solution))
         {
             return;
         }
 
+        Solution = updated;
         foreach (var (path, stamp) in plan.NewStamps)
         {
             _analyzerStamps[path] = stamp;
         }
-    }
-
-    /// <summary>
-    /// Routes a solution mutation through the underlying workspace so this snapshot and
-    /// <see cref="Workspace.CurrentSolution"/> stay paired. Returns false when the
-    /// workspace refuses the change.
-    /// </summary>
-    private bool TryApplySolutionChanges(Solution updated)
-    {
-        bool applied;
-        try
-        {
-            applied = _workspace.TryApplyChanges(updated);
-        }
-        catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
-        {
-            applied = false;
-        }
-
-        Solution = _workspace.CurrentSolution;
-        return applied;
     }
 
     private static IEnumerable<string> EnumerateAnalyzerPaths(Solution solution)

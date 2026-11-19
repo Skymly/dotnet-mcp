@@ -196,6 +196,62 @@ public class AnalyzerRefreshSeamTests
         }
     }
 
+    [Fact]
+    public async Task workspace_open_keeps_project_bytes_for_build_time_analyzers()
+    {
+        var root = CreateTempDir("build-time-analyzer");
+        try
+        {
+            var project = Path.Combine(root, "App.csproj");
+            File.Copy(
+                typeof(CustomGenerator.MarkerGenerator).Assembly.Location,
+                Path.Combine(root, "CustomGenerator.dll"));
+            await File.WriteAllTextAsync(project, """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+                  <Target Name="AddRuntimeAnalyzers" BeforeTargets="CoreCompile">
+                    <ItemGroup><Analyzer Include="$(MSBuildProjectDirectory)/CustomGenerator.dll" /></ItemGroup>
+                  </Target>
+                </Project>
+                """);
+            await File.WriteAllTextAsync(Path.Combine(root, "Consumer.cs"), "public class Consumer { }");
+
+            var feed = Directory.CreateDirectory(Path.Combine(root, "empty-feed")).FullName;
+            var restore = new System.Diagnostics.ProcessStartInfo("dotnet")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                ArgumentList = { "restore", project, "--source", feed, "-p:NuGetAudit=false", "--nologo" },
+            };
+            using (var process = System.Diagnostics.Process.Start(restore)!)
+            {
+                var stdout = process.StandardOutput.ReadToEndAsync();
+                var stderr = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync().WaitAsync(WorkspaceReady.MsBuildTimeout);
+                Assert.True(process.ExitCode == 0, (await stdout) + (await stderr));
+            }
+
+            var projectBytes = await File.ReadAllBytesAsync(project);
+            await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]), solutionLoader: null);
+            await WorkspaceReady.OpenUntilReadyAsync(fx, project, WorkspaceReady.MsBuildTimeout);
+            Assert.Equal(projectBytes, await File.ReadAllBytesAsync(project));
+
+            var id = await GetSingleProjectIdAsync(fx);
+            var result = await fx.Client.CallToolAsync(
+                "project_list_generators",
+                new Dictionary<string, object?> { ["projectId"] = id });
+            Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+            Assert.Contains(
+                InProcessMcpFixture.Deserialize<ProjectListGeneratorsResultDto>(result).Generators,
+                g => g.TypeFullName == "CustomGenerator.MarkerGenerator");
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private static async Task<string> GetSingleProjectIdAsync(InProcessMcpFixture fx)
     {
         var list = await fx.Client.CallToolAsync(

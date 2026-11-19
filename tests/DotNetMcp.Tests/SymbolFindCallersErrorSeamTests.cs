@@ -61,19 +61,21 @@ public class SymbolFindCallersErrorSeamTests
         var workspace = CreateUnresolvedAnalyzerWorkspace();
         var warnings = new List<string>();
 
-        var unresolvedPaths = MsBuildSolutionLoader.RemoveUnresolvedAnalyzerReferences(workspace, warnings);
+        await using var loaded = MsBuildSolutionLoader.CreateLoadedSolution(workspace, warnings);
 
         Assert.DoesNotContain(
+            loaded.Solution.Projects.SelectMany(static p => p.AnalyzerReferences),
+            static r => r is UnresolvedAnalyzerReference);
+        // Only the derived session snapshot omits the stubs — the underlying
+        // workspace's CurrentSolution is not edited.
+        Assert.Contains(
             workspace.CurrentSolution.Projects.SelectMany(static p => p.AnalyzerReferences),
             static r => r is UnresolvedAnalyzerReference);
         Assert.Contains(warnings, w => w.Contains("Missing.Generator.dll", StringComparison.OrdinalIgnoreCase));
 
-        var appId = workspace.CurrentSolution.Projects.Single(static p => p.Name == "App").Id;
-        Assert.NotNull(unresolvedPaths);
-        Assert.Contains(unresolvedPaths![appId], p => p == MissingAnalyzerPath);
+        var appId = loaded.Solution.Projects.Single(static p => p.Name == "App").Id;
+        Assert.Contains(loaded.UnresolvedAnalyzerPaths[appId], p => p == MissingAnalyzerPath);
 
-        await using var loaded = new LoadedSolution(
-            workspace, workspace.CurrentSolution, warnings, unresolvedPaths);
         var service = new LanguageAdapters([new RoslynLanguageAdapter(new GeneratorQueryService())]);
         using var session = new WorkspaceSession(loaded, epoch: 1);
         var libProjectId = loaded.Solution.Projects
