@@ -452,6 +452,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 }
                 else
                 {
+                    var targetsPresent = true;
                     foreach (var (document, _, _) in prepared)
                     {
                         var newText = SourceText.From(document.NewText);
@@ -459,11 +460,16 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                             && !loaded.HasMatchingDocumentText(document.Path, newText)
                             && !TryReadFSharpSnapshotText(fsharp, document.Path, out _))
                         {
-                            RevertDeclaredPathsInMemory(loaded, prepared);
-                            failureError = PolicyErrorCodes.PreviewTargetMissing;
-                            failureMessage = "A preview document is not in the ready workspace";
+                            targetsPresent = false;
                             break;
                         }
+                    }
+
+                    if (!targetsPresent || !loaded.IsWorkspaceBaseCurrent)
+                    {
+                        RevertDeclaredPathsInMemory(loaded, prepared);
+                        failureError = PolicyErrorCodes.PreviewTargetMissing;
+                        failureMessage = "A preview document is not in the ready workspace";
                     }
                 }
             }
@@ -1030,11 +1036,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             // refreshes the bytes. Best-effort: failure keeps the original references.
             try
             {
-                if (loaded.ConvertToNonLockingAnalyzerReferences(AnalyzerReadAllowance()) < 0)
-                {
-                    loaded.AddWarning(
-                        "The workspace refused analyzer-reference changes; analyzer DLLs may stay locked for the session and rebuilt analyzers will not be picked up.");
-                }
+                loaded.ConvertToNonLockingAnalyzerReferences(AnalyzerReadAllowance());
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

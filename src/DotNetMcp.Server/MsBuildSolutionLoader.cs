@@ -280,9 +280,9 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
 
             var solution = workspace.CurrentSolution;
             var count = Math.Max(1, solution.ProjectIds.Count);
-            var unresolvedAnalyzerPaths = RemoveUnresolvedAnalyzerReferences(workspace, warnings);
+            var loaded = CreateLoadedSolution(workspace, warnings);
             progress?.Report(new LoadProgress(count, count));
-            return new LoadedSolution(workspace, workspace.CurrentSolution, warnings, unresolvedAnalyzerPaths);
+            return loaded;
         }
         catch
         {
@@ -415,9 +415,9 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
             _ = await workspace.OpenProjectAsync(projectPath, cancellationToken: ct)
                 .ConfigureAwait(false);
             var count = Math.Max(1, workspace.CurrentSolution.ProjectIds.Count);
-            var unresolvedAnalyzerPaths = RemoveUnresolvedAnalyzerReferences(workspace, warnings);
+            var loaded = CreateLoadedSolution(workspace, warnings);
             progress?.Report(new LoadProgress(count, count));
-            return new LoadedSolution(workspace, workspace.CurrentSolution, warnings, unresolvedAnalyzerPaths);
+            return loaded;
         }
         catch
         {
@@ -457,8 +457,7 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
                 progress?.Report(new LoadProgress(completed, total));
             }
 
-            var unresolvedAnalyzerPaths = RemoveUnresolvedAnalyzerReferences(workspace, warnings);
-            return new LoadedSolution(workspace, workspace.CurrentSolution, warnings, unresolvedAnalyzerPaths);
+            return CreateLoadedSolution(workspace, warnings);
         }
         catch
         {
@@ -468,22 +467,23 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
     }
 
     /// <summary>
-    /// Detaches <see cref="UnresolvedAnalyzerReference"/> stubs MSBuild leaves on a project when
-    /// an &lt;Analyzer&gt; item cannot be resolved to a file — an unrestored generator package, a
-    /// stale package path (issue #548). The stubs contribute no analyzers; Roslyn keeps them for
-    /// error reporting only, and the workspace serializer cannot checksum any non-file reference
-    /// (UnresolvedAnalyzerReference throws UnexpectedValue; AnalyzerImageReference is test-only),
-    /// so SymbolFinder's dependent-type cascade (symbol_find_callers / find_references /
-    /// find_implementations) threw an <see cref="InvalidOperationException"/> out of the query.
+    /// Builds the session's <see cref="LoadedSolution"/> from a freshly opened workspace.
+    /// The derived snapshot omits <see cref="UnresolvedAnalyzerReference"/> stubs MSBuild
+    /// leaves on a project when an &lt;Analyzer&gt; item cannot be resolved to a file — an
+    /// unrestored generator package, a stale package path (issue #548). The stubs contribute
+    /// no analyzers; Roslyn keeps them for error reporting only, and the workspace serializer
+    /// cannot checksum any non-file reference (UnresolvedAnalyzerReference throws
+    /// UnexpectedValue; AnalyzerImageReference is test-only), so SymbolFinder's dependent-type
+    /// cascade (symbol_find_callers / find_references / find_implementations) threw an
+    /// <see cref="InvalidOperationException"/> out of the query.
     ///
-    /// The declared paths are NOT lost: they are returned keyed by project for
-    /// <see cref="LoadedSolution.UnresolvedAnalyzerPaths"/> so project_list_generators can still
-    /// report them as unresolvedAnalyzerReferences (issue #551), and each path is named in the
-    /// load warnings — the detachment is never silent. Removing a non-file analyzer reference
-    /// does not write the csproj: MSBuildWorkspace only persists
-    /// <see cref="AnalyzerFileReference"/> removes.
+    /// The declared paths are NOT lost: they are returned keyed by project on
+    /// <see cref="LoadedSolution.UnresolvedAnalyzerPaths"/> so project_list_generators can
+    /// still report them as unresolvedAnalyzerReferences (issue #551), and each path is named
+    /// in the load warnings — the omission is never silent. Only the session snapshot is
+    /// derived: on disk and the underlying workspace's CurrentSolution are not edited.
     /// </summary>
-    internal static Dictionary<ProjectId, IReadOnlyList<string>>? RemoveUnresolvedAnalyzerReferences(
+    internal static LoadedSolution CreateLoadedSolution(
         Workspace workspace, List<string> warnings)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -519,13 +519,6 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
             }
         }
 
-        if (!ReferenceEquals(stripped, solution) && !workspace.TryApplyChanges(stripped))
-        {
-            warnings.Add(
-                "Unresolved analyzer references could not be detached from the workspace; " +
-                "finder queries may fail with a structured error instead of returning results.");
-        }
-
-        return unresolvedPaths;
+        return new LoadedSolution(workspace, stripped, warnings, unresolvedPaths);
     }
 }
