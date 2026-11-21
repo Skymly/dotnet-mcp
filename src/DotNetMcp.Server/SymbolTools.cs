@@ -579,7 +579,11 @@ public sealed class SymbolTools
         var held = _workspaceEdit.Preview(new WorkspaceEditDraft(
             WorkspaceEditKind.RenamePreview,
             draft!.Documents.Select(d => new WorkspaceEditDocument(d.Path, d.OldText, d.NewText)).ToArray(),
-            draft.InvalidatedHandles));
+            draft.InvalidatedHandles)
+        {
+            ExpectedEpoch = session.Epoch,
+            AffectedProjectIds = session.GetAffectedProjectIds(draft.Documents.Select(static d => d.Path)),
+        });
         if (held.Error is not null)
         {
             return McpToolEnvelope.ErrorResult(held.Error);
@@ -594,6 +598,7 @@ public sealed class SymbolTools
             NewName = draft.NewName,
             Documents = ToDocumentDtos(held.Value.Documents),
             InvalidatedHandles = held.Value.InvalidatedHandles,
+            AffectedProjectIds = held.Value.AffectedProjectIds,
             UnverifiedXamlMentions = draft.UnverifiedXamlMentions is { Count: > 0 } mentions
                 ? mentions.Select(static m => new UnverifiedXamlMentionDto
                 {
@@ -624,7 +629,8 @@ public sealed class SymbolTools
     [McpServerTool(Name = "symbol_apply_rename", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false), Description(
         "Apply a still-valid C# / VB / F# rename preview. Writes only the documents listed in that preview — " +
         "handwritten sources plus any registered XAML documents the preview sliced — all of which " +
-        "must already exist inside a trusted root. Uses WriteSuppression and advances the workspace Epoch. " +
+        "must already exist inside a trusted root. Advances the workspace Epoch and returns affectedProjectIds " +
+        "for targeted project_diagnostics checks. " +
         "There is no apply path that skips preview. Refuses with SourceEncodingRefused, and writes nothing, when a listed document has no BOM and is not valid UTF-8. Not a generic write / patch / shell tool.")]
     public Task<CallToolResult> SymbolApplyRename(
         [Description("previewId from symbol_preview_rename (current Epoch, unexpired).")]
@@ -650,7 +656,8 @@ public sealed class SymbolTools
             PreviewId = applied.Value!.PreviewId,
             Epoch = applied.Value.Epoch,
             WrittenPaths = applied.Value.WrittenPaths,
-            InvalidatedHandles = applied.Value.InvalidatedHandles
+            InvalidatedHandles = applied.Value.InvalidatedHandles,
+            AffectedProjectIds = applied.Value.AffectedProjectIds
         }));
     }
 

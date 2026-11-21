@@ -564,6 +564,7 @@ public sealed record SymbolPreviewRenameResultDto
     public required string NewName { get; init; }
     public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
     public required IReadOnlyList<string> InvalidatedHandles { get; init; }
+    public IReadOnlyList<string> AffectedProjectIds { get; init; } = [];
     public IReadOnlyList<UnverifiedXamlMentionDto>? UnverifiedXamlMentions { get; init; }
     public IReadOnlyList<UnverifiedMentionDto>? UnverifiedMentions { get; init; }
 }
@@ -575,6 +576,7 @@ public sealed record SymbolApplyRenameResultDto
     public required long Epoch { get; init; }
     public required IReadOnlyList<string> WrittenPaths { get; init; }
     public required IReadOnlyList<string> InvalidatedHandles { get; init; }
+    public IReadOnlyList<string> AffectedProjectIds { get; init; } = [];
 }
 
 public sealed record DiagnosticFixItemDto

@@ -15,6 +15,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
     private readonly FindHitCache _findHits;
     private readonly XamlUsageIndexCache _xamlUsages;
     private readonly IReadOnlyDictionary<ProjectId, IReadOnlyList<string>> _unresolvedAnalyzerPaths;
+    private readonly LoadedSolution _loaded;
     private bool _disposed;
 
     public WorkspaceSession(
@@ -32,6 +33,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         // Prefer the host-frozen F# snapshot (captured when Epoch advances). Tests that need F#
         // sources must pass a snapshot captured with trusted roots — never walk disk without roots.
         Solution = solution ?? loaded.Solution;
+        _loaded = loaded;
         _unresolvedAnalyzerPaths = loaded.UnresolvedAnalyzerPaths;
         Epoch = epoch;
         FSharpSnapshot = fsharpSnapshot ?? new FSharpWorkspaceSnapshot(epoch, []);
@@ -47,6 +49,23 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
     public Solution Solution { get; }
 
     public FSharpWorkspaceSnapshot FSharpSnapshot { get; }
+
+    internal IReadOnlyList<string> GetAffectedProjectIds(IEnumerable<string> changedPaths)
+    {
+        var paths = changedPaths.ToHashSet(PathPolicy.Comparer);
+        var projectIds = paths.SelectMany(_loaded.GetDocumentIds)
+            .Select(static id => id.ProjectId.Id.ToString("D"))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var project in FSharpSnapshot.Projects)
+        {
+            if (project.Documents.Any(document => paths.Contains(document.Path)))
+            {
+                projectIds.Add(project.ProjectId);
+            }
+        }
+
+        return projectIds.Order(StringComparer.Ordinal).ToArray();
+    }
 
     /// <summary>Test/observability hook for the compilation LRU (host-shared when injected).</summary>
     public CompilationLru CompilationCache => _compilationLru;

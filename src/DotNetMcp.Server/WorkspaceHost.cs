@@ -189,6 +189,13 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
     public bool TryGetReadySession(out IWorkspaceSession? session)
     {
+        var ready = TryGetReadyWorkspaceSession(out var snapshot);
+        session = snapshot;
+        return ready;
+    }
+
+    internal bool TryGetReadyWorkspaceSession(out WorkspaceSession? session)
+    {
         lock (_gate)
         {
             if (_phase != "ready" || _loaded is null)
