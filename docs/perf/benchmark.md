@@ -60,6 +60,7 @@ Recorded ids are `{workspace}.` plus the suffix below. There is no `.cold` scena
 ### Symbol (C# / VB / F#)
 
 - `symbol.resolve.warm` (warmup calls are discarded; there is no separate cold id)
+- `SampleFilter.symbol.source` and `SampleFilter.symbol.resolve_at` (the position comes from `symbol_goto_definition` on the same fixture symbol)
 - `symbol.summary` · `symbol.goto_definition` · `symbol.members` · `symbol.attribution`
 - `symbol.find_references.scoped` · `symbol.find_references.entire`
 - `symbol.find_callers` · `symbol.find_implementations` · `symbol.type_hierarchy`
