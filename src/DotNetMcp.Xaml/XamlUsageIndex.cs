@@ -211,7 +211,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
                     continue;
                 }
 
-                var dataType = reader.GetAttribute("DataType", XamlXmlns.Xaml);
+                var dataType = XamlDocumentService.GetXamlDirective(reader, "DataType");
                 var effectiveDataType = !string.IsNullOrWhiteSpace(dataType)
                     ? dataType.Trim()
                     : ctx.CurrentDataType;

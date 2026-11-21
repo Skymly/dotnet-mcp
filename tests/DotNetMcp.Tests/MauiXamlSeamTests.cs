@@ -5,23 +5,26 @@ namespace DotNetMcp.Tests;
 
 public class MauiXamlSeamTests
 {
-    [Fact]
-    public async Task maui_xaml_resolve_class_name_and_binding()
+    [Theory]
+    [InlineData("http://schemas.microsoft.com/winfx/2006/xaml")]
+    [InlineData("http://schemas.microsoft.com/winfx/2009/xaml")]
+    public async Task maui_xaml_resolve_class_name_and_binding(string directiveNamespace)
     {
         var root = CreateTempDir("root");
         var solution = Path.Combine(root, "App.slnx");
         var xaml = Path.Combine(root, "MainPage.xaml");
         await File.WriteAllTextAsync(solution, "<Solution></Solution>");
-        await File.WriteAllTextAsync(xaml, """
+        var markup = $$"""
             <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
-                         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                         xmlns:x="{{directiveNamespace}}"
                          xmlns:local="clr-namespace:MauiPage"
                          x:Class="MauiPage.MainPage"
                          x:DataType="local:MainViewModel">
                 <Label x:Name="TitleLabel" Text="{Binding Title}" />
                 <Label x:Name="MissingName" Text="{Binding NotAProp}" />
             </ContentPage>
-            """);
+            """;
+        await File.WriteAllTextAsync(xaml, markup);
 
         try
         {
@@ -58,6 +61,15 @@ public class MauiXamlSeamTests
             Assert.True(binding.IsError is not true, InProcessMcpFixture.TextOf(binding));
             var bindBody = InProcessMcpFixture.Deserialize<XamlResolveBindingResultDto>(binding);
             Assert.Contains(bindBody.Items, i => i.Name == "Title");
+
+            var lines = markup.Split('\n');
+            var bindingLine = Array.FindIndex(lines, line => line.Contains("{Binding Title}", StringComparison.Ordinal));
+            var column = lines[bindingLine].IndexOf("Binding Title", StringComparison.Ordinal) + "Binding ".Length + 1;
+            var usage = await fx.Client.CallToolAsync(
+                "symbol_resolve_at",
+                new Dictionary<string, object?> { ["path"] = xaml, ["line"] = bindingLine + 1, ["column"] = column });
+            Assert.True(usage.IsError is not true, InProcessMcpFixture.TextOf(usage));
+            Assert.Equal("Title", InProcessMcpFixture.Deserialize<SymbolResolveAtResultDto>(usage).Summary.DisplayName);
 
             var xmlns = await fx.Client.CallToolAsync(
                 "xaml_list_xmlns",
