@@ -129,7 +129,19 @@ public static class PathPolicy
         for (var i = 0; i < segments.Length; i++)
         {
             var next = CombineUnder(current, segments[i]);
-            if (NodeExistsOrIsReparse(next))
+            if (OperatingSystem.IsWindows())
+            {
+                // The Windows attribute lookup describes the link itself. A plain node needs
+                // neither separate existence probes nor a ResolveLinkTarget call.
+                if (GetNodeAttributes(next) is { } attributes)
+                {
+                    current = (attributes & FileAttributes.ReparsePoint) == 0
+                        ? next
+                        : ResolveExistingNode(next);
+                    continue;
+                }
+            }
+            else if (NodeExistsOrIsReparse(next))
             {
                 current = ResolveExistingNode(next);
                 continue;
@@ -208,17 +220,19 @@ public static class PathPolicy
     private static bool NodeExistsOrIsReparse(string path) =>
         Directory.Exists(path) || File.Exists(path) || IsReparsePoint(path);
 
-    private static bool IsReparsePoint(string path)
+    private static bool IsReparsePoint(string path) =>
+        (GetNodeAttributes(path).GetValueOrDefault() & FileAttributes.ReparsePoint) != 0;
+
+    private static FileAttributes? GetNodeAttributes(string path)
     {
         try
         {
-            var attrs = File.GetAttributes(path);
-            return (attrs & FileAttributes.ReparsePoint) != 0;
+            return File.GetAttributes(path);
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             // Missing trailing segments still append lexically.
-            return false;
+            return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
