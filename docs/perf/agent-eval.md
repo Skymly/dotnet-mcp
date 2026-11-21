@@ -203,3 +203,11 @@ succeeded with 5.0.1 under `io.github.Skymly/dotnet-mcp`. The formal
 per-category A/B gate remains open under #528. The
 [same-host release latency comparison](2026-11-22-release-p95.md) also
 exceeded the +20% cap in #529.
+
+## Formal task-bank run — 2026-11-22
+
+Codex CLI 0.166.0 and OpenCode Go `deepseek-v4.1-flash` completed all 60
+cells. The tool arm passed 30/30 and the control passed 28/30. Every
+category met the completion-rate criterion. The formal run took place
+after 5.0.0 shipped. The report records the candidate, median costs,
+failures, and per-cell receipts. [Formal A/B report](2026-11-22-agent-ab.md)
