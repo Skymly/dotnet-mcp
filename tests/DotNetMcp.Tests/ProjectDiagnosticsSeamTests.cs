@@ -1,5 +1,6 @@
 using DotNetMcp.Core;
 using DotNetMcp.Server;
+using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Tests;
 
@@ -152,6 +153,29 @@ public class ProjectDiagnosticsSeamTests
         {
             TryDelete(root);
         }
+    }
+
+    [Fact]
+    public async Task batch_project_diagnostics_pages_through_all_roslyn_diagnostics()
+    {
+        await using var loaded = FakeSolutionLoader.CreateDiagnosticsLoaded(@"C:\fake\BrokenLib.csproj");
+        var project = loaded.Solution.Projects.Single();
+        var source = string.Join("\n", Enumerable.Range(1, 120).Select(i => $"#warning Diagnostic {i}"));
+        var solution = loaded.Solution.WithDocumentText(project.Documents.Single().Id, SourceText.From(source));
+        using var session = new WorkspaceSession(loaded, epoch: 1, solution: solution);
+        var service = new DiagnosticQueryService();
+
+        var (first, firstError) = await service.GetProjectDiagnosticsAsync(session, projectId: "", limit: 100);
+        Assert.Null(firstError);
+        Assert.Equal(100, first!.Page.Items.Count);
+        Assert.True(first.Page.Truncated);
+        Assert.NotNull(first.Page.NextCursor);
+
+        var (second, secondError) = await service.GetProjectDiagnosticsAsync(
+            session, projectId: "", limit: 100, cursor: first.Page.NextCursor);
+        Assert.Null(secondError);
+        Assert.False(second!.Page.Truncated);
+        Assert.Equal(Enumerable.Range(1, 120), first.Page.Items.Concat(second.Page.Items).Select(item => item.Line!.Value));
     }
 
     [Fact]
