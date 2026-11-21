@@ -305,6 +305,18 @@ public class XamlUsageIndexTests
     }
 
     [Fact]
+    public async Task workspace_tools_registration_defers_xaml_language_services()
+    {
+        var services = new ServiceCollection();
+        ServerHost.AddDotNetMcp(services, TrustedRoots.Create([Path.GetTempPath()]));
+        services.AddSingleton<LanguageAdapters>(_ =>
+            throw new InvalidOperationException("Workspace tools should resolve before XAML language services."));
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.NotNull(provider.GetRequiredService<WorkspaceTools>());
+    }
+
+    [Fact]
     public void di_wires_xaml_usage_source_to_the_index_singleton()
     {
         var root = Path.Combine(Path.GetTempPath(), "dotnet-mcp-xaml-wire-" + Guid.NewGuid().ToString("N"));
