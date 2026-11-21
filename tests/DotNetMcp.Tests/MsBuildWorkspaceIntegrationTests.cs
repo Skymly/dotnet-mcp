@@ -501,6 +501,23 @@ public class MsBuildWorkspaceIntegrationTests
     }
 
     [Fact]
+    public async Task workspace_open_checks_host_roots_when_loader_roots_differ()
+    {
+        var filterDirectory = Path.Combine(FixturesRoot, "SampleFilter");
+        var filter = Path.Combine(filterDirectory, "SampleMultiTfm.slnf");
+        var loader = new MsBuildSolutionLoader(TrustedRoots.Create([FixturesRoot]));
+        await using var fx = new InProcessMcpFixture(TrustedRoots.Create([filterDirectory]), loader);
+
+        var open = await fx.Client.CallToolAsync(
+            "workspace_open",
+            new Dictionary<string, object?> { ["path"] = filter });
+        Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
+
+        var status = await WaitUntilFailedAsync(fx, WorkspaceReady.MsBuildTimeout);
+        Assert.Equal(PolicyErrorCodes.LoadedGraphOutsideTrustedRoots, status.ErrorCode);
+    }
+
+    [Fact]
     public async Task workspace_open_generator_host_unbuilt_analyzer_reference_surfaces_declared_path()
     {
         // Issue #551: the fixture declares <ProjectReference OutputItemType="Analyzer"> to

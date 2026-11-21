@@ -1035,7 +1035,12 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             var loaded = await _loader.OpenAsync(path, progress, ct).ConfigureAwait(false);
 
-            await MsBuildSolutionLoader.EnsureGraphOrDisposeAsync(loaded, _trustedRoots).ConfigureAwait(false);
+            // The built-in loader has already checked the graph before reading analyzer metadata.
+            // Check it here when the loader did not validate it against the host's roots.
+            if (_loader is not MsBuildSolutionLoader msBuildLoader || !msBuildLoader.ValidatesGraphFor(_trustedRoots))
+            {
+                await MsBuildSolutionLoader.EnsureGraphOrDisposeAsync(loaded, _trustedRoots).ConfigureAwait(false);
+            }
 
             // Issue #549: MSBuildWorkspace hands out lazy AnalyzerFileReference instances
             // whose loader memory-maps (and locks) the analyzer DLL the first time

@@ -5,9 +5,8 @@ namespace DotNetMcp.Tests;
 /// <summary>
 /// Issue #547: an .slnf entry whose project is already in the workspace — a duplicate
 /// filter line, or a project an earlier entry pulled in transitively — used to hit
-/// MSBuildWorkspace's "already part of the workspace" and abort the whole open. Each
-/// entry is now opened via <see cref="MsBuildSolutionLoader.OpenProjectIfMissingAsync"/>
-/// and a skip is named in the load warnings, never silent.
+/// MSBuildWorkspace's "already part of the workspace" and abort the whole open. The
+/// loader skips these entries and names them in the load warnings.
 /// </summary>
 public class SlnfDedupTests
 {

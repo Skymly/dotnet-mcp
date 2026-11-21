@@ -53,67 +53,55 @@ public static class TrustedGraphGate
     /// </summary>
     public static void EnsureLoadedSolutionUnderRoots(LoadedSolution loaded, TrustedRoots trustedRoots)
     {
-        var projectPaths = loaded.Solution.Projects
-            .Select(static p => p.FilePath)
-            .Where(static p => !string.IsNullOrWhiteSpace(p))
-            .Cast<string>()
-            .Where(PathExists);
-
+        var projects = loaded.Solution.Projects;
+        var projectPaths = ExistingPaths(projects.Select(static p => p.FilePath));
         EnsureProjectPathsUnderRoots(projectPaths, trustedRoots, "workspace_open");
 
         var toolchainRoots = ToolchainRoots.Discover();
-        foreach (var project in loaded.Solution.Projects)
+        var documentPaths = ExistingPaths(projects.SelectMany(static p =>
+            p.Documents.Concat<TextDocument>(p.AdditionalDocuments).Select(static d => d.FilePath)));
+        foreach (var path in documentPaths)
         {
-            foreach (var document in EnumerateOnDiskTextDocuments(project))
+            if (!IsTrustedOrToolchain(path, trustedRoots, toolchainRoots))
             {
-                if (!trustedRoots.Contains(document.FilePath!) && !toolchainRoots.Contains(document.FilePath!))
-                {
-                    throw new LoadedGraphOutsideTrustedRootsException(
-                        "workspace_open: a document path resolves outside the configured trusted roots and toolchain roots and was rejected.",
-                        document.FilePath!);
-                }
+                throw new LoadedGraphOutsideTrustedRootsException(
+                    "workspace_open: a document path resolves outside the configured trusted roots and toolchain roots and was rejected.",
+                    path);
             }
         }
 
-        foreach (var project in loaded.Solution.Projects)
+        var analyzerPaths = ExistingPaths(projects.SelectMany(static p =>
+            p.AnalyzerReferences.Select(static r => r.FullPath)));
+        foreach (var path in analyzerPaths)
         {
-            foreach (var analyzer in project.AnalyzerReferences)
+            if (!IsTrustedOrToolchain(path, trustedRoots, toolchainRoots))
             {
-                var fullPath = analyzer.FullPath;
-                if (string.IsNullOrWhiteSpace(fullPath) || !PathExists(fullPath))
-                {
-                    continue;
-                }
-
-                if (trustedRoots.Contains(fullPath) || toolchainRoots.Contains(fullPath))
-                {
-                    continue;
-                }
-
                 throw new LoadedGraphOutsideTrustedRootsException(
                     "workspace_open: an analyzer reference resolves outside the configured trusted roots and toolchain roots and was rejected.",
-                    fullPath);
+                    path);
             }
         }
     }
 
-    private static IEnumerable<TextDocument> EnumerateOnDiskTextDocuments(Project project)
+    private static IEnumerable<string> ExistingPaths(IEnumerable<string?> paths) => paths
+        .Where(static path => !string.IsNullOrWhiteSpace(path))
+        .Cast<string>()
+        .Distinct(StringComparer.Ordinal)
+        .Where(PathExists);
+
+    private static bool IsTrustedOrToolchain(string path, TrustedRoots trustedRoots, ToolchainRoots toolchainRoots)
     {
-        foreach (var document in project.Documents)
+        string normalized;
+        try
         {
-            if (!string.IsNullOrWhiteSpace(document.FilePath) && PathExists(document.FilePath))
-            {
-                yield return document;
-            }
+            normalized = PathPolicy.Normalize(path);
+        }
+        catch (Exception ex) when (ex is PathPolicyException or ArgumentException)
+        {
+            return false;
         }
 
-        foreach (var document in project.AdditionalDocuments)
-        {
-            if (!string.IsNullOrWhiteSpace(document.FilePath) && PathExists(document.FilePath))
-            {
-                yield return document;
-            }
-        }
+        return trustedRoots.ContainsNormalized(normalized) || toolchainRoots.ContainsNormalized(normalized);
     }
 
     private static bool PathExists(string path)
