@@ -83,8 +83,16 @@ public class SlnxReconciliationTests
                 new[] { projects["App"].Id, projects["Library"].Id }.OrderBy(id => id.Id),
                 projects["Consumer"].ProjectReferences.Select(reference => reference.ProjectId).OrderBy(id => id.Id));
             Assert.All(projects.Values, p => Assert.True(PathPolicy.IsUnderRoot(p.FilePath!, root)));
-            Assert.DoesNotContain(warnings, warning =>
-                warning.Contains("Traversal.csproj", StringComparison.Ordinal));
+
+            using var serial = new SlnxWorkspace();
+            await serial.OpenSolutionFileAsync(solutionPath, CancellationToken.None);
+            var serialWarnings = new List<string>();
+#pragma warning disable CS0618
+            serial.WorkspaceFailed += (_, e) => serialWarnings.Add($"{e.Diagnostic.Kind}: {e.Diagnostic.Message}");
+#pragma warning restore CS0618
+            await serial.OpenProjectFileAsync(library, CancellationToken.None);
+            await serial.OpenProjectFileAsync(consumer, CancellationToken.None);
+            Assert.Equal(serialWarnings.Order(StringComparer.Ordinal), warnings.Order(StringComparer.Ordinal));
 
             await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(library)!, "global.json"), "{}");
             Assert.Null(SlnxProjectBatch.TryPlan([library, consumer]));

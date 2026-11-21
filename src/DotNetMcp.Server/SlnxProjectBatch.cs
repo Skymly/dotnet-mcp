@@ -58,7 +58,9 @@ internal sealed record SlnxProjectBatch(IReadOnlyList<string> Projects, string G
             new XElement("ImportDirectoryBuildProps", "false"),
             new XElement("ImportDirectoryBuildTargets", "false")),
         new XElement("ItemGroup", Projects.Select(path =>
-            new XElement("ProjectReference", new XAttribute("Include", path)))),
+            new XElement("ProjectReference", new XAttribute("Include", path),
+                // Roslyn loads the project without expecting an assembly in the traversal's references.
+                new XElement("ReferenceOutputAssembly", "false")))),
         new XElement("Import", new XAttribute("Project", "Sdk.targets"), new XAttribute("Sdk", DotNetSdk)),
         // Supply the design-time targets without compiling or restoring this
         // generated project. Roslyn discovers the actual projects through its references.

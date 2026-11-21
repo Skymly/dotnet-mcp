@@ -69,7 +69,8 @@ internal sealed class SlnxWorkspace : Workspace
             var collected = diagnostics.ToArray();
             var traversal = infos.FirstOrDefault(p => string.Equals(p.FilePath, entryPath, PathPolicy.Comparison));
             if (traversal is null ||
-                collected.Any(d => d.Message.Contains(entryPath, PathPolicy.Comparison)))
+                collected.Any(d => d.Message.Contains(entryPath, PathPolicy.Comparison) ||
+                    (d is ProjectDiagnostic projectDiagnostic && projectDiagnostic.ProjectId == traversal.Id)))
             {
                 return false;
             }
