@@ -189,6 +189,32 @@ internal static class Suites
             "project_diagnostics",
             "project",
             BudgetClass.BatchDiagnostics).ConfigureAwait(false);
+
+        const string sourceId = "SampleFilter.symbol.source";
+        const string positionId = "SampleFilter.symbol.resolve_at";
+        if (runner.Accepts(sourceId) || runner.Accepts(positionId))
+        {
+            var handle = await workspace.ResolveHandleAsync("LibA.Marker", libA).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Missing fixture symbol LibA.Marker.");
+            var args = new Dictionary<string, object?> { ["handle"] = handle };
+            await runner.MeasureToolAsync(
+                workspace, sourceId, "symbol_source", "symbol", BudgetClass.SingleProject, args).ConfigureAwait(false);
+            if (runner.Accepts(positionId))
+            {
+                var definition = await host.CallAsync("symbol_goto_definition", args).ConfigureAwait(false);
+                var location = McpBenchHost.Deserialize<SymbolDefinitionResultDto>(definition).Locations
+                    .First(l => l.FilePath is not null && l.Line.HasValue && l.Column.HasValue);
+                await runner.MeasureToolAsync(
+                    workspace, positionId, "symbol_resolve_at", "symbol", BudgetClass.SingleProject,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = libA,
+                        ["path"] = location.FilePath,
+                        ["line"] = location.Line,
+                        ["column"] = location.Column,
+                    }).ConfigureAwait(false);
+            }
+        }
     }
 
     private static async Task RunMixedAsync(ScenarioRunner runner, McpBenchHost host)

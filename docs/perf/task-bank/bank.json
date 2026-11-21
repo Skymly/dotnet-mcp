@@ -1,0 +1,86 @@
+{
+  "subjects": {
+    "avalonia": {
+      "repo": "AvaloniaUI/Avalonia.Samples", "rev": "446802c92d38a05bd49af700a92994682b45770a",
+      "tree": "src/Avalonia.Samples/MVVM/CommandSample", "workspace": "CommandSample.csproj"
+    },
+    "maui": {
+      "repo": "CommunityToolkit/MVVM-Samples", "rev": "7d67102cd25e918f7a687427225dfbabe9ec9deb",
+      "tree": "", "workspace": "samples/MvvmSampleMAUI/MvvmSampleMAUI.csproj"
+    },
+    "mixed": {
+      "repo": "Skymly/dotnet-mcp", "rev": "42e0d87f8ea228d2ce81945d2502a478a52b315a",
+      "tree": "tests/fixtures/FsharpCrossProject", "workspace": "FsharpCrossProject.slnx"
+    },
+    "diagnostic": {
+      "repo": "Skymly/dotnet-mcp", "rev": "42e0d87f8ea228d2ce81945d2502a478a52b315a",
+      "tree": "tests/fixtures/SampleFilter", "workspace": "Sample.slnx"
+    },
+    "serilog": {
+      "repo": "serilog/serilog", "rev": "49b5339ce85385dc52d4d8e8f2b8308becf23506",
+      "tree": "", "workspace": "src/Serilog/Serilog.csproj"
+    }
+  },
+  "tasks": {
+    "A1": {
+      "subject": "avalonia", "category": "generator",
+      "prompt": "Trace the 'Start Pod Bay Opening Sequence' button in the CommunityToolkit view to its generated command and handwritten method. Return the command property, method name without parentheses, and fully qualified generator type as JSON keys command, method, generator.",
+      "answer": {"command": "OpenThePodBayDoorsCommand", "method": "OpenThePodBayDoorsAsync", "generator": "CommunityToolkit.Mvvm.SourceGenerators.RelayCommandGenerator"}
+    },
+    "A2": {
+      "subject": "avalonia", "category": "binding",
+      "prompt": "For the TextBox with the Robot Name placeholder in the CommunityToolkit view, identify the CLR binding property, handwritten backing field, and the fully qualified compiled binding context type. Return JSON keys property, field, context.",
+      "answer": {"property": "RobotName", "field": "_robotName", "context": "CommandSample.ViewModels.CommunityToolkitCommandsViewModel"}
+    },
+    "A3": {
+      "subject": "avalonia", "category": "rename",
+      "prompt": "Rename the handwritten ConversationLog property of CommunityToolkitCommandsViewModel to SessionHistory, including its references in that class and its typed view. Do not rename the independent ReactiveUI property. Change only identifier tokens; preserve formatting. Return JSON with renamed set to the new identifier.",
+      "answer": {"renamed": "SessionHistory"},
+      "edit": {
+        "ViewModels/CommunityToolkitCommandsViewModel.cs": {
+          "old": "ConversationLog", "new": "SessionHistory", "lines": [26, 42, 69, 90, 95]
+        },
+        "Views/CommunityToolkitCommandsSampleView.axaml": {
+          "old": "ConversationLog", "new": "SessionHistory", "lines": [66, 73]
+        }
+      }
+    },
+    "M1": {
+      "subject": "maui", "category": "binding",
+      "prompt": "In the actual AsyncRelayCommandPage UI (ignore escaped example code), what is the fully qualified x:DataType and which binding path controls the activity indicator's visibility? Return JSON keys context, path.",
+      "answer": {"context": "MvvmSample.Core.ViewModels.AsyncRelayCommandPageViewModel", "path": "DownloadTextCommand.IsRunning"}
+    },
+    "M2": {
+      "subject": "maui", "category": "binding",
+      "prompt": "Trace the Result label on AsyncRelayCommandPage: give its binding path, converter resource key, and the handwritten async method assigned to the command in the actual view model (not the XAML code example). Return JSON keys path, converter, method.",
+      "answer": {"path": "DownloadTextCommand.ExecutionTask", "converter": "TaskResultConverter", "method": "DownloadTextAsync"}
+    },
+    "F1": {
+      "subject": "mixed", "category": "cross-project",
+      "prompt": "List all direct call sites of FsLib.Core.doubleThenBump outside its defining project. Return {\"sites\":[...]} with sorted repository-relative path:line strings, slash separators and one-based line numbers.",
+      "answer": {"sites": ["FsApp/Use.fs:3", "FsApp/Use.fs:5", "FsTop/Top.fs:3"]}
+    },
+    "F2": {
+      "subject": "mixed", "category": "cross-project",
+      "prompt": "Identify the C# method that calls FsOnlyCs.Scaling.scale and the location of that call. Return the fully qualified method name (no parameter list) and relative path:line as JSON keys method, site.",
+      "answer": {"method": "CsConsumer.Use.Apply", "site": "CsConsumer/Use.cs:5"}
+    },
+    "D1": {
+      "subject": "diagnostic", "category": "diagnostic-fix",
+      "prompt": "Repair the incorrect member access in App.Program.Run using the existing LibB API. Do not change behavior, formatting or the public surface of either library. Report the compiler diagnostic ID you fixed as JSON key diagnostic.",
+      "answer": {"diagnostic": "CS0117"},
+      "seed": {"App/Program.cs": ["Helper.Tag", "Helper.Tga"]},
+      "edit": {"App/Program.cs": ["Helper.Tga", "Helper.Tag"]}
+    },
+    "C1": {
+      "subject": "serilog", "category": "text-control",
+      "prompt": "Find the public constant for the source-context property name in Serilog.Core.Constants. Give its identifier, string value and source path relative to this checkout in JSON keys identifier, value, path.",
+      "answer": {"identifier": "SourceContextPropertyName", "value": "SourceContext", "path": "src/Serilog/Core/Constants.cs"}
+    },
+    "C2": {
+      "subject": "serilog", "category": "text-control",
+      "prompt": "List the identifiers declared in LogEventLevel, least to most severe, in a JSON object with a levels array. Use the source spellings, not the logging display abbreviations.",
+      "answer": {"levels": ["Verbose", "Debug", "Information", "Warning", "Error", "Fatal"]}
+    }
+  }
+}

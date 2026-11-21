@@ -168,3 +168,38 @@ could not read, so they are listed as issue claims, not as results.
 | Registry entry searchable | 5.0.0 publish returned 403. The packed name was `io.github.skymly/dotnet-mcp`; the granted namespace follows the owner login `Skymly`. Not re-published from this record |
 | README `dnx` first, unpublished hedge removed | done in the 5.0.1 docs change; not a substitute for the registry entry |
 | Bench refresh under the 20% p95 cap | not done. [`oss-results.md`](oss-results.md) is still 2026-08-24 |
+
+## OpenCode Go pilot — 2026-11-22
+
+The [task bank and grader](task-bank/README.md) define ten tasks and the
+required 60-cell matrix. This pilot ran C1, the Serilog text lookup control,
+once per arm. Both arms used Codex CLI 0.166.0, OpenCode Go
+`deepseek-v4.1-flash`, a 180 s timeout, and the same Serilog commit
+`49b5339ce85385dc52d4d8e8f2b8308becf23506`. The tool arm used the local
+5.1.0 package with the Locator change from #593, under .NET SDK 10.0.303.
+
+Each run used a fresh Codex home in a WSL Ubuntu 24.04 worker with a
+Bubblewrap mount namespace. Both arms could read the copied solution, had
+no Windows filesystem mount, and received no OpenCode Go key. A controller
+outside the worker authenticated the inference requests. The tool arm
+separately opened the solution over stdio and reached ready with 17 project
+units. Preflight recorded missing compile inputs on the unrestored copy.
+
+| Arm | Correct | Wall seconds | Input tokens | Output tokens | Built-in calls | MCP calls |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Built-ins | yes | 7.904 | 18,674 | 349 | 2 | 0 |
+| Built-ins + DotNetMCP | yes | 9.093 | 34,729 | 331 | 1 | 0 |
+
+Input tokens include cached input as reported by Codex. The independent
+grader accepted both answers. The tool arm completed without calling MCP,
+and its input usage was higher. Sanitized receipts and grading records are
+in [the pilot ledger](task-bank/2026-11-22-c1-pilot.jsonl). Local raw event
+streams and answers are in `artifacts/eval-controller/C1-{control,tool}/`;
+the pilot is outside the formal release ledger.
+
+The 5.0.0 NuGet package was published and passed a fresh-cache
+`workspace_open` → `symbol_resolve` smoke test. MCP Registry publication
+succeeded with 5.0.1 under `io.github.Skymly/dotnet-mcp`. The formal
+per-category A/B gate remains open under #528. The
+[same-host release latency comparison](2026-11-22-release-p95.md) also
+exceeded the +20% cap in #529.

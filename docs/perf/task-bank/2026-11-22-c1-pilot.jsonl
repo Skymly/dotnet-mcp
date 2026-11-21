@@ -1,0 +1,2 @@
+{"task":"C1","arm":"control","status":"finished","passed":true,"seconds":7.904,"inputTokens":18674,"outputTokens":349,"toolCalls":2,"mcpCalls":0,"model":"deepseek-v4.1-flash","host":"codex-cli 0.166.0","budgetSeconds":180}
+{"task":"C1","arm":"tool","status":"finished","passed":true,"seconds":9.093,"inputTokens":34729,"outputTokens":331,"toolCalls":1,"mcpCalls":0,"model":"deepseek-v4.1-flash","host":"codex-cli 0.166.0","budgetSeconds":180}
