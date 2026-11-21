@@ -69,10 +69,10 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
         var query = name.Trim();
         var matches = new List<(Project Project, ISymbol Symbol)>();
-        var timedOut = false;
+        IReadOnlyList<string> incompleteProjectIds = [];
         if (string.IsNullOrWhiteSpace(projectId))
         {
-            timedOut = await CollectResolveMatchesAsync(session, projects, query, matches, cancellationToken)
+            incompleteProjectIds = await CollectResolveMatchesAsync(session, projects, query, matches, cancellationToken)
                 .ConfigureAwait(false);
         }
         else
@@ -91,11 +91,14 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
         if (matches.Count == 0)
         {
-            if (timedOut)
+            if (incompleteProjectIds.Count > 0)
             {
                 return (null, new SoftBudgetExceededError(
                     $"Timed out while resolving '{name}' before any match was found.",
-                    "Pass projectId from workspace_list_projects, or retry symbol_resolve." + memberHint));
+                    "Pass projectId from workspace_list_projects, or use symbol_resolve_at when you have a source location." + memberHint)
+                {
+                    PartialResolve = new([], incompleteProjectIds),
+                });
             }
 
             return (null, new SymbolNotFoundError(
@@ -120,6 +123,8 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             }
         }
 
+        var partial = incompleteProjectIds.Count == 0 ? null : new PartialSymbolResolve(
+            matches.Select(m => ToSuccess(m.Project, m.Symbol)).ToArray(), incompleteProjectIds);
         if (matches.Count > 1)
         {
             var projectIds = matches.Select(m => m.Project.Id.Id.ToString("D")).Distinct().ToList();
@@ -128,7 +133,10 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 var ids = string.Join(", ", projectIds);
                 return (null, new SymbolAmbiguousError(
                     $"Symbol '{name}' matched {matches.Count} candidates across projectId(s): {ids}.",
-                    "Pass projectId (and a more specific FQN if needed) to symbol_resolve to disambiguate."));
+                    "Pass projectId (and a more specific FQN if needed) to symbol_resolve to disambiguate.")
+                {
+                    PartialResolve = partial,
+                });
             }
 
             var signatures = matches
@@ -138,14 +146,20 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             var listed = string.Join("; ", signatures.Take(5)) + (signatures.Count > 5 ? "; …" : string.Empty);
             return (null, new SymbolAmbiguousError(
                 $"Symbol '{name}' matched {matches.Count} candidates in projectId {projectIds[0]}: {listed}.",
-                "Pass a signature-qualified name to symbol_resolve, or resolve the containing type first and call symbol_members on its handle."));
+                "Pass a signature-qualified name to symbol_resolve, or resolve the containing type first and call symbol_members on its handle.")
+            {
+                PartialResolve = partial,
+            });
         }
 
-        if (timedOut)
+        if (partial is not null)
         {
             return (null, new SoftBudgetExceededError(
                 $"Timed out while resolving '{name}' after finding a candidate; remaining projects were not scanned.",
-                "Pass projectId from workspace_list_projects, or retry symbol_resolve." + memberHint));
+                "Re-run symbol_resolve with the candidate's projectId to confirm the match within that project." + memberHint)
+            {
+                PartialResolve = partial,
+            });
         }
 
         var (projectHit, symbolHit) = matches[0];
@@ -642,7 +656,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         roslynLanguage is LanguageNames.CSharp or LanguageNames.VisualBasic;
 
 
-    private async Task<bool> CollectResolveMatchesAsync(
+    private async Task<IReadOnlyList<string>> CollectResolveMatchesAsync(
         IWorkspaceSession session,
         IReadOnlyList<Project> projects,
         string query,
@@ -667,11 +681,21 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             }
         }
 
-        AddWarmResolveMatches(cache, warmMain, query, matches);
+        AddWarmResolveMatches(cache, warmMain, query, matches, cancellationToken);
+        AddWarmResolveMatches(cache, warmTestLike, query, matches, cancellationToken);
 
         var segment = query.Split('.', 2)[0];
         var named = remainingMain.Where(p => ProjectNameLooksLike(p, segment)).ToList();
         var rest = remainingMain.Except(named).ToList();
+
+        // File stems prioritize likely declarations even when the query gives no
+        // project-name hint. Every other project stays eligible, including generators.
+        var fileStems = query.Split('(', 2)[0].Split('.').TakeLast(2)
+            .Select(static part => part.Split(['`', '<'], 2)[0])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ordered = named.Concat(rest).Concat(remainingTestLike)
+            .OrderByDescending(p => p.Documents.Any(d => fileStems.Contains(Path.GetFileNameWithoutExtension(d.Name))))
+            .ToArray();
 
         using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (_softBudgets.SingleProjectCompile <= TimeSpan.Zero)
@@ -683,37 +707,31 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             budgetCts.CancelAfter(_softBudgets.SingleProjectCompile);
         }
 
+        var scanned = 0;
         try
         {
-            foreach (var project in named.Concat(rest))
+            foreach (var project in ordered)
             {
                 budgetCts.Token.ThrowIfCancellationRequested();
                 await AddResolveMatchesAsync(session, project, query, matches, budgetCts.Token)
                     .ConfigureAwait(false);
-            }
-
-            AddWarmResolveMatches(cache, warmTestLike, query, matches);
-
-            foreach (var project in remainingTestLike)
-            {
-                budgetCts.Token.ThrowIfCancellationRequested();
-                await AddResolveMatchesAsync(session, project, query, matches, budgetCts.Token)
-                    .ConfigureAwait(false);
+                scanned++;
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return true;
+            return ordered.Skip(scanned).Select(p => p.Id.Id.ToString("D")).ToArray();
         }
 
-        return false;
+        return [];
     }
 
     private static void AddWarmResolveMatches(
         IWorkspaceSessionCaches? cache,
         IEnumerable<Project> projects,
         string query,
-        List<(Project Project, ISymbol Symbol)> matches)
+        List<(Project Project, ISymbol Symbol)> matches,
+        CancellationToken cancellationToken)
     {
         if (cache is null)
         {
@@ -727,7 +745,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 continue;
             }
 
-            foreach (var symbol in FindSymbols(warm, query))
+            foreach (var symbol in FindSymbols(warm, query, cancellationToken))
             {
                 matches.Add((project, symbol));
             }
@@ -751,7 +769,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             return;
         }
 
-        foreach (var symbol in FindSymbols(compilation, query))
+        foreach (var symbol in FindSymbols(compilation, query, cancellationToken))
         {
             matches.Add((project, symbol));
         }
@@ -762,9 +780,8 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         (project.DefaultNamespace?.Contains(segment, StringComparison.OrdinalIgnoreCase) ?? false);
 
     /// <summary>
-    /// Test/bench/dummy projects are searched after other projects when <c>projectId</c> is omitted.
-    /// Match whole name segments (<c>Foo.Tests</c>, <c>Foo.Test</c>, <c>Foo.Benches</c>), not substrings
-    /// like <c>Contest</c> / <c>Latest</c> / <c>Attest</c>. Warm and cold compilation paths share this rule.
+    /// Identifies test and bench projects for unscoped resolve's tie-breaking order.
+    /// Match whole name segments such as <c>Foo.Tests</c> and <c>Foo.Benches</c>.
     /// </summary>
     internal static bool IsTestLikeProject(string name)
     {
@@ -817,8 +834,10 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         return match;
     }
 
-    private static IEnumerable<ISymbol> FindSymbols(Compilation compilation, string query)
+    private static IEnumerable<ISymbol> FindSymbols(
+        Compilation compilation, string query, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var byMetadata = compilation.GetTypeByMetadataName(query);
         if (byMetadata is not null)
         {
@@ -829,6 +848,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         var queryHasDot = query.Contains('.');
         foreach (var type in EnumerateAllTypes(compilation.GlobalNamespace))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var typePath = ResolvePath(type);
             if (MatchesResolvePath(typePath, query) ||
                 MatchesResolvePath(type.ToDisplayString(SymbolDisplayFormats.SignatureQualified), query))
@@ -837,7 +857,8 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 continue;
             }
 
-            foreach (var member in type.GetMembers())
+            // For a bare name the only member match is an exact Name comparison.
+            foreach (var member in queryHasDot ? type.GetMembers() : type.GetMembers(query))
             {
                 if (member.Kind is SymbolKind.NamedType or SymbolKind.Namespace)
                 {

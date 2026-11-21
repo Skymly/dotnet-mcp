@@ -32,7 +32,8 @@ public sealed class SymbolTools
     [McpServerTool(Name = "symbol_resolve", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Resolve a C# / VB / F# symbol by name or FQN in the ready workspace and return a verifiable SymbolHandle " +
         "plus a lightweight summary (no member tree). 'Type.Member' names resolve members directly; " +
-        "optional projectId from workspace_list_projects disambiguates multi-TFM / multi-project hits.")]
+        "optional projectId from workspace_list_projects disambiguates multi-TFM / multi-project hits. " +
+        "An unscoped search cut short by its budget includes verified candidates and incompleteProjectIds.")]
     public async Task<CallToolResult> SymbolResolve(
         [Description("Type or member name / FQN (e.g. SampleLib.Calculator or Calculator.Clear); 'Type.Member' resolves the member.")]
         string name,
@@ -54,7 +55,17 @@ public sealed class SymbolTools
 
         if (error is not null)
         {
-            return McpToolEnvelope.ErrorResult(McpToolEnvelope.ToPolicyError(error));
+            var policyError = McpToolEnvelope.ToPolicyError(error);
+            if (error.PartialResolve is { } partial)
+            {
+                policyError = policyError with
+                {
+                    Candidates = partial.Candidates.Select(ToDto).ToArray(),
+                    IncompleteProjectIds = partial.IncompleteProjectIds,
+                };
+            }
+
+            return McpToolEnvelope.ErrorResult(policyError);
         }
 
         return McpToolEnvelope.OkResult(ToDto(success!));

@@ -68,7 +68,10 @@ public class RoslynResolveTestLikeTests
             new SoftBudgetOptions { SingleProjectCompile = TimeSpan.Zero });
 
         var (_, error) = await adapter.ResolveByNameAsync(session, "DoesNotExist");
-        Assert.IsType<SoftBudgetExceededError>(error);
+        var partial = Assert.IsType<SoftBudgetExceededError>(error).PartialResolve;
+        Assert.NotNull(partial);
+        Assert.Empty(partial.Candidates);
+        Assert.Equal(2, partial.IncompleteProjectIds.Count);
     }
 
     [Fact]
@@ -88,7 +91,16 @@ public class RoslynResolveTestLikeTests
         var (success, error) = await adapter.ResolveByNameAsync(session, "Marker");
 
         Assert.Null(success);
-        Assert.IsType<SoftBudgetExceededError>(error);
+        var partial = Assert.IsType<SoftBudgetExceededError>(error).PartialResolve;
+        Assert.NotNull(partial);
+        var candidate = Assert.Single(partial.Candidates);
+        Assert.Equal(libA.Id.Id.ToString("D"), candidate.Summary.ProjectId);
+        var libB = workspace.CurrentSolution.Projects.Single(p => p.Name == "LibB");
+        Assert.Equal(libB.Id.Id.ToString("D"), Assert.Single(partial.IncompleteProjectIds));
+        var (confirmed, confirmError) = await adapter.ResolveByNameAsync(
+            session, "Marker", candidate.Summary.ProjectId);
+        Assert.Null(confirmError);
+        Assert.Equal(candidate.Handle, confirmed!.Handle);
         Assert.Contains("projectId", error!.SuggestedAction, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("SymbolNotFound", error.Code, StringComparison.Ordinal);
     }
