@@ -8,13 +8,29 @@ namespace DotNetMcp.Core;
 
 public sealed partial class RoslynLanguageAdapter
 {
-    public async Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
+    public Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
         IWorkspaceSession session,
         string projectId,
         int? limit = null,
         string? cursor = null,
         TimeSpan? softBudget = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        GetProjectDiagnosticsCoreAsync(session, projectId, ClampLimit(limit), cursor, softBudget, cancellationToken);
+
+    internal Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetUnpagedProjectDiagnosticsAsync(
+        IWorkspaceSession session,
+        string projectId,
+        TimeSpan softBudget,
+        CancellationToken cancellationToken) =>
+        GetProjectDiagnosticsCoreAsync(session, projectId, int.MaxValue, cursor: null, softBudget, cancellationToken);
+
+    private async Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsCoreAsync(
+        IWorkspaceSession session,
+        string projectId,
+        int pageLimit,
+        string? cursor,
+        TimeSpan? softBudget,
+        CancellationToken cancellationToken)
     {
         var project = session.Solution.Projects
             .Where(p => OwnsProject(p))
@@ -29,7 +45,6 @@ public sealed partial class RoslynLanguageAdapter
         }
 
         var epoch = session.Epoch;
-        var pageLimit = ClampLimit(limit);
         if (!SoftBudgetPage.TryReadOffset(
                 cursor,
                 epoch,

@@ -94,14 +94,18 @@ public sealed class DiagnosticQueryService
                 {
                     remaining = TimeSpan.Zero;
                 }
-                var (result, error) = await adapter.GetProjectDiagnosticsAsync(
+                // The batch owns the public page. Roslyn can supply all rows in one call,
+                // avoiding a full diagnostics projection and sort for each inner page.
+                var projectDiagnostics = adapter is RoslynLanguageAdapter roslyn
+                    ? roslyn.GetUnpagedProjectDiagnosticsAsync(session, projectId, remaining, cancellationToken)
+                    : adapter.GetProjectDiagnosticsAsync(
                         session,
                         projectId,
                         limit: LanguageAdapters.MaxMemberPageLimit,
                         cursor: projectCursor,
                         softBudget: remaining,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                        cancellationToken);
+                var (result, error) = await projectDiagnostics.ConfigureAwait(false);
                 if (error is not null)
                 {
                     collected.Add(new DiagnosticItem(
