@@ -10,6 +10,8 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ### Fixed
 
+- Load MSBuild Framework from the registered .NET SDK via Microsoft.Build.Locator 1.11.2. The tool no longer ships a competing Framework assembly in its application directory (#498)
+
 - `symbol_resolve` now resolves `Type.Member` names the same way the F# catalog already did — the query matches a symbol's namespace + containing-type + name path on whole trailing segments, so `Calculator.Clear`, `Outer.Inner.P`, and `Widget.M()` resolve the member directly instead of reporting `SymbolNotFound` while the bare member name is `SymbolAmbiguous`. Single-project ambiguities (overloads, same-name members across types) now list candidate signatures instead of only a projectId, and `SymbolNotFound` / `SoftBudgetExceeded` on a dotted name plus the single-project `SymbolAmbiguous` point at the "resolve the type, then `symbol_members` on its handle" path (`#561`)
 
 ## 5.0.1 - 2026-11-06

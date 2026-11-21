@@ -11,6 +11,7 @@
     <!-- The GenerationTriggers fixture runs the MVVM Toolkit generators under
          MSBuildWorkspace. GeneratePathProperty feeds the DLL copies below. -->
     <PackageReference Include="CommunityToolkit.Mvvm" GeneratePathProperty="true" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
     <PackageReference Include="Microsoft.CodeAnalysis.VisualBasic.Workspaces" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
