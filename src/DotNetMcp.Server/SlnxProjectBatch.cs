@@ -50,13 +50,14 @@ internal sealed record SlnxProjectBatch(IReadOnlyList<string> Projects, string G
     }
 
     internal XElement CreateTraversalProject() => new("Project",
+        new XElement("PropertyGroup",
+            new XElement("ImportDirectoryBuildProps", "false"),
+            new XElement("ImportDirectoryBuildTargets", "false")),
         new XElement("Import", new XAttribute("Project", "Sdk.props"), new XAttribute("Sdk", DotNetSdk)),
         new XElement("PropertyGroup",
             new XElement("TargetFramework", "net10.0"),
             new XElement("EnableDefaultItems", "false"),
-            new XElement("BuildProjectReferences", "false"),
-            new XElement("ImportDirectoryBuildProps", "false"),
-            new XElement("ImportDirectoryBuildTargets", "false")),
+            new XElement("BuildProjectReferences", "false")),
         new XElement("ItemGroup", Projects.Select(path =>
             new XElement("ProjectReference", new XAttribute("Include", path),
                 // Roslyn loads the project without expecting an assembly in the traversal's references.
