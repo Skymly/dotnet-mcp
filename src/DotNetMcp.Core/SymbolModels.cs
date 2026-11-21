@@ -117,7 +117,14 @@ public sealed record PagedResult<T>(
     string? NextCursor,
     string Message);
 
-public abstract record SymbolQueryError(string Code, string Message, string SuggestedAction);
+public sealed record PartialSymbolResolve(
+    IReadOnlyList<SymbolResolveSuccess> Candidates,
+    IReadOnlyList<string> IncompleteProjectIds);
+
+public abstract record SymbolQueryError(string Code, string Message, string SuggestedAction)
+{
+    public PartialSymbolResolve? PartialResolve { get; init; }
+}
 
 public sealed record InvalidSymbolHandleError(string Message, string SuggestedAction)
     : SymbolQueryError(SymbolQueryErrorCodes.InvalidSymbolHandle, Message, SuggestedAction);

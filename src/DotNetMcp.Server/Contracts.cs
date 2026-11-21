@@ -112,6 +112,8 @@ public sealed record PolicyErrorDto
     public required string Error { get; init; }
     public required string Message { get; init; }
     public required string SuggestedAction { get; init; }
+    public IReadOnlyList<SymbolResolveResultDto>? Candidates { get; init; }
+    public IReadOnlyList<string>? IncompleteProjectIds { get; init; }
 }
 
 /// <summary>
