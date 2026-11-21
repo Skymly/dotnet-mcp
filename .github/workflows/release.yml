@@ -53,24 +53,11 @@ jobs:
         run: dotnet pack src/DotNetMcp.Server -c Release -o artifacts
 
       - name: Verify MCP package metadata
-        # Same checks as ci.yml: a nupkg that lacks the embedded server.json would only be
-        # caught by the registry's own validation after it is already on nuget.org.
+        # Check the namespace and ownership marker before uploading the immutable package.
         shell: pwsh
         run: |
-          $nupkg = Get-ChildItem artifacts/*.nupkg | Select-Object -First 1
-          if (-not $nupkg) { throw "nupkg missing" }
-          if ($nupkg.Name -notlike "Skymly.DotNetMcp.*") { throw "unexpected package file $($nupkg.Name)" }
-          $tmp = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString("N"))
-          New-Item -ItemType Directory -Path $tmp | Out-Null
-          Copy-Item $nupkg.FullName (Join-Path $tmp "pkg.zip")
-          Expand-Archive (Join-Path $tmp "pkg.zip") -DestinationPath $tmp -Force
-          $nuspec = Get-ChildItem $tmp -Filter *.nuspec | Select-Object -First 1
-          if (-not $nuspec) { throw "nuspec missing" }
-          $xml = Get-Content $nuspec.FullName -Raw
-          if ($xml -notmatch "<id>Skymly.DotNetMcp</id>") { throw "PackageId missing in nuspec" }
-          if ($xml -notmatch "McpServer") { throw "PackageType McpServer missing" }
-          $serverJson = Join-Path $tmp ".mcp/server.json"
-          if (-not (Test-Path $serverJson)) { throw "embedded .mcp/server.json missing" }
+          $expectedServerName = "io.github.$($env:GITHUB_REPOSITORY_OWNER)/dotnet-mcp"
+          ./.github/scripts/VerifyMcpPackage.ps1 -PackageDirectory artifacts -ExpectedServerName $expectedServerName
 
       - name: NuGet login (trusted publishing OIDC)
         id: login

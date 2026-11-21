@@ -146,21 +146,7 @@ jobs:
 
       - name: Verify MCP package metadata
         shell: pwsh
-        run: |
-          $nupkg = Get-ChildItem artifacts/*.nupkg | Select-Object -First 1
-          if (-not $nupkg) { throw "nupkg missing" }
-          if ($nupkg.Name -notlike "Skymly.DotNetMcp.*") { throw "unexpected package file $($nupkg.Name)" }
-          $tmp = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString("N"))
-          New-Item -ItemType Directory -Path $tmp | Out-Null
-          Copy-Item $nupkg.FullName (Join-Path $tmp "pkg.zip")
-          Expand-Archive (Join-Path $tmp "pkg.zip") -DestinationPath $tmp -Force
-          $nuspec = Get-ChildItem $tmp -Filter *.nuspec | Select-Object -First 1
-          if (-not $nuspec) { throw "nuspec missing" }
-          $xml = Get-Content $nuspec.FullName -Raw
-          if ($xml -notmatch "<id>Skymly.DotNetMcp</id>") { throw "PackageId missing in nuspec" }
-          if ($xml -notmatch "McpServer") { throw "PackageType McpServer missing" }
-          $serverJson = Join-Path $tmp ".mcp/server.json"
-          if (-not (Test-Path $serverJson)) { throw "embedded .mcp/server.json missing" }
+        run: ./.github/scripts/VerifyMcpPackage.ps1 -PackageDirectory artifacts -ExpectedServerName io.github.Skymly/dotnet-mcp
 
       - name: Smoke-test the packed tool
         # Runs the README's `dotnet tool exec` form against the nupkg the Pack step just made. The other stdio
