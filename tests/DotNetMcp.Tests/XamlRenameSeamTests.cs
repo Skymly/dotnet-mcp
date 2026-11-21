@@ -656,6 +656,7 @@ public class XamlRenameSeamTests
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
             Assert.Equal(epochBefore, body.Epoch);
+            Assert.Equal(handle.Split(':', 3)[1], Assert.Single(body.AffectedProjectIds));
             Assert.Contains(body.Documents, d =>
                 d.Path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase));
 

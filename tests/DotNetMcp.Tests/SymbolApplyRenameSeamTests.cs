@@ -1,9 +1,42 @@
+using DotNetMcp.Core;
 using DotNetMcp.Server;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Text;
 
 namespace DotNetMcp.Tests;
 
 public class SymbolApplyRenameSeamTests
 {
+    [Fact]
+    public async Task affected_scope_and_snapshot_include_every_owner_of_a_linked_path()
+    {
+        var workspace = new AdhocWorkspace();
+        var first = ProjectId.CreateNewId();
+        var second = ProjectId.CreateNewId();
+        var unrelated = ProjectId.CreateNewId();
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "Shared.cs");
+        var firstDoc = DocumentId.CreateNewId(first);
+        var secondDoc = DocumentId.CreateNewId(second);
+        var oldText = SourceText.From("class Before {}");
+        var solution = workspace.CurrentSolution
+            .AddProject(first, "First", "First", LanguageNames.CSharp)
+            .AddProject(second, "Second", "Second", LanguageNames.CSharp)
+            .AddProject(unrelated, "Unrelated", "Unrelated", LanguageNames.CSharp)
+            .AddDocument(firstDoc, "Shared.cs", oldText, filePath: path)
+            .AddDocument(secondDoc, "Shared.cs", oldText, filePath: path);
+        await using var loaded = new LoadedSolution(workspace, solution, []);
+        using var before = new WorkspaceSession(loaded, epoch: 1);
+        var affected = before.GetAffectedProjectIds([path]);
+        Assert.Equal(new[] { first.Id.ToString("D"), second.Id.ToString("D") }.Order(StringComparer.Ordinal), affected);
+
+        Assert.True(loaded.TryUpdateDocumentFromText(path, SourceText.From("class After {}")));
+        Assert.Equal("class Before {}", (await before.Solution.GetDocument(firstDoc)!.GetTextAsync()).ToString());
+        foreach (var id in new[] { firstDoc, secondDoc })
+        {
+            Assert.Equal("class After {}", (await loaded.Solution.GetDocument(id)!.GetTextAsync()).ToString());
+        }
+    }
+
     [Fact]
     public async Task apply_rename_writes_preview_files_and_old_handle_is_gone()
     {
@@ -27,7 +60,8 @@ public class SymbolApplyRenameSeamTests
             var resolved = await fx.Client.CallToolAsync(
                 "symbol_resolve",
                 new Dictionary<string, object?> { ["name"] = "RenameApp.Widget.Ping" });
-            var handle = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved).Handle;
+            var hit = InProcessMcpFixture.Deserialize<SymbolResolveResultDto>(resolved);
+            var handle = hit.Handle;
 
             var preview = await fx.Client.CallToolAsync(
                 "symbol_preview_rename",
@@ -37,6 +71,7 @@ public class SymbolApplyRenameSeamTests
                     ["newName"] = "Pong"
                 });
             var previewBody = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.Equal(hit.Summary.ProjectId, Assert.Single(previewBody.AffectedProjectIds));
             var epochBefore = fx.WorkspaceHost.CurrentEpoch;
 
             var apply = await fx.Client.CallToolAsync(
@@ -46,6 +81,14 @@ public class SymbolApplyRenameSeamTests
             var applyBody = InProcessMcpFixture.Deserialize<SymbolApplyRenameResultDto>(apply);
             Assert.Equal(epochBefore + 1, applyBody.Epoch);
             Assert.Equal(2, applyBody.WrittenPaths.Count);
+            var projectId = Assert.Single(applyBody.AffectedProjectIds);
+            Assert.Equal(hit.Summary.ProjectId, projectId);
+            var diagnostics = await fx.Client.CallToolAsync(
+                "project_diagnostics",
+                new Dictionary<string, object?> { ["projectId"] = projectId });
+            Assert.True(diagnostics.IsError is not true, InProcessMcpFixture.TextOf(diagnostics));
+            Assert.DoesNotContain(InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(diagnostics).Items,
+                diagnostic => diagnostic.Severity == "Error");
 
             var widget = await File.ReadAllTextAsync(widgetPath);
             var caller = await File.ReadAllTextAsync(callerPath);

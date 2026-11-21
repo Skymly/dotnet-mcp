@@ -31,6 +31,7 @@ public class FsharpRenameSeamTests
                 });
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var previewBody = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.Equal(oldHandle.Split(':', 3)[1], Assert.Single(previewBody.AffectedProjectIds));
             Assert.Contains(previewBody.Documents, d =>
                 d.Path.EndsWith("Widget.fs", StringComparison.OrdinalIgnoreCase) &&
                 d.NewText.Contains("pong", StringComparison.Ordinal));

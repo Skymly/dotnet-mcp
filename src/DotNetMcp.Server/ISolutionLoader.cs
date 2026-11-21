@@ -16,7 +16,7 @@ public sealed class LoadedSolution : IAsyncDisposable
 {
     private readonly Workspace _workspace;
     private readonly Solution _workspaceSolutionAtLoad;
-    private Dictionary<string, DocumentId> _docsByPath;
+    private readonly Dictionary<string, List<DocumentId>> _docsByPath;
     private readonly Dictionary<string, DateTime> _projectFileMtimes = new(PathPolicy.Comparer);
     // Concurrent: refresh PLANNING reads it outside the workspace gate while a committing
     // apply may write it inside the gate (issue #549).
@@ -67,52 +67,38 @@ public sealed class LoadedSolution : IAsyncDisposable
 
     public bool TryGetDocumentId(string fullPath, out DocumentId documentId)
     {
-        var normalized = TryNormalize(fullPath);
-        if (normalized is null)
-        {
-            documentId = null!;
-            return false;
-        }
-
-        return _docsByPath.TryGetValue(normalized, out documentId!);
+        documentId = GetDocumentIds(fullPath).LastOrDefault()!;
+        return documentId is not null;
     }
+
+    internal IReadOnlyList<DocumentId> GetDocumentIds(string fullPath) =>
+        TryNormalize(fullPath) is { } path && _docsByPath.TryGetValue(path, out var ids) ? ids : [];
 
     public bool TryUpdateDocumentFromText(string fullPath, SourceText text)
     {
-        if (!TryGetTrackedText(fullPath, out var documentId, out var current))
+        var updated = Solution;
+        foreach (var id in GetDocumentIds(fullPath))
         {
-            return false;
+            var document = (TextDocument?)updated.GetDocument(id) ?? updated.GetAdditionalDocument(id);
+            if (document is null ||
+                document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult().ContentEquals(text))
+            {
+                continue;
+            }
+
+            updated = document is Document
+                ? updated.WithDocumentText(id, text)
+                : updated.WithAdditionalDocumentText(id, text);
         }
 
-        if (current.ContentEquals(text))
-        {
-            return false;
-        }
-
-        var updated = Solution.GetDocument(documentId) is not null
-            ? Solution.WithDocumentText(documentId, text)
-            : Solution.GetAdditionalDocument(documentId) is not null
-                ? Solution.WithAdditionalDocumentText(documentId, text)
-                : null;
-        if (updated is null)
-        {
-            return false;
-        }
-
+        var changed = !ReferenceEquals(updated, Solution);
         Solution = updated;
-        _docsByPath = BuildIndex(Solution);
-        return true;
+        return changed;
     }
 
-    internal bool HasMatchingDocumentText(string fullPath, SourceText text) =>
-        TryGetTrackedText(fullPath, out _, out var current) && current.ContentEquals(text);
-
-    private bool TryGetTrackedText(string fullPath, out DocumentId documentId, out SourceText text)
+    internal bool HasMatchingDocumentText(string fullPath, SourceText text)
     {
-        documentId = null!;
-        text = null!;
-        var normalized = TryNormalize(fullPath);
-        if (normalized is null || !_docsByPath.TryGetValue(normalized, out documentId!))
+        if (!TryGetDocumentId(fullPath, out var documentId))
         {
             return false;
         }
@@ -129,8 +115,7 @@ public sealed class LoadedSolution : IAsyncDisposable
             current = document.GetTextAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
 
-        text = current;
-        return true;
+        return current.ContentEquals(text);
     }
 
     /// <summary>
@@ -140,8 +125,9 @@ public sealed class LoadedSolution : IAsyncDisposable
     {
         var drifts = new List<DocumentDrift>();
 
-        foreach (var (path, documentId) in _docsByPath.ToArray())
+        foreach (var (path, ids) in _docsByPath)
         {
+            var documentId = ids[^1];
             var document = (TextDocument?)Solution.GetDocument(documentId)
                 ?? Solution.GetAdditionalDocument(documentId);
             if (document is null)
@@ -531,9 +517,9 @@ public sealed class LoadedSolution : IAsyncDisposable
         }
     }
 
-    private static Dictionary<string, DocumentId> BuildIndex(Solution solution)
+    private static Dictionary<string, List<DocumentId>> BuildIndex(Solution solution)
     {
-        var map = new Dictionary<string, DocumentId>(PathPolicy.Comparer);
+        var map = new Dictionary<string, List<DocumentId>>(PathPolicy.Comparer);
         foreach (var project in solution.Projects)
         {
             foreach (var document in project.Documents.Concat<TextDocument>(project.AdditionalDocuments))
@@ -550,7 +536,12 @@ public sealed class LoadedSolution : IAsyncDisposable
                     continue;
                 }
 
-                map[normalized] = document.Id;
+                if (!map.TryGetValue(normalized, out var ids))
+                {
+                    map[normalized] = ids = [];
+                }
+
+                ids.Add(document.Id);
             }
         }
 

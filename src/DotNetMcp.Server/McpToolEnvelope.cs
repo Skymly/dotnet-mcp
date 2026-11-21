@@ -22,10 +22,10 @@ public static class McpToolEnvelope
 
     public static bool TryGetReadySession(
         WorkspaceHost host,
-        [NotNullWhen(true)] out IWorkspaceSession? session,
+        [NotNullWhen(true)] out WorkspaceSession? session,
         [NotNullWhen(false)] out CallToolResult? errorResult)
     {
-        if (host.TryGetReadySession(out session) && session is not null)
+        if (host.TryGetReadyWorkspaceSession(out session) && session is not null)
         {
             errorResult = null;
             return true;

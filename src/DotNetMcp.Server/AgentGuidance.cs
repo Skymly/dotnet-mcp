@@ -19,10 +19,8 @@ internal static class AgentGuidance
     /// the write rule, and the position model and stops.
     /// </summary>
     internal const string ServerInstructions =
-        "dotnet-mcp: compiler-accurate .NET symbol tools (C# / VB / F#). For symbol work — navigation, " +
-        "references, callers, implementations, attribution, rename — prefer these tools over text search: " +
-        "grep cannot see overloads, partial classes, source-generated members, XAML bindings, or " +
-        "cross-project references.\n" +
+        "dotnet-mcp: compiler-aware C# / VB / F# navigation, attribution, and rename. Use it for " +
+        "overloads, partial classes, generated members, XAML bindings, and cross-project references.\n" +
         "Loop: workspace_open (returns at once; loading runs MSBuild plus project analyzers — never open " +
         "untrusted trees) → poll workspace_status until phase = ready → symbol_resolve (name → " +
         "SymbolHandle) or symbol_resolve_at (path + line + column → SymbolHandle) → then symbol_summary, " +
@@ -30,11 +28,12 @@ internal static class AgentGuidance
         "symbol_find_callers, symbol_find_implementations, symbol_type_hierarchy.\n" +
         "Writes are always preview → apply: symbol_preview_rename → symbol_apply_rename, " +
         "diagnostics_preview_fix → diagnostics_apply_fix, symbol_preview_refactoring → " +
-        "symbol_apply_refactoring. There is no generic edit / write / shell. Review every preview slice — " +
+        "symbol_apply_refactoring. Review every preview slice — " +
         "including XAML slices and unverifiedXamlMentions — before applying. " +
         "Rename writes compiler-visible references and Exact XAML usages only; unverifiedMentions reports, " +
         "never writes, metadata-name strings, unbound attribute names, docs, and PublicAPI hits " +
-        "(doc hits need includeDocMentions).\n" +
+        "(doc hits need includeDocMentions). For rename verification, pass each affectedProjectIds entry " +
+        "as projectId to project_diagnostics.\n" +
         "Positions are 1-based line / column in UTF-16 code units; endColumn is exclusive. A position " +
         "from one tool feeds the next verbatim. Paged results return nextCursor — continue from it " +
         "instead of restarting.";
@@ -83,7 +82,7 @@ public static class AgentPrompts
 
     [McpServerPrompt(Name = "safe_rename"), Description(
         "Rename a .NET symbol safely: resolve, preview the Workspace Edit including XAML slices and " +
-        "unverifiedXamlMentions, apply, then re-check project_diagnostics.")]
+        "unverifiedXamlMentions, apply, then re-check project_diagnostics for each affected projectId.")]
     public static GetPromptResult SafeRename(
         [Description("SymbolHandle from symbol_resolve / symbol_resolve_at, or a type/member name to resolve first.")]
         string symbol,
@@ -98,17 +97,21 @@ public static class AgentPrompts
            refused except a generated x:Name field, which renames its XAML value plus handwritten references.
         2. Preview: call symbol_preview_rename with the handle and newName = "{newName}". It returns a
            previewId, per-document old/new slices, invalidatedHandles, unverifiedXamlMentions, and
-           unverifiedMentions.
+           unverifiedMentions, plus affectedProjectIds for the compilations containing the changed files.
         3. Review before applying — read every slice, including XAML (.axaml/.xaml) slices that keep
            bindings, x:Class, element/attribute names, x:Name values, and event handlers in sync.
            unverifiedXamlMentions are name-matched XAML usages the edit does NOT write; unverifiedMentions
            are name-matched source hits the edit does NOT write — metadata-name strings, unbound short
            attribute names, and (with includeDocMentions) comments/docs/PublicAPI. Decide whether each
            needs manual follow-up. Every handle in invalidatedHandles must be re-resolved after apply.
+           To check for new compile errors, first collect baseline project_diagnostics pages for each
+           affectedProjectIds entry, passing it as projectId.
         4. Apply: symbol_apply_rename with the previewId while the workspace Epoch is unchanged and the
            preview unexpired. There is no apply path that skips preview.
-        5. Re-check: project_diagnostics on the affected projects — expect no new errors — and
-           symbol_find_references on the re-resolved handle when the rename touched public surface.
+        5. Re-check: call project_diagnostics with each affectedProjectIds entry from apply as projectId.
+           Follow nextCursor for each project and compare with its baseline. Report degraded results as
+           inconclusive and verify those compilations with a targeted build. When the rename touched
+           public surface, also check symbol_find_references on the re-resolved handle.
         """);
 
     private static string BuildEntry(string? name, string? path, int? line, int? column)

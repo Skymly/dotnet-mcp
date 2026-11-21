@@ -12,7 +12,11 @@ public sealed record WorkspaceEditDocument(string Path, string OldText, string N
 public sealed record WorkspaceEditDraft(
     WorkspaceEditKind Kind,
     IReadOnlyList<WorkspaceEditDocument> Documents,
-    IReadOnlyList<string> InvalidatedHandles);
+    IReadOnlyList<string> InvalidatedHandles)
+{
+    internal long? ExpectedEpoch { get; init; }
+    internal IReadOnlyList<string> AffectedProjectIds { get; init; } = [];
+}
 
 public sealed record WorkspaceEditPreview(
     string PreviewId,
@@ -20,13 +24,19 @@ public sealed record WorkspaceEditPreview(
     DateTimeOffset ExpiresAt,
     WorkspaceEditKind Kind,
     IReadOnlyList<WorkspaceEditDocument> Documents,
-    IReadOnlyList<string> InvalidatedHandles);
+    IReadOnlyList<string> InvalidatedHandles)
+{
+    internal IReadOnlyList<string> AffectedProjectIds { get; init; } = [];
+}
 
 public sealed record WorkspaceEditApplied(
     string PreviewId,
     long Epoch,
     IReadOnlyList<string> WrittenPaths,
-    IReadOnlyList<string> InvalidatedHandles);
+    IReadOnlyList<string> InvalidatedHandles)
+{
+    internal IReadOnlyList<string> AffectedProjectIds { get; init; } = [];
+}
 
 public readonly record struct WorkspaceEditOutcome<T>(T? Value, PolicyErrorDto? Error)
 {
@@ -85,13 +95,25 @@ public sealed class WorkspaceEdit
         }
 
         var now = _time.GetUtcNow();
+        var currentEpoch = _writer.CurrentEpoch;
+        if (draft.ExpectedEpoch is { } expectedEpoch && currentEpoch != expectedEpoch)
+        {
+            return Fail<WorkspaceEditPreview>(
+                PolicyErrorCodes.PreviewEpochMismatch,
+                "The workspace Epoch changed while preparing the preview.",
+                "Call " + Tools(draft.Kind).Preview + " again on the current snapshot.");
+        }
+
         var preview = new WorkspaceEditPreview(
             PreviewId: Convert.ToHexString(Guid.NewGuid().ToByteArray())[..16].ToLowerInvariant(),
-            Epoch: _writer.CurrentEpoch,
+            Epoch: currentEpoch,
             ExpiresAt: now + _ttl,
             Kind: draft.Kind,
             Documents: draft.Documents,
-            InvalidatedHandles: draft.InvalidatedHandles);
+            InvalidatedHandles: draft.InvalidatedHandles)
+        {
+            AffectedProjectIds = draft.AffectedProjectIds,
+        };
 
         lock (_gate)
         {
@@ -198,7 +220,10 @@ public sealed class WorkspaceEdit
                 stored.Preview.PreviewId,
                 written.Value,
                 stored.Preview.Documents.Select(static d => d.Path).ToArray(),
-                stored.Preview.InvalidatedHandles),
+                stored.Preview.InvalidatedHandles)
+            {
+                AffectedProjectIds = stored.Preview.AffectedProjectIds,
+            },
             null);
     }
 

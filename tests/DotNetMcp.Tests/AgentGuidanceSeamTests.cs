@@ -134,6 +134,7 @@ public class AgentGuidanceSeamTests
         Assert.Contains("unverifiedXamlMentions", text, StringComparison.Ordinal);
         Assert.Contains("symbol_apply_rename", text, StringComparison.Ordinal);
         Assert.Contains("project_diagnostics", text, StringComparison.Ordinal);
+        Assert.Contains("each affectedProjectIds entry", text, StringComparison.Ordinal);
     }
 
     [Fact]
