@@ -18,6 +18,96 @@ public class SlnxReconciliationTests
     private static string UnloadableSlnx => Path.Combine(FixtureDir, "Unloadable.slnx");
 
     [Fact]
+    public async Task slnx_batch_retains_solution_properties_and_native_project_references()
+    {
+        var scratch = Directory.CreateTempSubdirectory("dotnet-mcp-slnx-test-");
+        try
+        {
+            var root = PathPolicy.Normalize(scratch.FullName);
+            var app = Path.Combine(root, "App.csproj");
+            var broken = Path.Combine(root, "Broken.csproj");
+            var library = Path.Combine(root, "Library", "Library.csproj");
+            var consumer = Path.Combine(root, "Consumer", "Consumer.csproj");
+            Directory.CreateDirectory(Path.GetDirectoryName(library)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(consumer)!);
+
+            var solutionPath = Path.Combine(root, "Nested.slnx");
+            await File.WriteAllTextAsync(solutionPath, """
+                <Solution>
+                  <Project Path="App.csproj" />
+                  <Folder Name="/Samples/">
+                    <Folder Name="/Samples/Nested/">
+                      <Project Path="Library/Library.csproj" />
+                      <Project Path="Consumer/Consumer.csproj" />
+                    </Folder>
+                  </Folder>
+                </Solution>
+                """);
+            const string project = """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                </Project>
+                """;
+            await File.WriteAllTextAsync(app, project);
+            await File.WriteAllTextAsync(broken, project.Replace("</Project>", """
+                  <InvalidMsBuildElement />
+                </Project>
+                """, StringComparison.Ordinal));
+            await File.WriteAllTextAsync(library, project);
+            await File.WriteAllTextAsync(consumer, project.Replace("</Project>", """
+                  <ItemGroup>
+                    <ProjectReference Include="$(SolutionDir)App.csproj" />
+                    <ProjectReference Include="../Library/Library.csproj" />
+                  </ItemGroup>
+                </Project>
+                """, StringComparison.Ordinal));
+
+            MsBuildBootstrap.EnsureRegistered();
+            using var workspace = new SlnxWorkspace();
+            await workspace.OpenSolutionFileAsync(solutionPath, CancellationToken.None);
+            Assert.Single(workspace.CurrentSolution.ProjectIds);
+
+            var warnings = new List<string>();
+            Assert.False(await workspace.TryOpenBatchAsync([library, broken], warnings, CancellationToken.None));
+            Assert.Single(workspace.CurrentSolution.ProjectIds);
+            Assert.Empty(warnings);
+
+            Assert.True(await workspace.TryOpenBatchAsync([library, consumer], warnings, CancellationToken.None));
+
+            var projects = workspace.CurrentSolution.Projects.ToDictionary(p => p.Name);
+            Assert.Equal(3, projects.Count);
+            Assert.Equal(solutionPath, workspace.CurrentSolution.FilePath);
+            Assert.Equal(
+                new[] { projects["App"].Id, projects["Library"].Id }.OrderBy(id => id.Id),
+                projects["Consumer"].ProjectReferences.Select(reference => reference.ProjectId).OrderBy(id => id.Id));
+            Assert.All(projects.Values, p => Assert.True(PathPolicy.IsUnderRoot(p.FilePath!, root)));
+
+            using var serial = new SlnxWorkspace();
+            await serial.OpenSolutionFileAsync(solutionPath, CancellationToken.None);
+            var serialWarnings = new List<string>();
+#pragma warning disable CS0618
+            serial.WorkspaceFailed += (_, e) => serialWarnings.Add($"{e.Diagnostic.Kind}: {e.Diagnostic.Message}");
+#pragma warning restore CS0618
+            await serial.OpenProjectFileAsync(library, CancellationToken.None);
+            await serial.OpenProjectFileAsync(consumer, CancellationToken.None);
+            Assert.Equal(serialWarnings.Order(StringComparer.Ordinal), warnings.Order(StringComparer.Ordinal));
+
+            await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(library)!, "global.json"), "{}");
+            Assert.Null(SlnxProjectBatch.TryPlan([library, consumer]));
+
+            File.Delete(Path.Combine(Path.GetDirectoryName(library)!, "global.json"));
+            await File.WriteAllTextAsync(Path.Combine(root, "global.json"), """{"sdk":{"paths":["."]}}""");
+            Assert.Null(SlnxProjectBatch.TryPlan([library, consumer]));
+        }
+        finally
+        {
+            scratch.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task slnx_nested_folder_projects_at_any_depth_all_load()
     {
         Assert.True(File.Exists(NestedSlnx), $"Missing fixture: {NestedSlnx}");
