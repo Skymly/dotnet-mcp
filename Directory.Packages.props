@@ -14,10 +14,10 @@
          see spikes/s9-generation-triggers/CONCLUSIONS.md. -->
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="FSharp.Compiler.Service" Version="43.13.404" />
-    <!-- Stays on 1.9.1. From 1.10 on, the package fails the build with MSBL001 because
-         Microsoft.CodeAnalysis.Workspaces.MSBuild brings Microsoft.Build.Framework in as a runtime asset.
-         Excluding it changes what the tool package ships; tracked in #498. -->
-    <PackageVersion Include="Microsoft.Build.Locator" Version="1.9.1" />
+    <!-- Workspaces.MSBuild brings Framework in transitively. Each host excludes its runtime
+         asset so Locator binds MSBuild and Framework to the same installed SDK (#498). -->
+    <PackageVersion Include="Microsoft.Build.Framework" Version="17.11.48" />
+    <PackageVersion Include="Microsoft.Build.Locator" Version="1.11.2" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Features" Version="5.9.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.VisualBasic.Features" Version="5.9.0" />

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using DotNetMcp.Server;
 using ModelContextProtocol.Client;
 
@@ -19,6 +20,13 @@ public class PackedToolSmokeTests
     {
         var source = Environment.GetEnvironmentVariable(SourceEnvironmentVariable)!;
         var version = NewestPackedVersion(source);
+        using (var package = ZipFile.OpenRead(Path.Combine(source, $"{PackageId}.{version}.nupkg")))
+        {
+            // The application must use the registered SDK's Framework. Roslyn's separate
+            // BuildHost processes can still carry their own dependencies in subdirectories.
+            Assert.Null(package.GetEntry("tools/net10.0/any/Microsoft.Build.Framework.dll"));
+        }
+
         var freshPackageCache = Path.Combine(Path.GetTempPath(), "dotnet-mcp-packed-" + Guid.NewGuid().ToString("N"));
 
         try
