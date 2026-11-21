@@ -200,10 +200,13 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         {
             loaded = await OpenSlnfAsync(fullPath, warnings, progress, cancellationToken).ConfigureAwait(false);
         }
-        else if (ext.Equals(".sln", StringComparison.OrdinalIgnoreCase) ||
-            ext.Equals(".slnx", StringComparison.OrdinalIgnoreCase))
+        else if (ext.Equals(".sln", StringComparison.OrdinalIgnoreCase))
         {
             loaded = await OpenSolutionAsync(fullPath, warnings, progress, cancellationToken).ConfigureAwait(false);
+        }
+        else if (ext.Equals(".slnx", StringComparison.OrdinalIgnoreCase))
+        {
+            loaded = await OpenSlnxAsync(fullPath, warnings, progress, cancellationToken).ConfigureAwait(false);
         }
         else if (ext.Equals(".csproj", StringComparison.OrdinalIgnoreCase) ||
             ext.Equals(".vbproj", StringComparison.OrdinalIgnoreCase) ||
@@ -245,13 +248,18 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         // Keep Visual Basic language services in the default host catalog.
         _ = typeof(Microsoft.CodeAnalysis.VisualBasic.VisualBasicCompilation);
         var workspace = MSBuildWorkspace.Create();
+        CollectWorkspaceWarnings(workspace, warnings);
+        return workspace;
+    }
+
+    private static void CollectWorkspaceWarnings(Workspace workspace, List<string> warnings)
+    {
 #pragma warning disable CS0618
         workspace.WorkspaceFailed += (_, e) =>
         {
             warnings.Add($"{e.Diagnostic.Kind}: {e.Diagnostic.Message}");
         };
 #pragma warning restore CS0618
-        return workspace;
     }
 
     private static async Task<LoadedSolution> OpenSolutionAsync(
@@ -268,16 +276,37 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
             _ = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct)
                 .ConfigureAwait(false);
 
-            // Support SLNX files with nested <Folder> elements (issue #545). The native
-            // reader expects folders at the solution root and drops those nested entries.
-            if (solutionPath.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
-            {
-                await ReconcileDeclaredSlnxProjectsAsync(
-                    workspace, solutionPath, warnings, progress, ct).ConfigureAwait(false);
-            }
-
             var solution = workspace.CurrentSolution;
             var count = Math.Max(1, solution.ProjectIds.Count);
+            var loaded = CreateLoadedSolution(workspace, warnings);
+            progress?.Report(new LoadProgress(count, count));
+            return loaded;
+        }
+        catch
+        {
+            workspace.Dispose();
+            throw;
+        }
+    }
+
+    private static async Task<LoadedSolution> OpenSlnxAsync(
+        string solutionPath,
+        List<string> warnings,
+        IProgress<LoadProgress>? progress,
+        CancellationToken ct)
+    {
+        _ = typeof(Microsoft.CodeAnalysis.VisualBasic.VisualBasicCompilation);
+        var workspace = new SlnxWorkspace();
+        CollectWorkspaceWarnings(workspace, warnings);
+        progress?.Report(new LoadProgress(0, 1));
+
+        try
+        {
+            await workspace.OpenSolutionFileAsync(solutionPath, ct).ConfigureAwait(false);
+            // The native reader ignores XML folders nested under another folder (#545).
+            await ReconcileDeclaredSlnxProjectsAsync(workspace, solutionPath, warnings, progress, ct)
+                .ConfigureAwait(false);
+            var count = Math.Max(1, workspace.CurrentSolution.ProjectIds.Count);
             var loaded = CreateLoadedSolution(workspace, warnings);
             progress?.Report(new LoadProgress(count, count));
             return loaded;
@@ -295,7 +324,7 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
     /// loaded after the retry get a named warning — the drop is never silent.
     /// </summary>
     private static async Task ReconcileDeclaredSlnxProjectsAsync(
-        MSBuildWorkspace workspace,
+        SlnxWorkspace workspace,
         string solutionPath,
         List<string> warnings,
         IProgress<LoadProgress>? progress,
@@ -326,14 +355,28 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         var completed = loadedCount;
         progress?.Report(new LoadProgress(completed, total));
 
+        if (await workspace.TryOpenBatchAsync(missing, warnings, ct).ConfigureAwait(false))
+        {
+            loadedPaths.AddFrom(workspace.CurrentSolution);
+        }
+
         var warned = new HashSet<string>(PathPolicy.Comparer);
         foreach (var projectPath in missing)
         {
             ct.ThrowIfCancellationRequested();
             try
             {
-                await OpenProjectIfMissingAsync(workspace, loadedPaths, projectPath, projectPath, ct)
-                    .ConfigureAwait(false);
+                if (!loadedPaths.ContainsCanonical(projectPath))
+                {
+                    try
+                    {
+                        await workspace.OpenProjectFileAsync(projectPath, ct).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        loadedPaths.AddFrom(workspace.CurrentSolution);
+                    }
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -383,8 +426,7 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
 
     /// <summary>
     /// Opens a project on an existing workspace unless a project with that FilePath is
-    /// already loaded; returns true when a load actually ran. Shared by the .slnx
-    /// reconciliation pass and the .slnf path: MSBuildWorkspace throws when asked to open
+    /// already loaded; returns true when a load actually ran. MSBuildWorkspace throws when asked to open
     /// a project path it already has, so the check must happen here.
     /// </summary>
     private static async Task<bool> OpenProjectIfMissingAsync(
