@@ -17,17 +17,26 @@ public sealed class XamlUsageIndex : IXamlUsageSource
 {
     private const int SnippetMaxChars = 80;
 
-    private readonly XamlDocumentService _documents;
-    private readonly LanguageAdapters _languages;
+    private readonly Lazy<XamlDocumentService> _documents;
+    private readonly Lazy<LanguageAdapters> _languages;
     private readonly RoslynLanguageAdapter _roslyn;
 
     public XamlUsageIndex(
         XamlDocumentService documents,
         LanguageAdapters languages,
         RoslynLanguageAdapter roslyn)
+        : this(() => documents, () => languages, roslyn)
     {
-        _documents = documents;
-        _languages = languages;
+    }
+
+    public XamlUsageIndex(
+        Func<XamlDocumentService> documents,
+        Func<LanguageAdapters> languages,
+        RoslynLanguageAdapter roslyn)
+    {
+        // Workspace sessions carry the index even when they have no XAML.
+        _documents = new Lazy<XamlDocumentService>(documents);
+        _languages = new Lazy<LanguageAdapters>(languages);
         _roslyn = roslyn;
     }
 
@@ -151,7 +160,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
         List<XamlUsagePoint> usages,
         CancellationToken ct)
     {
-        var (xmlns, _, _) = await _documents.MapDeclaredXmlnsAsync(
+        var (xmlns, _, _) = await _documents.Value.MapDeclaredXmlnsAsync(
                 session, root, root.XmlnsDeclarations, stopCollection: null, ct)
             .ConfigureAwait(false);
 
@@ -168,7 +177,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
 
         if (!string.IsNullOrWhiteSpace(root.ClassName))
         {
-            var (resolved, _) = await _documents
+            var (resolved, _) = await _documents.Value
                 .ResolveNameInDocumentProjectAsync(session, root, root.ClassName, ct)
                 .ConfigureAwait(false);
             if (resolved is not null)
@@ -182,7 +191,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
 
         if (ctx.ClassType is not null)
         {
-            var (typeName, _) = await _documents
+            var (typeName, _) = await _documents.Value
                 .TryResolveStaticDataContextTypeAsync(session, root, ct)
                 .ConfigureAwait(false);
             ctx.StaticDataType = typeName;
@@ -295,7 +304,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
             return cached;
         }
 
-        var type = await _documents
+        var type = await _documents.Value
             .ResolveElementTypeAsync(ctx.Session, prefix, local, ctx.Xmlns, ctx.ProjectId, ct)
             .ConfigureAwait(false);
         ctx.ElementTypes[(prefix, local)] = type;
@@ -507,7 +516,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
                 continue;
             }
 
-            var (resolved, _) = await _languages
+            var (resolved, _) = await _languages.Value
                 .ResolveByNameAsync(ctx.Session, segment, ctx.ProjectId, ct)
                 .ConfigureAwait(false);
             if (resolved is null)
@@ -546,7 +555,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
             return (null, null);
         }
 
-        var (resolved, _) = await _documents
+        var (resolved, _) = await _documents.Value
             .ResolveNameInDocumentProjectAsync(ctx.Session, ctx.Root, clrName.Trim(), ct)
             .ConfigureAwait(false);
         if (resolved is null)

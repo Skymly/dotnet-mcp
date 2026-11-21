@@ -19,7 +19,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     private readonly ConcurrentDictionary<(long Epoch, string Path), FSharpProjectOptions> _projectOptions = new(EpochPathComparer.Instance);
     private readonly ConcurrentDictionary<long, int> _epochsInFlight = new();
     private readonly AsyncLocal<long?> _currentEpoch = new();
-    private readonly FSharpChecker _checker;
+    private readonly Lazy<FSharpChecker> _checker;
 
     internal int FileChangeNotifications { get; private set; }
 
@@ -41,8 +41,15 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
     public FSharpSymbolQueryService(SoftBudgetOptions? softBudgets = null)
     {
         _softBudgets = softBudgets ?? SoftBudgetOptions.Default;
+        // The adapter is registered for every workspace. Create the compiler only
+        // when a request needs F# options or semantic checking.
+        _checker = new Lazy<FSharpChecker>(CreateChecker);
+    }
+
+    private FSharpChecker CreateChecker()
+    {
         var documentSource = FuncConvert.FromFunc<string, FSharpAsync<FSharpOption<ISourceText>?>>(TryReadSnapshot);
-        _checker = FSharpChecker.Create(
+        return FSharpChecker.Create(
             null,
             FSharpOption<bool>.Some(true),
             null,
@@ -376,7 +383,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             }
 
             await FSharpAsync.StartAsTask(
-                    _checker.NotifyFileChanged(path, options, userOpName: null),
+                    _checker.Value.NotifyFileChanged(path, options, userOpName: null),
                     taskCreationOptions: null,
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
@@ -385,7 +392,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         }
 
         var check = await FSharpAsync.StartAsTask(
-                _checker.ParseAndCheckProject(options, userOpName: null),
+                _checker.Value.ParseAndCheckProject(options, userOpName: null),
                 taskCreationOptions: null,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
@@ -513,7 +520,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             project.Documents.Select(d => d.Path),
             project.Defines,
             extraReferences ?? project.References);
-        return _checker.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
+        return _checker.Value.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
     }
 
     private static void WalkEntities(
