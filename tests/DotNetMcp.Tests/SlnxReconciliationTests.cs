@@ -82,7 +82,7 @@ public class SlnxReconciliationTests
         try
         {
             var projectPath = Path.Combine(dir, "App.csproj");
-            var workspace = new AdhocWorkspace();
+            using var workspace = new AdhocWorkspace();
             workspace.AddProject(ProjectInfo.Create(
                 ProjectId.CreateNewId(),
                 VersionStamp.Create(),
@@ -91,15 +91,15 @@ public class SlnxReconciliationTests
                 LanguageNames.CSharp,
                 filePath: projectPath));
 
-            Assert.True(MsBuildSolutionLoader.IsProjectAlreadyLoaded(
-                workspace.CurrentSolution, projectPath));
+            var loadedPaths = new MsBuildSolutionLoader.LoadedProjectPaths();
+            loadedPaths.AddFrom(workspace.CurrentSolution);
+
+            Assert.True(loadedPaths.ContainsCanonical(SlnxProjectEnumerator.Canonicalize(projectPath)));
             // Same file through a lexical detour still counts as loaded.
-            Assert.True(MsBuildSolutionLoader.IsProjectAlreadyLoaded(
-                workspace.CurrentSolution,
-                Path.Combine(dir, "sub", "..", "App.csproj")));
-            Assert.False(MsBuildSolutionLoader.IsProjectAlreadyLoaded(
-                workspace.CurrentSolution,
-                Path.Combine(dir, "Other.csproj")));
+            Assert.True(loadedPaths.ContainsCanonical(SlnxProjectEnumerator.Canonicalize(
+                Path.Combine(dir, "sub", "..", "App.csproj"))));
+            Assert.False(loadedPaths.ContainsCanonical(SlnxProjectEnumerator.Canonicalize(
+                Path.Combine(dir, "Other.csproj"))));
         }
         finally
         {

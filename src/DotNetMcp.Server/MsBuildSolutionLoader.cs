@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -226,6 +225,8 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         return loaded;
     }
 
+    internal bool ValidatesGraphFor(TrustedRoots trustedRoots) => ReferenceEquals(_trustedRoots, trustedRoots);
+
     internal static async Task EnsureGraphOrDisposeAsync(LoadedSolution loaded, TrustedRoots trustedRoots)
     {
         try
@@ -262,16 +263,13 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         var workspace = CreateWorkspace(warnings);
         progress?.Report(new LoadProgress(0, 1));
 
-        var sw = Stopwatch.StartNew();
         try
         {
             _ = await workspace.OpenSolutionAsync(solutionPath, cancellationToken: ct)
                 .ConfigureAwait(false);
-            sw.Stop();
 
-            // The slnx reader inside MSBuildWorkspace silently drops projects declared in
-            // nested solution folders (issue #545). Reconcile the declared set ourselves:
-            // retry whatever did not load, and name whatever still refuses to.
+            // Support SLNX files with nested <Folder> elements (issue #545). The native
+            // reader expects folders at the solution root and drops those nested entries.
             if (solutionPath.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase))
             {
                 await ReconcileDeclaredSlnxProjectsAsync(
@@ -314,21 +312,16 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
             return;
         }
 
-        var missing = declaredPaths
-            .Where(path => !IsProjectAlreadyLoaded(workspace.CurrentSolution, path))
-            .ToArray();
+        var loadedPaths = new LoadedProjectPaths();
+        loadedPaths.AddFrom(workspace.CurrentSolution);
+        var missing = declaredPaths.Where(path => !loadedPaths.ContainsCanonical(path)).ToArray();
         if (missing.Length == 0)
         {
             return;
         }
 
         // Honest progress: loaded (by distinct file) + one unit per retry, matching OpenSlnfAsync.
-        var loadedCount = workspace.CurrentSolution.Projects
-            .Select(static p => p.FilePath)
-            .Where(static p => !string.IsNullOrWhiteSpace(p))
-            .Select(static p => SlnxProjectEnumerator.Canonicalize(p!))
-            .Distinct(PathPolicy.Comparer)
-            .Count();
+        var loadedCount = loadedPaths.Count;
         var total = loadedCount + missing.Length;
         var completed = loadedCount;
         progress?.Report(new LoadProgress(completed, total));
@@ -339,7 +332,8 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
             ct.ThrowIfCancellationRequested();
             try
             {
-                await OpenProjectIfMissingAsync(workspace, projectPath, ct).ConfigureAwait(false);
+                await OpenProjectIfMissingAsync(workspace, loadedPaths, projectPath, projectPath, ct)
+                    .ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -357,27 +351,34 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         foreach (var projectPath in missing)
         {
             if (!warned.Contains(projectPath)
-                && !IsProjectAlreadyLoaded(workspace.CurrentSolution, projectPath))
+                && !loadedPaths.ContainsCanonical(projectPath))
             {
                 warnings.Add($"Project declared in solution but not loaded: {projectPath}");
             }
         }
     }
 
-    /// <summary>
-    /// True when the solution already holds a project with this file path (any TFM — a
-    /// multi-targeting csproj loads as one project per TFM, all sharing the same FilePath).
-    /// </summary>
-    internal static bool IsProjectAlreadyLoaded(Solution solution, string projectPath)
+    // Each open adds projects to a private workspace. Keep track of newly observed files,
+    // including transitive projects, without resolving the same path once per TFM or retry.
+    internal sealed class LoadedProjectPaths
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(projectPath);
-        var canonical = SlnxProjectEnumerator.Canonicalize(projectPath);
-        return solution.Projects.Any(p =>
-            !string.IsNullOrWhiteSpace(p.FilePath)
-            && string.Equals(
-                SlnxProjectEnumerator.Canonicalize(p.FilePath!),
-                canonical,
-                PathPolicy.Comparison));
+        private readonly HashSet<string> _observedPaths = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _canonicalPaths = new(PathPolicy.Comparer);
+
+        public int Count => _canonicalPaths.Count;
+
+        public bool ContainsCanonical(string projectPath) => _canonicalPaths.Contains(projectPath);
+
+        public void AddFrom(Solution solution)
+        {
+            foreach (var project in solution.Projects)
+            {
+                if (project.FilePath is { } path && !string.IsNullOrWhiteSpace(path) && _observedPaths.Add(path))
+                {
+                    _canonicalPaths.Add(SlnxProjectEnumerator.Canonicalize(path));
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -386,19 +387,27 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
     /// reconciliation pass and the .slnf path: MSBuildWorkspace throws when asked to open
     /// a project path it already has, so the check must happen here.
     /// </summary>
-    internal static async Task<bool> OpenProjectIfMissingAsync(
+    private static async Task<bool> OpenProjectIfMissingAsync(
         MSBuildWorkspace workspace,
+        LoadedProjectPaths loadedPaths,
         string projectPath,
+        string canonicalPath,
         CancellationToken ct)
     {
-        if (IsProjectAlreadyLoaded(workspace.CurrentSolution, projectPath))
+        if (loadedPaths.ContainsCanonical(canonicalPath))
         {
             return false;
         }
 
-        _ = await workspace.OpenProjectAsync(projectPath, cancellationToken: ct)
-            .ConfigureAwait(false);
-        return true;
+        try
+        {
+            _ = await workspace.OpenProjectAsync(projectPath, cancellationToken: ct).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            loadedPaths.AddFrom(workspace.CurrentSolution);
+        }
     }
 
     private static async Task<LoadedSolution> OpenProjectAsync(
@@ -442,13 +451,16 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         try
         {
             var completed = 0;
+            var loadedPaths = new LoadedProjectPaths();
             foreach (var projectPath in projectPaths)
             {
                 ct.ThrowIfCancellationRequested();
                 // An entry already in the workspace — a duplicate filter line, or a project an
                 // earlier entry pulled in transitively — would make MSBuildWorkspace throw and
                 // abort the whole open. Skip it, but name it: the skip is never silent.
-                if (!await OpenProjectIfMissingAsync(workspace, projectPath, ct).ConfigureAwait(false))
+                var canonicalPath = SlnxProjectEnumerator.Canonicalize(projectPath);
+                if (!await OpenProjectIfMissingAsync(workspace, loadedPaths, projectPath, canonicalPath, ct)
+                    .ConfigureAwait(false))
                 {
                     warnings.Add($"Solution filter entry already loaded transitively: {projectPath}");
                 }
