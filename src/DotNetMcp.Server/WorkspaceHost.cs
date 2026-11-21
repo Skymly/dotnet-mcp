@@ -681,9 +681,11 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         // read below stays trusted-roots-only, so toolchain documents are never
         // Repaired — the remedy is workspace_open, which re-runs MSBuild.
         var toolchainRoots = ToolchainRoots.Discover();
+        // Drift indexes canonical paths and re-resolves each document's current target
+        // immediately before reading it. The allowance only needs a prefix check.
         var detected = loaded.DetectDrift(
             extras,
-            path => _trustedRoots.Contains(path) || toolchainRoots.Contains(path));
+            path => _trustedRoots.ContainsNormalized(path) || toolchainRoots.ContainsNormalized(path));
 
         var repairTexts = new Dictionary<string, string>(PathPolicy.Comparer);
         foreach (var drift in detected)

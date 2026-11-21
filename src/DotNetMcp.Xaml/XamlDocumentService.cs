@@ -493,7 +493,7 @@ public sealed class XamlDocumentService
                     : (new XamlDocumentRoot(path, ClassName: null, XmlnsDeclarations: [], Text: text, ProjectId: projectId), null);
             }
 
-            var className = reader.GetAttribute("Class", XamlXmlns.Xaml);
+            var className = GetXamlDirective(reader, "Class");
             var xmlns = new List<(string Prefix, string XmlNamespace)>();
             if (reader.MoveToFirstAttribute())
             {
@@ -801,7 +801,7 @@ public sealed class XamlDocumentService
                     continue;
                 }
 
-                var dataType = reader.GetAttribute("DataType", XamlXmlns.Xaml);
+                var dataType = GetXamlDirective(reader, "DataType");
                 if (!string.IsNullOrWhiteSpace(dataType))
                 {
                     return dataType.Trim();
@@ -850,7 +850,7 @@ public sealed class XamlDocumentService
                     continue;
                 }
 
-                var name = reader.GetAttribute("Name", XamlXmlns.Xaml);
+                var name = GetXamlDirective(reader, "Name");
                 if (!string.IsNullOrWhiteSpace(name))
                 {
                     names.Add(name.Trim());
@@ -930,7 +930,7 @@ public sealed class XamlDocumentService
                     continue;
                 }
 
-                var dataType = reader.GetAttribute("DataType", XamlXmlns.Xaml);
+                var dataType = GetXamlDirective(reader, "DataType");
                 var effectiveDataType = !string.IsNullOrWhiteSpace(dataType)
                     ? dataType.Trim()
                     : currentDataType;
@@ -1094,8 +1094,11 @@ public sealed class XamlDocumentService
         return false;
     }
 
+    internal static string? GetXamlDirective(XmlReader reader, string name) =>
+        reader.GetAttribute(name, XamlXmlns.Xaml) ?? reader.GetAttribute(name, XamlXmlns.Xaml2009);
+
     internal static bool IsXamlNamespace(string namespaceUri) =>
-        string.Equals(namespaceUri, XamlXmlns.Xaml, StringComparison.Ordinal);
+        namespaceUri is XamlXmlns.Xaml or XamlXmlns.Xaml2009;
 
     internal static bool IsPropertyElementName(string localName) =>
         localName.Contains('.', StringComparison.Ordinal);

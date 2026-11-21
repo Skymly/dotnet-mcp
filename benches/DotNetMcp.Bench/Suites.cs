@@ -382,7 +382,7 @@ internal static class Suites
         {
             var members = McpBenchHost.Deserialize<SymbolMembersResultDto>(membersResult);
             methodHandle = members.Items.FirstOrDefault(i =>
-                    i.Summary.Kind is "Method" or "Function" or "Property")
+                    i.Summary.Kind is "Method" or "Function")
                 ?.Handle;
         }
 

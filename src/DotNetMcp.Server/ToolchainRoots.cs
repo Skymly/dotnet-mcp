@@ -55,6 +55,11 @@ public sealed class ToolchainRoots
             return false;
         }
 
+        return ContainsNormalized(normalized);
+    }
+
+    internal bool ContainsNormalized(string normalized)
+    {
         foreach (var root in _normalizedRoots)
         {
             if (PathPolicy.IsUnderRoot(normalized, root))

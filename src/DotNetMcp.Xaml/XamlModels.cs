@@ -57,6 +57,7 @@ public sealed record XamlBindingSegment(string Name, string Handle, SymbolSummar
 public static class XamlXmlns
 {
     public const string Xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+    internal const string Xaml2009 = "http://schemas.microsoft.com/winfx/2009/xaml";
     public const string Avalonia = "https://github.com/avaloniaui";
     public const string Maui = "http://schemas.microsoft.com/dotnet/2021/maui";
     public const string WpfPresentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
