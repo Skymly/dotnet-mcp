@@ -4,8 +4,10 @@ namespace DotNetMcp.Tests;
 
 public class FSharpDefineConstantsSeamTests
 {
-    [Fact]
-    public async Task evaluated_debug_define_keeps_debug_symbol_and_drops_not_debug_errors()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task evaluated_debug_define_keeps_debug_symbol_and_drops_not_debug_errors(bool openSolution)
     {
         var root = Path.Combine(Path.GetTempPath(), "dotnet-mcp-fsdef-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -38,12 +40,23 @@ public class FSharpDefineConstantsSeamTests
                 #endif
                 """);
 
+            var openedPath = project;
+            if (openSolution)
+            {
+                openedPath = Path.Combine(root, "App.slnx");
+                await File.WriteAllTextAsync(openedPath, """
+                    <Solution>
+                      <Project Path="App.fsproj" />
+                    </Solution>
+                    """);
+            }
+
             await using var fx = new InProcessMcpFixture(
                 TrustedRoots.Create([root]),
                 solutionLoader: null);
             var open = await fx.Client.CallToolAsync(
                 "workspace_open",
-                new Dictionary<string, object?> { ["path"] = project });
+                new Dictionary<string, object?> { ["path"] = openedPath });
             Assert.True(open.IsError is not true, InProcessMcpFixture.TextOf(open));
             await WorkspaceReady.WaitUntilReadyAsync(fx, WorkspaceReady.MsBuildTimeout);
 

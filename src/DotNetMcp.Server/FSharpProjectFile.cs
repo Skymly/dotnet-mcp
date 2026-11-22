@@ -5,6 +5,12 @@ using DotNetMcp.Core;
 
 namespace DotNetMcp.Server;
 
+internal sealed record FSharpDefineEvaluation(IReadOnlyList<string> Defines, DateTime LastWriteUtc, long Length)
+{
+    public bool Matches(FileInfo file) =>
+        file.Exists && file.LastWriteTimeUtc == LastWriteUtc && file.Length == Length;
+}
+
 internal static class FSharpProjectFile
 {
     public static IReadOnlyList<string> ReadCompilePaths(string fsprojPath)
@@ -49,14 +55,17 @@ internal static class FSharpProjectFile
         return paths;
     }
 
-    public static IReadOnlyList<string> ReadDefines(string fsprojPath)
+    public static IReadOnlyList<string> ReadDefines(string fsprojPath, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!File.Exists(fsprojPath))
         {
             return [];
         }
 
-        var evaluated = TryEvaluateDefines(fsprojPath);
+        var evaluated = TryEvaluateDefinesInProcess(fsprojPath);
+        cancellationToken.ThrowIfCancellationRequested();
+        evaluated ??= TryEvaluateDefinesWithDotnet(fsprojPath, cancellationToken);
         if (evaluated is not null)
         {
             return evaluated;
@@ -93,12 +102,6 @@ internal static class FSharpProjectFile
         {
             return [];
         }
-    }
-
-    private static IReadOnlyList<string>? TryEvaluateDefines(string fsprojPath)
-    {
-        var inProcess = TryEvaluateDefinesInProcess(fsprojPath);
-        return inProcess ?? TryEvaluateDefinesWithDotnet(fsprojPath);
     }
 
     private static IReadOnlyList<string>? TryEvaluateDefinesInProcess(string fsprojPath)
@@ -174,7 +177,9 @@ internal static class FSharpProjectFile
         }
     }
 
-    private static IReadOnlyList<string>? TryEvaluateDefinesWithDotnet(string fsprojPath)
+    private static IReadOnlyList<string>? TryEvaluateDefinesWithDotnet(
+        string fsprojPath,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -200,9 +205,16 @@ internal static class FSharpProjectFile
 
             var stdoutTask = process.StandardOutput.ReadToEndAsync();
             var stderrTask = process.StandardError.ReadToEndAsync();
-            if (!process.WaitForExit(20_000))
+            using var evaluationTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            evaluationTimeout.CancelAfter(TimeSpan.FromSeconds(20));
+            try
+            {
+                process.WaitForExitAsync(evaluationTimeout.Token).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
             {
                 try { process.Kill(entireProcessTree: true); } catch { }
+                cancellationToken.ThrowIfCancellationRequested();
                 return null;
             }
 

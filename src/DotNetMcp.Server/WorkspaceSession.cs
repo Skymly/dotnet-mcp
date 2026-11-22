@@ -159,7 +159,13 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
     public static FSharpWorkspaceSnapshot CaptureFSharpSnapshot(
         Solution solution,
         long epoch,
-        TrustedRoots? trustedRoots)
+        TrustedRoots? trustedRoots) => CaptureFSharpSnapshot(solution, epoch, trustedRoots, null);
+
+    internal static FSharpWorkspaceSnapshot CaptureFSharpSnapshot(
+        Solution solution,
+        long epoch,
+        TrustedRoots? trustedRoots,
+        IReadOnlyDictionary<string, FSharpDefineEvaluation>? initialDefines)
     {
         var projects = new List<FSharpProjectSnapshot>();
         var dependencyGraph = solution.GetProjectDependencyGraph();
@@ -171,9 +177,7 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
             }
 
             var documents = ReadFSharpDocuments(project, trustedRoots);
-            var defines = string.IsNullOrWhiteSpace(project.FilePath)
-                ? Array.Empty<string>()
-                : FSharpProjectFile.ReadDefines(project.FilePath);
+            var defines = ReadFSharpDefines(project.FilePath, initialDefines);
             var references = ReadCompilerReferences(project);
             var dependents = dependencyGraph
                 .GetProjectsThatTransitivelyDependOnThisProject(project.Id)
@@ -204,6 +208,25 @@ public sealed class WorkspaceSession : IWorkspaceSession, IWorkspaceSessionCache
         }
 
         return new FSharpWorkspaceSnapshot(epoch, projects);
+    }
+
+    private static IReadOnlyList<string> ReadFSharpDefines(
+        string? projectPath,
+        IReadOnlyDictionary<string, FSharpDefineEvaluation>? initialDefines)
+    {
+        if (string.IsNullOrWhiteSpace(projectPath))
+        {
+            return [];
+        }
+
+        if (initialDefines is not null &&
+            initialDefines.TryGetValue(Path.GetFullPath(projectPath), out var evaluated) &&
+            evaluated.Matches(new FileInfo(projectPath)))
+        {
+            return evaluated.Defines;
+        }
+
+        return FSharpProjectFile.ReadDefines(projectPath);
     }
 
     private readonly record struct CompilerReferenceSet(IReadOnlyList<string> Paths, IReadOnlyList<string> MissingOutputs);

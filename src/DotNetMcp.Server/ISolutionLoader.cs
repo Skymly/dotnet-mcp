@@ -49,6 +49,7 @@ public sealed class LoadedSolution : IAsyncDisposable
     public Solution Solution { get; private set; }
     public IReadOnlyList<string> Warnings { get; }
     public Workspace Workspace => _workspace;
+    internal IReadOnlyDictionary<string, FSharpDefineEvaluation>? InitialFSharpDefines { get; set; }
 
     // Session-only forks are expected. An independently advanced Roslyn workspace
     // invalidates the base of a pending Workspace Edit, just as TryApplyChanges did.

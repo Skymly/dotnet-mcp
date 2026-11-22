@@ -282,7 +282,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         return path => _trustedRoots.Contains(path) || toolchainRoots.Contains(path);
     }
 
-    private void CaptureFSharpOutsideGate()
+    private void CaptureFSharpOutsideGate(bool initialLoad = false)
     {
         LoadedSolution? loaded;
         long epoch;
@@ -294,7 +294,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
         var snap = loaded is null
             ? null
-            : WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch, _trustedRoots);
+            : WorkspaceSession.CaptureFSharpSnapshot(
+                loaded.Solution, epoch, _trustedRoots, initialLoad ? loaded.InitialFSharpDefines : null);
 
         _options.BeforeFSharpSnapshotCommitForTests?.Invoke();
 
@@ -1106,7 +1107,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 }
             }
 
-            CaptureFSharpOutsideGate();
+            CaptureFSharpOutsideGate(initialLoad: true);
             StartWatcherForLoaded(loaded);
             lock (_gate)
             {

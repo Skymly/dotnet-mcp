@@ -289,7 +289,7 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         }
     }
 
-    private static async Task<LoadedSolution> OpenSlnxAsync(
+    private async Task<LoadedSolution> OpenSlnxAsync(
         string solutionPath,
         List<string> warnings,
         IProgress<LoadProgress>? progress,
@@ -300,22 +300,89 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
         CollectWorkspaceWarnings(workspace, warnings);
         progress?.Report(new LoadProgress(0, 1));
 
+        using var prefetchCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task<IReadOnlyDictionary<string, FSharpDefineEvaluation>>? fsharpDefines = null;
         try
         {
+            IReadOnlyList<string>? declaredPaths = null;
+            string? declarationWarning = null;
+            try
+            {
+                declaredPaths = SlnxProjectEnumerator.EnumerateProjectPaths(solutionPath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+            {
+                declarationWarning = $"Could not enumerate declared projects in solution: {ex.Message}";
+            }
+
+            var fsharpPaths = declaredPaths?
+                .Where(path => path.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase) &&
+                    _trustedRoots.Contains(path) && File.Exists(path))
+                .ToArray();
+            if (fsharpPaths is { Length: > 0 })
+            {
+                var prefetchToken = prefetchCancellation.Token;
+                fsharpDefines = Task.Run(() => EvaluateFSharpDefines(fsharpPaths, prefetchToken), prefetchToken);
+            }
+
             await workspace.OpenSolutionFileAsync(solutionPath, ct).ConfigureAwait(false);
             // The native reader ignores XML folders nested under another folder (#545).
-            await ReconcileDeclaredSlnxProjectsAsync(workspace, solutionPath, warnings, progress, ct)
-                .ConfigureAwait(false);
+            if (declaredPaths is not null)
+            {
+                await ReconcileDeclaredSlnxProjectsAsync(workspace, declaredPaths, warnings, progress, ct)
+                    .ConfigureAwait(false);
+            }
+            else if (declarationWarning is not null)
+            {
+                warnings.Add(declarationWarning);
+            }
+
+            var evaluatedDefines = fsharpDefines is null ? null : await fsharpDefines.ConfigureAwait(false);
             var count = Math.Max(1, workspace.CurrentSolution.ProjectIds.Count);
             var loaded = CreateLoadedSolution(workspace, warnings);
+            loaded.InitialFSharpDefines = evaluatedDefines;
             progress?.Report(new LoadProgress(count, count));
             return loaded;
         }
         catch
         {
+            prefetchCancellation.Cancel();
+            if (fsharpDefines is not null)
+            {
+                try { await fsharpDefines.ConfigureAwait(false); }
+                catch { /* Preserve the original load failure. */ }
+            }
+
             workspace.Dispose();
             throw;
         }
+    }
+
+    private static IReadOnlyDictionary<string, FSharpDefineEvaluation> EvaluateFSharpDefines(
+        IReadOnlyList<string> projectPaths,
+        CancellationToken ct)
+    {
+        var defines = new Dictionary<string, FSharpDefineEvaluation>(PathPolicy.Comparer);
+        foreach (var path in projectPaths)
+        {
+            ct.ThrowIfCancellationRequested();
+            var file = new FileInfo(path);
+            if (!file.Exists)
+            {
+                continue;
+            }
+
+            var lastWrite = file.LastWriteTimeUtc;
+            var length = file.Length;
+            var evaluation = new FSharpDefineEvaluation(FSharpProjectFile.ReadDefines(path, ct), lastWrite, length);
+            file.Refresh();
+            if (evaluation.Matches(file))
+            {
+                defines.Add(path, evaluation);
+            }
+        }
+
+        return defines;
     }
 
     /// <summary>
@@ -325,22 +392,11 @@ public sealed class MsBuildSolutionLoader : ISolutionLoader
     /// </summary>
     private static async Task ReconcileDeclaredSlnxProjectsAsync(
         SlnxWorkspace workspace,
-        string solutionPath,
+        IReadOnlyList<string> declaredPaths,
         List<string> warnings,
         IProgress<LoadProgress>? progress,
         CancellationToken ct)
     {
-        IReadOnlyList<string> declaredPaths;
-        try
-        {
-            declaredPaths = SlnxProjectEnumerator.EnumerateProjectPaths(solutionPath);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
-        {
-            warnings.Add($"Could not enumerate declared projects in solution: {ex.Message}");
-            return;
-        }
-
         var loadedPaths = new LoadedProjectPaths();
         loadedPaths.AddFrom(workspace.CurrentSolution);
         var missing = declaredPaths.Where(path => !loadedPaths.ContainsCanonical(path)).ToArray();
