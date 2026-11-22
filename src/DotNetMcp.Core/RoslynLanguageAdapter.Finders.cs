@@ -17,6 +17,9 @@ public sealed partial class RoslynLanguageAdapter
     private static readonly ConditionalWeakTable<
         Solution, ConcurrentDictionary<(ProjectId? DefiningProject, bool EntireSolution), IReadOnlyList<Document>>>
         OrderedFinderScopes = new();
+    private static readonly ConditionalWeakTable<
+        Solution, ConcurrentDictionary<(long Epoch, string Handle), IReadOnlyList<(ISymbol Symbol, Project Project)>>>
+        ImplementationTargets = new();
 
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
         IWorkspaceSession session,
@@ -46,46 +49,8 @@ public sealed partial class RoslynLanguageAdapter
             return (null, cursorError);
         }
 
-        var found = new List<ISymbol>();
-        var implementations = await SymbolFinder
-            .FindImplementationsAsync(symbol!, session.Solution, cancellationToken: cancellationToken)
+        var ordered = await FindImplementationTargetsAsync(session, project!, symbol!, handle, cancellationToken)
             .ConfigureAwait(false);
-        found.AddRange(implementations);
-
-        if (symbol is INamedTypeSymbol named)
-        {
-            if (named.TypeKind is TypeKind.Class or TypeKind.Struct)
-            {
-                var derived = await SymbolFinder
-                    .FindDerivedClassesAsync(
-                        named,
-                        session.Solution,
-                        transitive: true,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-                found.AddRange(derived);
-            }
-
-            if (named.TypeKind == TypeKind.Interface)
-            {
-                var derivedIfaces = await SymbolFinder
-                    .FindDerivedInterfacesAsync(
-                        named,
-                        session.Solution,
-                        transitive: true,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-                found.AddRange(derivedIfaces);
-            }
-        }
-
-        var ordered = found
-            .Where(s => !SymbolEqualityComparer.Default.Equals(s, symbol))
-            .Select(s => (Symbol: s, Project: ProjectForSymbol(session.Solution, s, project!)))
-            .DistinctBy(m => (m.Project.Id.Id, SymbolKey(m.Symbol)))
-            .OrderBy(m => SymbolKey(m.Symbol), StringComparer.Ordinal)
-            .ThenBy(m => m.Project.Id.Id.ToString("D"), StringComparer.Ordinal)
-            .ToList();
 
         if (offset > ordered.Count)
         {
@@ -116,6 +81,59 @@ public sealed partial class RoslynLanguageAdapter
             ordered.Count == 0
                 ? "No implementations or derived types found."
                 : "Implementation page complete."), null);
+    }
+
+    private static async Task<IReadOnlyList<(ISymbol Symbol, Project Project)>> FindImplementationTargetsAsync(
+        IWorkspaceSession session, Project project, ISymbol symbol, string handle, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var solution = session.Solution;
+        var targets = ImplementationTargets.GetOrCreateValue(solution);
+        var key = (session.Epoch, handle);
+        if (targets.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var found = new List<ISymbol>();
+        var implementations = await SymbolFinder
+            .FindImplementationsAsync(symbol, solution, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        found.AddRange(implementations);
+        if (symbol is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } type)
+        {
+            var derived = await SymbolFinder.FindDerivedClassesAsync(type, solution, transitive: true,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            found.AddRange(derived);
+        }
+        else if (symbol is INamedTypeSymbol { TypeKind: TypeKind.Interface } iface)
+        {
+            var derived = await SymbolFinder.FindDerivedInterfacesAsync(iface, solution, transitive: true,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            found.AddRange(derived);
+        }
+
+        var ordered = found
+            .Where(s => !SymbolEqualityComparer.Default.Equals(s, symbol))
+            .Select(s => (Symbol: s, Project: ProjectForSymbol(solution, s, project), Signature: SymbolKey(s)))
+            .DistinctBy(m => (m.Project.Id.Id, m.Signature))
+            .OrderBy(m => m.Signature, StringComparer.Ordinal)
+            .ThenBy(m => m.Project.Id.Id.ToString("D"), StringComparer.Ordinal)
+            .Select(static m => (m.Symbol, m.Project))
+            .ToArray();
+
+        // Retain small finished searches for repeated queries and continuation pages.
+        if (ordered.Length <= MaxMemberPageLimit)
+        {
+            if (targets.Count >= MaxCachedFinderScopes)
+            {
+                targets.Clear();
+            }
+
+            targets.TryAdd(key, ordered);
+        }
+
+        return ordered;
     }
 
     public async Task<(PagedResult<HierarchyItem>? Success, SymbolQueryError? Error)> GetTypeHierarchyAsync(
