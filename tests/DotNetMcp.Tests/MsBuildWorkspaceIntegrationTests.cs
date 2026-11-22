@@ -965,6 +965,76 @@ public class MsBuildWorkspaceIntegrationTests
     }
 
     [Fact]
+    public async Task fsharp_references_confirm_consumer_bindings_and_reject_a_stale_export()
+    {
+        var root = CreateTempDir("fs-consumers");
+        CopyDirectory(Path.Combine(FixturesRoot, "FsharpCrossProject"), root);
+        var slnx = Path.Combine(root, "FsharpCrossProject.slnx");
+        try
+        {
+            // The existing consumer binary/metadata genuinely exports factor. Restore the
+            // .fsi before opening so the compiler's *current* public surface hides it.
+            var signature = Path.Combine(root, "FsOnlyCs", "Library.fsi");
+            var original = await File.ReadAllBytesAsync(signature);
+            await File.AppendAllTextAsync(signature, "\nval factor : int\n");
+            var cs = Path.Combine(root, "CsConsumer", "Use.cs");
+            await File.AppendAllTextAsync(cs, "\npublic class OldApi { public int Factor => FsOnlyCs.Scaling.factor; }\n");
+            RunDotnetBuild(slnx, "Debug");
+            await File.WriteAllBytesAsync(signature, original);
+
+            await using var fx = new InProcessMcpFixture(TrustedRoots.Create([root]));
+            await WorkspaceReady.OpenUntilReadyAsync(fx, slnx, WorkspaceReady.MsBuildTimeout);
+            var listed = await fx.Client.CallToolAsync("workspace_list_projects", new Dictionary<string, object?>());
+            var projects = InProcessMcpFixture.Deserialize<WorkspaceListProjectsResultDto>(listed);
+            var onlyCsId = Assert.Single(projects.Projects, p => p.Name == "FsOnlyCs").ProjectId;
+            var onlyCsHandle = await ResolveHandleAsync(fx, "FsOnlyCs.Scaling.scale", onlyCsId);
+            var references = await ReadAllAsync(onlyCsHandle);
+            Assert.Equal(2, references.Coverage.Count(c => c.Status == "confirmed"));
+            var consumerHits = references.Items.Where(i => i.Kind == ReferenceLocationKind.Reference).ToArray();
+            Assert.Equal(2, consumerHits.Length);
+            Assert.Contains(consumerHits, hit => hit.FilePath!.EndsWith("Use.cs") && hit.Line == 5);
+            Assert.Contains(consumerHits, hit => hit.FilePath!.EndsWith("Use.vb") && hit.Line == 3);
+
+            var unusedHandle = await ResolveHandleAsync(fx, "FsOnlyCs.Scaling.unused", onlyCsId);
+            var unused = await ReadAllAsync(unusedHandle);
+            Assert.Equal(2, unused.Coverage.Count(c => c.Status == "noHits"));
+
+            var hiddenHandle = await ResolveHandleAsync(fx, "FsOnlyCs.Scaling.factor", onlyCsId);
+            var hidden = await ReadAllAsync(hiddenHandle);
+            Assert.Equal(2, hidden.Coverage.Count(c => c.Status == "unavailable"));
+            Assert.DoesNotContain(hidden.Items, hit => hit.ProjectId != onlyCsId);
+
+            async Task<(List<ReferenceLocationItemDto> Items, ReferenceProjectCoverage[] Coverage)> ReadAllAsync(string handle)
+            {
+                var hits = new List<ReferenceLocationItemDto>();
+                var coverage = new Dictionary<string, ReferenceProjectCoverage>();
+                string? cursor = null;
+                var pageCount = 0;
+                do
+                {
+                    Assert.InRange(++pageCount, 1, 16);
+                    var result = await fx.Client.CallToolAsync("symbol_find_references",
+                        new Dictionary<string, object?> { ["handle"] = handle, ["limit"] = 1, ["cursor"] = cursor });
+                    Assert.True(result.IsError is not true, InProcessMcpFixture.TextOf(result));
+                    var page = InProcessMcpFixture.Deserialize<SymbolFindReferencesResultDto>(result);
+                    hits.AddRange(page.Items);
+                    foreach (var consumer in page.ProjectCoverage ?? [])
+                    {
+                        coverage[consumer.ProjectId] = consumer;
+                    }
+
+                    cursor = page.NextCursor;
+                } while (cursor is not null);
+                return (hits, coverage.Values.ToArray());
+            }
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task workspace_open_fsharp_cross_project_rename_edits_fsharp_dependents_but_refuses_csharp()
     {
         var source = Path.Combine(FixturesRoot, "FsharpCrossProject");
@@ -1102,12 +1172,12 @@ public class MsBuildWorkspaceIntegrationTests
         }
     }
 
-    private static void RunDotnetBuild(string project)
+    private static void RunDotnetBuild(string project, string configuration = "Release")
     {
         var start = new System.Diagnostics.ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = $"build \"{project}\" -c Release --nologo",
+            Arguments = $"build \"{project}\" -c {configuration} --nologo",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

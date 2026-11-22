@@ -233,8 +233,7 @@ public class FsharpCrossProjectSeamTests
             Assert.True(refs.IsError is not true, InProcessMcpFixture.TextOf(refs));
             var refsBody = InProcessMcpFixture.Deserialize<SymbolFindReferencesResultDto>(refs);
             Assert.Contains(refsBody.Items, i => i.Kind == ReferenceLocationKind.Definition);
-            Assert.Contains("CsConsumer", refsBody.Message, StringComparison.Ordinal);
-            Assert.Contains("csharp", refsBody.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(refsBody.ProjectCoverage!, c => c.Name == "CsConsumer" && c.Language == "csharp" && c.Status == "unavailable");
             Assert.DoesNotContain(refsBody.Items, i => i.ProjectId == ids["CsConsumer"]);
 
             var callers = await fx.Client.CallToolAsync(

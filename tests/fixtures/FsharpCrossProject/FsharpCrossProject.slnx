@@ -4,4 +4,5 @@
   <Project Path="FsTop/FsTop.fsproj" />
   <Project Path="FsOnlyCs/FsOnlyCs.fsproj" />
   <Project Path="CsConsumer/CsConsumer.csproj" />
+  <Project Path="VbConsumer/VbConsumer.vbproj" />
 </Solution>

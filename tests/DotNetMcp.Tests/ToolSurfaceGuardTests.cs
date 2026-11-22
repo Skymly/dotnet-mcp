@@ -15,6 +15,7 @@ public class ToolSurfaceGuardTests
         "diagnostics_apply_fix",
         "diagnostics_list_fixes",
         "diagnostics_preview_fix",
+        "fsharp_signature_status",
         "project_diagnostics",
         "project_inspect_metadata",
         "project_list_generated_sources",

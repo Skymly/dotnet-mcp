@@ -255,6 +255,7 @@ public sealed record ReferenceLocationItemDto
 
 public sealed record SymbolFindReferencesResultDto
 {
+    public IReadOnlyList<DotNetMcp.Core.ReferenceProjectCoverage>? ProjectCoverage { get; init; }
     public required IReadOnlyList<ReferenceLocationItemDto> Items { get; init; }
     public bool Truncated { get; init; }
     public string? NextCursor { get; init; }

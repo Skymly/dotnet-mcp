@@ -26,6 +26,7 @@ internal static class ToolProfile
         ["symbol_resolve_at"] = new("navigation", "Resolve a code or typed XAML reference by 1-based line and UTF-16 column."),
         ["project_inspect_metadata"] = new("navigation", "Follow a metadata result into the selected project's bound assembly, overloads and XML docs."),
         ["symbol_find_references"] = new("navigation", "Find compiler references and exact typed XAML usages. Continue with nextCursor."),
+        ["fsharp_signature_status"] = new("navigation", "Check an F# .fs against its .fsi and locate hidden declarations or compiler errors."),
         ["symbol_attribution"] = new("generators", "Identify the source generator, generated member and handwritten trigger for a symbol."),
         ["xaml_resolve_binding"] = new("xaml", "Resolve a binding path in its Avalonia or MAUI XAML context."),
         ["project_diagnostics"] = new("diagnostics", "Find compiler diagnostics and locations. Use diagnostics_list_fixes for a repair."),

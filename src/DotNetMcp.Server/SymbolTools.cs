@@ -341,10 +341,9 @@ public sealed class SymbolTools
         "with nothing materialized under the NuGet package cache (including a stale snapshot while a " +
         "restore is still in progress), a declared Reference path that never materialized, or a " +
         "compilation holding no assembly references — is named with a searched-degraded reason since its " +
-        "hits may be incomplete. F# handles search the " +
-        "defining project plus its F# dependents " +
-        "(entireSolution widens to every F# project); C#/VB dependents are never searched and the message " +
-        "names them. An engine failure inside the search reports SymbolQueryFailed instead of an invocation " +
+        "hits may be incomplete. F# handles include compiler-confirmed references in handwritten C#/VB consumers. " +
+        "Read projectCoverage across pages for confirmed, noHits, and unavailable consumer projects. " +
+        "An engine failure inside the search reports SymbolQueryFailed instead of an invocation " +
         "error.")]
     public async Task<CallToolResult> SymbolFindReferences(
         [Description("SymbolHandle from symbol_resolve: language:projectId:signature#checksum")]
@@ -912,6 +911,7 @@ public sealed class SymbolTools
 
     private static SymbolFindReferencesResultDto ToFindReferencesDto(PagedResult<ReferenceLocationItem> page) => new()
     {
+        ProjectCoverage = page.ProjectCoverage,
         Items = page.Items.Select(i => new ReferenceLocationItemDto
         {
             DeclarationAvailability = i.DeclarationAvailability,

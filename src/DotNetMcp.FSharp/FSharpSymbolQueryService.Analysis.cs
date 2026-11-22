@@ -34,6 +34,17 @@ public sealed partial class FSharpSymbolQueryService
             : _softBudgets.FindRefsScoped);
         var target = DefiningUse(check, item!)?.Symbol;
 
+        var foreign = FSharpConsumerReferences.Scope(session, project!, entireSolution);
+        var checkedPublicSurface = !item!.ImplementationOnly && check is not null &&
+            !check.Diagnostics.Any(d => d.Severity.ToString() == "Error");
+        var declarationId = !checkedPublicSurface ? null : target switch
+        {
+            FSharpEntity entity when entity.Accessibility.IsPublic => entity.XmlDocSig,
+            FSharpMemberOrFunctionOrValue member when member.Accessibility.IsPublic && member.ApparentEnclosingEntity is { } owner =>
+                (ResolveAccessor(member, owner.Value) ?? member).XmlDocSig,
+            _ => null
+        };
+
         return await ScanProjectsAsync<ReferenceLocationItem>(
             session,
             handle,
@@ -47,7 +58,13 @@ public sealed partial class FSharpSymbolQueryService
             (scannedCheck, _, scanned) => ReferenceHits(
                 scannedCheck, scanned, item!, target, session.FSharpSnapshot.Epoch),
             "No references were found.",
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            foreign, async consumer =>
+            {
+                var result = await FSharpConsumerReferences.SearchAsync(session, project!, consumer, declarationId, cancellationToken)
+                    .ConfigureAwait(false);
+                return (result.Hits, result.Coverage);
+            }).ConfigureAwait(false);
     }
 
     private List<ReferenceLocationItem> ReferenceHits(
@@ -60,7 +77,8 @@ public sealed partial class FSharpSymbolQueryService
         var hits = new List<ReferenceLocationItem>();
         foreach (var use in check.GetAllUsesOfAllSymbols(null))
         {
-            if (!SameSymbolUse(use.Symbol, item, target))
+            if (!(target is not null && use.Symbol.IsEffectivelySameAs(target)) &&
+                !(SameSymbol(use.Symbol, item) && SameDeclarationFile(use.Symbol, item)))
             {
                 continue;
             }
@@ -567,7 +585,9 @@ public sealed partial class FSharpSymbolQueryService
         string scopeKey,
         Func<FSharpCheckProjectResults, IReadOnlyList<FSharpCatalogItem>, FSharpProjectSnapshot, IReadOnlyList<T>> collect,
         string emptyMessage,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<FSharpDependentProject>? consumers = null,
+        Func<FSharpDependentProject, Task<(IReadOnlyList<T> Hits, ReferenceProjectCoverage Coverage)>>? scanConsumer = null)
     {
         if (!SoftBudgetPage.TryReadFindRefs(
                 cursor,
@@ -585,7 +605,9 @@ public sealed partial class FSharpSymbolQueryService
         }
 
         var scope = ScanScope(session.FSharpSnapshot, defining, entireSolution);
-        if (stage > scope.Count || (stage == scope.Count && locOffset > 0))
+        var totalProjects = scope.Count + (consumers?.Count ?? 0);
+        var coverage = new List<ReferenceProjectCoverage>();
+        if (stage > totalProjects || (stage == totalProjects && locOffset > 0))
         {
             return (null, new StaleCursorError(
                 "Cursor project index is past the end of the scoped project list.",
@@ -593,13 +615,15 @@ public sealed partial class FSharpSymbolQueryService
         }
 
         var epoch = session.FSharpSnapshot.Epoch;
-        var cache = session as IWorkspaceSessionCaches;
+        // A mixed run must carry the consumer coverage alongside its hits; never cache a
+        // partial/unavailable result as an authoritative empty hit list.
+        var cache = consumers is { Count: > 0 } ? null : session as IWorkspaceSessionCaches;
         var truncatedByBudget = false;
-        var scannedThrough = scope.Count;
+        var scannedThrough = totalProjects;
         if (cache?.FindHits.TryGetByDocument(session.Epoch, handle, scopeKey, out IReadOnlyList<IReadOnlyList<T>>? byProject) != true ||
             byProject is null)
         {
-            var filled = new IReadOnlyList<T>[scope.Count];
+            var filled = new IReadOnlyList<T>[totalProjects];
             for (var i = 0; i < filled.Length; i++)
             {
                 filled[i] = [];
@@ -607,13 +631,21 @@ public sealed partial class FSharpSymbolQueryService
 
             var clock = Stopwatch.StartNew();
             var index = stage;
-            for (; index < scope.Count; index++)
+            for (; index < totalProjects; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (index > stage && clock.Elapsed >= budget)
                 {
                     truncatedByBudget = true;
                     break;
+                }
+
+                if (index >= scope.Count)
+                {
+                    var scannedConsumer = await scanConsumer!(consumers![index - scope.Count]).ConfigureAwait(false);
+                    filled[index] = scannedConsumer.Hits;
+                    coverage.Add(scannedConsumer.Coverage);
+                    continue;
                 }
 
                 var scanned = scope[index];
@@ -634,7 +666,7 @@ public sealed partial class FSharpSymbolQueryService
         }
         else
         {
-            scannedThrough = scope.Count;
+            scannedThrough = totalProjects;
         }
 
         if (stage < scannedThrough && locOffset > byProject![stage].Count)
@@ -653,7 +685,11 @@ public sealed partial class FSharpSymbolQueryService
             () => FindRefsPageCursor.Encode(session.Epoch, entireSolution, nextStage, nextLoc, tool, handle),
             tool,
             page.Count == 0 ? emptyMessage : "Page complete.");
-        return (result with { Message = result.Message + ForeignDependentsNote(defining) }, null);
+        return (result with
+        {
+            ProjectCoverage = coverage.Count > 0 ? coverage : null,
+            Message = consumers is null ? result.Message + ForeignDependentsNote(defining) : result.Message
+        }, null);
     }
 
     /// <summary>

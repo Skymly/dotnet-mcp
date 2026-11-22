@@ -109,12 +109,12 @@ public class ReadmeInstallSeamTests
         var tools = tables[0];
         Assert.Equal(new[] { "Group", "Tools" }, tools[0]);
         Assert.Equal(
-            new[] { "Workspace", "Diagnostic fix", "Symbol", "Project", "XAML" },
+            new[] { "Workspace", "Diagnostic fix", "Symbol", "Project", "F#", "XAML" },
             tools.Skip(1).Select(row => row[0]).ToArray());
         var toolNames = tools.Skip(1)
             .SelectMany(row => Regex.Matches(row[1], "`([^`]+)`").Select(m => m.Groups[1].Value))
             .ToArray();
-        Assert.Equal(35, toolNames.Length);
+        Assert.Equal(36, toolNames.Length);
         Assert.Contains("workspace_open", toolNames);
         Assert.Contains("symbol_resolve_at", toolNames);
         Assert.Contains("symbol_source", toolNames);

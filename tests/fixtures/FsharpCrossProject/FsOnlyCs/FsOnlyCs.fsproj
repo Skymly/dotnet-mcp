@@ -3,6 +3,7 @@
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Library.fsi" />
     <Compile Include="Library.fs" />
   </ItemGroup>
 </Project>

@@ -117,11 +117,16 @@ public static class ReferenceLocationKind
     public const string Reference = "Reference";
 }
 
+public sealed record ReferenceProjectCoverage(string ProjectId, string Name, string Language, string Status, string? Reason);
+
 public sealed record PagedResult<T>(
     IReadOnlyList<T> Items,
     bool Truncated,
     string? NextCursor,
-    string Message);
+    string Message)
+{
+    public IReadOnlyList<ReferenceProjectCoverage>? ProjectCoverage { get; init; }
+}
 
 public sealed record PartialSymbolResolve(
     IReadOnlyList<SymbolResolveSuccess> Candidates,

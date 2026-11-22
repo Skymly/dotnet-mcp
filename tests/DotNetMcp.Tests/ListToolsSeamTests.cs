@@ -82,7 +82,7 @@ public class ListToolsSeamTests
         await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var names = (await fx.Client.ListToolsAsync()).Select(t => t.Name).ToArray();
 
-        Assert.Equal(35, names.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(36, names.Distinct(StringComparer.Ordinal).Count());
         Assert.Contains("symbol_resolve_at", names);
         Assert.Contains("symbol_source", names);
         Assert.Contains("symbol_preview_rename", names);
@@ -96,7 +96,7 @@ public class ListToolsSeamTests
     {
         await using var fx = new InProcessMcpFixture(TrustedRoots.Create([Path.GetTempPath()]));
         var tools = await fx.Client.ListToolsAsync();
-        Assert.Equal(35, tools.Count);
+        Assert.Equal(36, tools.Count);
 
         foreach (var tool in tools)
         {

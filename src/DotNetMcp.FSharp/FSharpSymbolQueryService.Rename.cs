@@ -30,7 +30,14 @@ public sealed partial class FSharpSymbolQueryService
             return (null, error);
         }
 
-        var oldName = LastIdentifier(item!.DisplayName) ?? LastIdentifier(item.SignatureQualifiedName);
+        if (item!.ImplementationOnly)
+        {
+            return (null, new SymbolNotAddressableError(
+                "This handle is read-only because the member is omitted from its .fsi signature.",
+                "Use symbol_find_references to inspect the implementation."));
+        }
+
+        var oldName = LastIdentifier(item.DisplayName) ?? LastIdentifier(item.SignatureQualifiedName);
         if (string.IsNullOrWhiteSpace(oldName))
         {
             return (null, new InvalidRenameNameError(

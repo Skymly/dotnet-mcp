@@ -125,3 +125,7 @@ acceptance ledger.
 ## Directed preview acceptance
 
 Run `python preview_probe.py --repo /path/to/Avalonia.Samples --compare-profiles dotnet /absolute/path/to/DotNetMcp.Server.dll` from this directory. The probe exports A3 at the bank's pinned revision, restores the project, and starts fresh stdio sessions to measure the first tools/list response for each profile. It measures complete JSON-RPC response frames including the newline. In the full profile it requests both preview formats on the same symbol and Epoch, reads all compact pages, applies that preview ID, and runs the existing byte-for-byte grader and golden build. `--parent` retains the subject and allows a fixed path for repeat measurements.
+
+## Mixed-language reference acceptance
+
+`python fsharp_references_probe.py dotnet /absolute/path/to/DotNetMcp.Server.dll` builds the six-project `FsharpCrossProject` fixture in a disposable directory and checks every MCP page. The three queries cover a public F# function used by C# and VB, an unused public function, and an implementation value omitted by the .fsi. The `fsharp_references_confirm_consumer_bindings_and_reject_a_stale_export` test also builds a prior public API and checks the consumer bound to that obsolete export.

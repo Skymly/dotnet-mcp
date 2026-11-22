@@ -400,6 +400,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         var projectId = project.ProjectId;
         var items = new List<FSharpCatalogItem>();
         WalkEntities(projectId, check.AssemblySignature.Entities, sources, items);
+        AddImplementationMembers(projectId, check, sources, items);
         return (items, check, sources);
     }
 
@@ -523,6 +524,37 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         return _checker.Value.GetProjectOptionsFromCommandLineArgs(projectFile, argv, null, null, null);
     }
 
+    // AssemblySignature omits implementation members hidden by a paired .fsi. Keep
+    // them addressable for source navigation without adding them to the exported API.
+    private static void AddImplementationMembers(string projectId, FSharpCheckProjectResults check,
+        IReadOnlyList<(string Path, string Text)> sources, List<FSharpCatalogItem> catalog)
+    {
+        var paired = sources.Where(s => s.Path.EndsWith(".fsi", StringComparison.OrdinalIgnoreCase))
+            .Select(s => Path.ChangeExtension(s.Path, ".fs")).ToHashSet(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        if (paired.Count == 0)
+        {
+            return;
+        }
+
+        var known = FlattenCatalog(catalog).Select(i => i.SignatureQualifiedName).ToHashSet(StringComparer.Ordinal);
+        foreach (var use in check.GetAllUsesOfAllSymbols(null))
+        {
+            if (!use.IsFromDefinition || !paired.Contains(use.FileName) ||
+                use.Symbol is not FSharpMemberOrFunctionOrValue { IsModuleValueOrMember: true, IsCompilerGenerated: false } member ||
+                member.IsPropertyGetterMethod || member.IsPropertySetterMethod || member.DeclaringEntity is not { } owner)
+            {
+                continue;
+            }
+
+            var key = MemberFullName(owner.Value, member);
+            if (known.Add(key))
+            {
+                catalog.Add(new(projectId, key, MemberKind(member), member.DisplayName, EntityFullName(owner.Value),
+                    false, LocationsOf(member.DeclarationLocation, sources), [], ImplementationOnly: true));
+            }
+        }
+    }
+
     private static void WalkEntities(
         string projectId,
         IEnumerable<FSharpEntity> entities,
@@ -644,7 +676,7 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
             Kind: item.Kind,
             DisplayName: item.DisplayName,
             ContainingSymbol: item.ContainingSymbol,
-            Accessibility: "Public",
+            Accessibility: item.ImplementationOnly ? "ImplementationOnly" : "Public",
             ProjectId: item.ProjectId,
             Language: LanguageAdapters.FSharpLanguage);
         return new SymbolResolveSuccess(handle.Format(), summary);
@@ -1259,7 +1291,8 @@ public sealed partial class FSharpSymbolQueryService : ILanguageAdapter
         IReadOnlyList<FSharpCatalogItem> Members,
         string? BaseTypeName = null,
         IReadOnlyList<string>? InterfaceNames = null,
-        bool IsInterface = false);
+        bool IsInterface = false,
+        bool ImplementationOnly = false);
 
     private static IEnumerable<FSharpCatalogItem> FlattenCatalog(IEnumerable<FSharpCatalogItem> items)
     {
