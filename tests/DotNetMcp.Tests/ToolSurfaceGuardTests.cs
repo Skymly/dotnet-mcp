@@ -16,6 +16,7 @@ public class ToolSurfaceGuardTests
         "diagnostics_list_fixes",
         "diagnostics_preview_fix",
         "project_diagnostics",
+        "project_inspect_metadata",
         "project_list_generated_sources",
         "project_list_generator_diagnostics",
         "project_list_dynamic_invocations",

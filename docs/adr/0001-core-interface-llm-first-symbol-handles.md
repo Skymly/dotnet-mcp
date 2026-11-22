@@ -170,3 +170,7 @@ Workspace Edit module 不进 Workspace：按 ADR-0005，`WorkspaceEdit`（previe
 ## Amendment 8（2026-10-25）：XAML 使用点索引作为 Core 接缝
 
 XAML 使用点索引细化 §3/§5（XAML 仍非 `ILanguageAdapter`，依赖仍 Xaml → Core）并遵守 §4（分页归 Core）：抽象 `IXamlUsageSource` 由 Core 拥有、`DotNetMcp.Xaml` 实现、`DotNetMcp.Server` 接线，缓存按 `(Epoch, ProjectId)` 由 host 持有。消费侧为 `symbol_find_references`（Exact 使用点并入同一分页流）与 `symbol_resolve_at`（已注册文档内位置解析覆盖使用点的目标句柄，`resolvedFrom=Reference`，`matched` 为使用点 span；未接线会话保持 `UnsupportedDocumentForPosition`）。详见 `docs/adr/0006-xaml-usage-index-core-seam.md`。
+
+## Amendment 9（2026-11-22）元数据句柄携带绑定程序集
+
+消费项目可通过程序集别名引用两个具有相同 CLR 类型名、成员名和参数列表的声明。新建的 C#/VB 元数据 SymbolHandle 在签名字段记录程序集完整身份、CLR 类型名与原定义的文档声明 ID。该 ID 由编译器提供，缺少 XML 文档文件时也可使用。解析时只在所选项目的绑定引用中查找声明。旧显示签名在绑定引用中存在重名声明时返回歧义，调用方可从使用位置取得新句柄。ADR-0006 的 XAML SymbolKey 保持显示签名格式。

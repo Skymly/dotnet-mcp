@@ -14,7 +14,13 @@ public sealed record SymbolSummary(
     string Accessibility,
     string ProjectId,
     string Language,
-    string InteropKind = InteropKinds.None);
+    string InteropKind = InteropKinds.None,
+    MetadataNavigation? Metadata = null);
+
+public sealed record MetadataNavigation(string ProjectId, string AssemblyIdentity, string TypeName, string? MemberName)
+{
+    public string Tool => "project_inspect_metadata";
+}
 
 public sealed record SymbolResolveSuccess(string Handle, SymbolSummary Summary);
 
@@ -54,7 +60,7 @@ public sealed record SymbolLocation(
     int? EndLine,
     int? EndColumn);
 
-public sealed record SymbolDefinitionSuccess(IReadOnlyList<SymbolLocation> Locations);
+public sealed record SymbolDefinitionSuccess(IReadOnlyList<SymbolLocation> Locations, MetadataNavigation? Metadata = null);
 
 public sealed record MemberListItem(string Handle, SymbolSummary Summary);
 

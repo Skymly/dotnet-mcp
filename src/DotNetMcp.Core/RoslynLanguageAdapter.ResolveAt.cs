@@ -115,7 +115,8 @@ public sealed partial class RoslynLanguageAdapter
         }
 
         var distinct = hits
-            .GroupBy(hit => hit.Symbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified))
+            .GroupBy(hit => (hit.Symbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified),
+                Assembly: hit.Symbol.Locations.Any(l => l.IsInMetadata) ? hit.Symbol.ContainingAssembly?.Identity : null))
             .Select(group => group.First())
             .ToList();
         if (distinct.Count > 1)

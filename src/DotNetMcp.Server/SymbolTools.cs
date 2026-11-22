@@ -820,7 +820,8 @@ public sealed class SymbolTools
 
     private static SymbolDefinitionResultDto ToDefinitionDto(SymbolDefinitionSuccess success) => new()
     {
-        Locations = success.Locations.Select(ToLocationDto).ToArray()
+        Locations = success.Locations.Select(ToLocationDto).ToArray(),
+        Metadata = success.Metadata
     };
 
     private static SymbolAttributionResultDto ToAttributionDto(SymbolAttributionSuccess success) => new()
@@ -1000,7 +1001,8 @@ public sealed class SymbolTools
         Accessibility = summary.Accessibility,
         ProjectId = summary.ProjectId,
         Language = summary.Language,
-        InteropKind = summary.InteropKind
+        InteropKind = summary.InteropKind,
+        Metadata = summary.Metadata
     };
 }
 

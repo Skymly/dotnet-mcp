@@ -175,6 +175,7 @@ public sealed record SymbolSummaryDto
     public required string ProjectId { get; init; }
     public required string Language { get; init; }
     public string InteropKind { get; init; } = "None";
+    public Core.MetadataNavigation? Metadata { get; init; }
 }
 
 public sealed record SymbolResolveResultDto
@@ -217,6 +218,7 @@ public sealed record SymbolLocationDto
 public sealed record SymbolDefinitionResultDto
 {
     public required IReadOnlyList<SymbolLocationDto> Locations { get; init; }
+    public Core.MetadataNavigation? Metadata { get; init; }
 }
 
 public sealed record MemberListItemDto

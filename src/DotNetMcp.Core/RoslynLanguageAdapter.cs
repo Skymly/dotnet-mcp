@@ -121,7 +121,8 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
         // Deduplicate identical symbols within the same project (walk may hit twice).
         matches = matches
-            .DistinctBy(m => (m.Project.Id.Id, SymbolKey(m.Symbol)))
+            .DistinctBy(m => (m.Project.Id.Id, SymbolKey(m.Symbol),
+                Assembly: m.Symbol.Locations.Any(l => l.IsInMetadata) ? m.Symbol.ContainingAssembly?.Identity : null))
             .ToList();
 
         // A referenced copy in another language/project is not a second definition.
@@ -355,7 +356,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 "Confirm the handle with symbol_summary, or call symbol_resolve for a source symbol."));
         }
 
-        return (new SymbolDefinitionSuccess(locations), null);
+        return (new SymbolDefinitionSuccess(locations, MetadataTarget(project!, symbol)), null);
     }
 
     public async Task<(PagedResult<MemberListItem>? Success, SymbolQueryError? Error)> GetMembersAsync(
@@ -564,12 +565,28 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 "Call workspace_status; when ready, call symbol_resolve again."));
         }
 
-        var symbol = FindBySignature(compilation, parsed.SignatureQualifiedName);
+        var signature = parsed.SignatureQualifiedName;
+        var isBoundHandle = signature.StartsWith(MetadataHandlePrefix, StringComparison.Ordinal);
+        var symbol = isBoundHandle
+            ? ResolveMetadataHandle(compilation, signature, cancellationToken)
+            : FindBySignature(compilation, signature);
         if (symbol is null)
         {
             return (null, null, new SymbolNotFoundError(
                 $"Symbol '{parsed.SignatureQualifiedName}' no longer exists in project '{parsed.ProjectId}'.",
                 "The code may have changed; call symbol_resolve with the current name/FQN."));
+        }
+
+        // Old handles encoded only the display signature. Where two references now match
+        // it, a call site must select the assembly before we can identify its declaration.
+        if (!isBoundHandle && MetadataTarget(project, symbol) is { } target &&
+            symbol.OriginalDefinition.GetDocumentationCommentId() is { } declarationId &&
+            BoundAssemblies(compilation, null, cancellationToken).Any(a =>
+                a.Identity.ToString() != target.AssemblyIdentity &&
+                FindDeclaration(a, target.TypeName, declarationId) is not null))
+        {
+            return (null, null, new SymbolAmbiguousError("This legacy handle matches declarations in multiple referenced assemblies.",
+                "Use symbol_resolve_at at the reference site to obtain a handle bound to its assembly."));
         }
 
         return (project, symbol, null);
@@ -598,6 +615,9 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
         var projectId = project.Id.Id.ToString("D");
         var language = LanguageToken(project.Language);
+        var metadata = MetadataTarget(project, symbol);
+        if (metadata is not null && symbol.OriginalDefinition.GetDocumentationCommentId() is { } declarationId)
+            signature = MetadataHandleSignature(metadata, declarationId);
         signature ??= SymbolKey(symbol);
         var handle = SymbolHandle.Create(language, projectId, signature);
         var summary = new SymbolSummary(
@@ -610,7 +630,8 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             Accessibility: symbol.DeclaredAccessibility.ToString(),
             ProjectId: projectId,
             Language: language,
-            InteropKind: DetectInteropKind(symbol));
+            InteropKind: DetectInteropKind(symbol),
+            Metadata: metadata);
 
         var projected = new SymbolResolveSuccess(handle.Format(), summary);
         projections.TryAdd(symbol, projected);

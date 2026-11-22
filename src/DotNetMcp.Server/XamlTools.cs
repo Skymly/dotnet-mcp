@@ -303,7 +303,8 @@ public sealed class XamlTools
         Accessibility = summary.Accessibility,
         ProjectId = summary.ProjectId,
         Language = summary.Language,
-        InteropKind = summary.InteropKind
+        InteropKind = summary.InteropKind,
+        Metadata = summary.Metadata
     };
 }
 

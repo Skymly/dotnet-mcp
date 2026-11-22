@@ -40,7 +40,7 @@ public sealed class LanguageAdapters
         return project is null ? null : ForProject(project);
     }
 
-    internal static Project? FindProjectById(Solution solution, string? projectId) =>
+    public static Project? FindProjectById(Solution solution, string? projectId) =>
         projectId?.Length == 36 && Guid.TryParseExact(projectId, "D", out var id) && id != Guid.Empty
             ? solution.GetProject(ProjectId.CreateFromSerialized(id))
             : null;

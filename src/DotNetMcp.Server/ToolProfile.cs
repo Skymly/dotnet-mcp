@@ -24,6 +24,7 @@ internal static class ToolProfile
         ["workspace_list_projects"] = new("navigation", "List project IDs, languages and target-framework instances."),
         ["symbol_resolve"] = new("navigation", "Find C#, VB or F# SymbolHandles by qualified or simple name."),
         ["symbol_resolve_at"] = new("navigation", "Resolve a code or typed XAML reference by 1-based line and UTF-16 column."),
+        ["project_inspect_metadata"] = new("navigation", "Follow a metadata result into the selected project's bound assembly, overloads and XML docs."),
         ["symbol_find_references"] = new("navigation", "Find compiler references and exact typed XAML usages. Continue with nextCursor."),
         ["symbol_attribution"] = new("generators", "Identify the source generator, generated member and handwritten trigger for a symbol."),
         ["xaml_resolve_binding"] = new("xaml", "Resolve a binding path in its Avalonia or MAUI XAML context."),
