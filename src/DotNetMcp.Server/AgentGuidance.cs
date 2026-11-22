@@ -62,6 +62,13 @@ public static class AgentPrompts
         int? column = null)
     {
         var entry = BuildEntry(name, path, line, column);
+        if (ToolProfile.IsLite(Environment.GetEnvironmentVariable(ToolProfile.Variable)))
+        {
+            return UserMessage("Open the workspace and poll workspace_status until ready.\n" + entry +
+                "\nRead the resolved summary. Use symbol_attribution for a generated member's generator and " +
+                "handwritten triggers. Page through symbol_find_references for source and exact typed XAML usages. " +
+                "Return the handle, origin, triggers and reference locations.");
+        }
         return UserMessage(
             "Trace a .NET symbol end-to-end with dotnet-mcp tools. They are compiler-accurate — " +
             "do not substitute text search for these steps.\n\n" +

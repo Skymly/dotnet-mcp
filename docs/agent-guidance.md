@@ -23,6 +23,8 @@ Standard loop:
    while it is loading.
 3. Resolve a `SymbolHandle`: `symbol_resolve` by name/FQN, or `symbol_resolve_at`
    by `path` + `line` + `column`.
+   With the lite profile, call `tool_help` for a group or a tool's detailed
+   description. The first tool list contains every name available in that session.
 4. Work from the handle: `symbol_summary`, `symbol_goto_definition`,
    `symbol_source`, `symbol_attribution` (handwritten vs generated, with
    `triggers[]` back to the code that caused a generated member),

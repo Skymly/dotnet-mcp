@@ -84,9 +84,11 @@ stdio only. Framework-dependent .NET tool; NativeAOT is not required.
 
 Typical agent loop: `workspace_open` (returns immediately) → poll `workspace_status` until `ready` → `symbol_resolve` → navigation / attribution. Prefer a `.slnf` or a single project for a large solution. `.slnf` entries already in the workspace (duplicates, or projects an earlier entry pulled in transitively) are skipped and named in the load warnings rather than failing the open.
 
-For agent setup, [`docs/agent-guidance.md`](docs/agent-guidance.md) holds a copy-paste block for a consuming repo's `AGENTS.md` / `CLAUDE.md` — the loop, the 1-based position model, and the preview → apply write rule. The server also sends the same brief in the initialize result `instructions` and ships `trace_symbol` / `safe_rename` prompts that walk an agent through the two core workflows.
+For agent setup, [`docs/agent-guidance.md`](docs/agent-guidance.md) holds a copy-paste block for a consuming repo's `AGENTS.md` / `CLAUDE.md` — the loop, the 1-based position model, and the preview → apply write rule. The full profile sends this brief in the initialize result `instructions` and ships `trace_symbol` / `safe_rename` prompts that walk an agent through the two core workflows.
 
 ## MCP tools
+
+The default `full` profile advertises all named tools. For agents that load tool definitions into every conversation, set `"env": {"DOTNET_MCP_TOOL_PROFILE": "lite"}` on the MCP server in the client configuration and restart the server. Lite advertises a fixed shortlist with shorter descriptions. Clients can cache the first tool list for the entire session. Call `tool_help` with a group such as `generators`, `xaml`, `diagnostics`, `rename` or `refactoring` to see its steps, then call the named tools directly. Pass an exact tool name to read its full description. Use the full profile for the complete navigation and analysis catalog.
 
 | Group | Tools |
 |------|--------|
@@ -215,4 +217,4 @@ dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts
 dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo
 ```
 
-Agent 接入：[docs/agent-guidance.md](docs/agent-guidance.md) 提供可直接粘贴到消费方 `AGENTS.md` / `CLAUDE.md` 的片段；服务器 initialize 结果携带相同的 `instructions`，并附带 `trace_symbol` / `safe_rename` 两个 prompt。
+Agent 接入：[docs/agent-guidance.md](docs/agent-guidance.md) 提供可直接粘贴到消费方 `AGENTS.md` / `CLAUDE.md` 的片段；full 配置的 initialize 结果携带相同的 `instructions`，并附带 `trace_symbol` / `safe_rename` 两个 prompt。

@@ -35,6 +35,35 @@ public class StdioHostSmokeTests
     }
 
     [Fact]
+    public async Task lite_client_finds_and_calls_named_tools_without_refreshing_its_list()
+    {
+        using var timeout = new CancellationTokenSource(WorkspaceReady.DefaultTimeout);
+        await using var client = await ConnectAsync(Path.GetTempPath(), timeout.Token, profile: "lite");
+        var tools = await client.ListToolsAsync(cancellationToken: timeout.Token);
+        Assert.Contains("tool_help", client.ServerInstructions);
+        Assert.DoesNotContain(tools, t => t.Name == "project_list_dynamic_invocations");
+        foreach (var (group, expected) in new[]
+        {
+            ("generators", "symbol_attribution"), ("xaml", "xaml_resolve_binding"),
+            ("diagnostics", "diagnostics_list_fixes"), ("refactoring", "symbol_list_refactorings"),
+            ("rename", "symbol_apply_rename")
+        })
+        {
+            var help = await client.CallToolAsync("tool_help", new Dictionary<string, object?> { ["topic"] = group },
+                cancellationToken: timeout.Token);
+            Assert.Contains(expected, InProcessMcpFixture.TextOf(help));
+            Assert.Contains(tools, t => t.Name == expected);
+        }
+
+        var details = await client.CallToolAsync("tool_help", new Dictionary<string, object?> { ["topic"] = "workspace_open" },
+            cancellationToken: timeout.Token);
+        Assert.Contains("MSBuild", InProcessMcpFixture.TextOf(details));
+        var result = await client.CallToolAsync("symbol_attribution", new Dictionary<string, object?> { ["handle"] = "example" },
+            cancellationToken: timeout.Token);
+        Assert.Equal(PolicyErrorCodes.WorkspaceNotReady, InProcessMcpFixture.Deserialize<PolicyErrorDto>(result).Error);
+    }
+
+    [Fact]
     public async Task stdio_server_process_calls_status_and_returns_not_ready_error()
     {
         using var timeout = new CancellationTokenSource(WorkspaceReady.DefaultTimeout);
@@ -166,7 +195,8 @@ public class StdioHostSmokeTests
         string roots,
         CancellationToken cancellationToken,
         string? workingDirectory = null,
-        Action<string>? standardErrorLines = null)
+        Action<string>? standardErrorLines = null,
+        string? profile = null)
     {
         var serverDll = Path.Combine(AppContext.BaseDirectory, "DotNetMcp.Server.dll");
         Assert.True(File.Exists(serverDll), "Server assembly was not copied next to the tests.");
@@ -182,6 +212,7 @@ public class StdioHostSmokeTests
                 EnvironmentVariables = new Dictionary<string, string?>
                 {
                     ["DOTNET_MCP_TRUSTED_ROOTS"] = null,
+                    ["DOTNET_MCP_TOOL_PROFILE"] = profile,
                 },
             }),
             cancellationToken: cancellationToken);

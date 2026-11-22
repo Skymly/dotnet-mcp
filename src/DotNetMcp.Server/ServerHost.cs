@@ -122,11 +122,20 @@ public static class ServerHost
         AddDotNetMcp(builder.Services, trustedRoots);
 
         var taskStore = new InMemoryMcpTaskStore { DefaultPollIntervalMs = 250 };
-        builder.Services
+        var mcp = builder.Services
             .AddMcpServer()
             .WithStdioServerTransport()
-            .WithToolsFromAssembly(typeof(ServerHost).Assembly)
             .WithTasks(taskStore);
+        var profile = Environment.GetEnvironmentVariable(ToolProfile.Variable);
+        if (ToolProfile.IsLite(profile))
+            ToolProfile.RegisterLite(mcp);
+        else if (string.IsNullOrEmpty(profile) || string.Equals(profile, "full", StringComparison.OrdinalIgnoreCase))
+            mcp.WithToolsFromAssembly(typeof(ServerHost).Assembly);
+        else
+        {
+            Console.Error.WriteLine("DOTNET_MCP_TOOL_PROFILE accepts full or lite.");
+            return 1;
+        }
 
         await builder.Build().RunAsync().ConfigureAwait(false);
         return 0;

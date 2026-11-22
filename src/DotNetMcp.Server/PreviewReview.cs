@@ -22,8 +22,7 @@ internal sealed class PreviewReview(IReadOnlyList<WorkspaceEditDocument> documen
 
     internal static bool TryGetFormat(string? format, out bool compact)
     {
-        format ??= string.Equals(Environment.GetEnvironmentVariable("DOTNET_MCP_TOOL_PROFILE"), "lite",
-            StringComparison.OrdinalIgnoreCase) ? "compact" : "full";
+        format ??= ToolProfile.IsLite(Environment.GetEnvironmentVariable(ToolProfile.Variable)) ? "compact" : "full";
         compact = string.Equals(format, "compact", StringComparison.OrdinalIgnoreCase);
         return compact || string.Equals(format, "full", StringComparison.OrdinalIgnoreCase);
     }
