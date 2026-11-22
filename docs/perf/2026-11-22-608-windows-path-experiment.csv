@@ -1,0 +1,6 @@
+subject,scenario,process_pairs,baseline_n,candidate_n,baseline_median_p95_ms,candidate_median_p95_ms,delta_pct,same_workspace_counts,pairs_over_20pct,baseline_process_p95_ms,candidate_process_p95_ms,baseline_errors,candidate_errors
+fixtures,XamlApp.xaml.diagnostics,3,180,180,1.5506,1.1927,-23.081387849864566,True,0,1.9092;1.4582;1.5506,1.3491;1.1927;1.1788,;;,;;
+fixtures,XamlApp.xaml.list_xmlns,3,180,180,1.7504,1.0216,-41.636197440585,True,0,1.7597;1.7504;1.3907,1.0216;1.1098;0.9565,;;,;;
+fixtures,XamlApp.xaml.resolve_binding,3,180,180,3.4253,1.449,,True,0,3.5868;1.9615;3.4253,1.6308;1.449;1.4146,MissingDataType;MissingDataType;MissingDataType,MissingDataType;MissingDataType;MissingDataType
+fixtures,XamlApp.xaml.resolve_class,3,180,180,1.61,1.2499,-22.366459627329192,True,0,2.8613;1.4717;1.61,1.2305;1.2499;1.5726,;;,;;
+fixtures,XamlApp.xaml.resolve_name,3,180,180,2.0411,1.2424,,True,0,1.9565;2.0411;2.7868,1.0623;2.3879;1.2424,NameGeneratorNotRun;NameGeneratorNotRun;NameGeneratorNotRun,NameGeneratorNotRun;NameGeneratorNotRun;NameGeneratorNotRun
