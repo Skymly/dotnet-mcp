@@ -15,9 +15,8 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
     public const string FSharpLanguage = "fsharp";
     public const int DefaultMemberPageLimit = 50;
     public const int MaxMemberPageLimit = 100;
-    private const int MaxCachedSignatures = 256;
-    private static readonly ConditionalWeakTable<Compilation, ConcurrentDictionary<string, ISymbol>>
-        ResolvedSignatures = new();
+    private const int MaxCachedSymbols = 256;
+    private static readonly ConditionalWeakTable<Compilation, CompilationSymbols> ResolvedSymbols = new();
     public static readonly TimeSpan DependencyClosureSoftBudget =
         SoftBudgetOptions.Default.FindRefsScoped;
     public static readonly TimeSpan EntireSolutionSoftBudget =
@@ -750,10 +749,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 continue;
             }
 
-            foreach (var symbol in FindSymbols(warm, query, cancellationToken))
-            {
-                matches.Add((project, symbol));
-            }
+            AddCompilationMatches(warm, project, query, matches, cancellationToken);
         }
     }
 
@@ -774,9 +770,33 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             return;
         }
 
+        AddCompilationMatches(compilation, project, query, matches, cancellationToken);
+    }
+
+    private static void AddCompilationMatches(
+        Compilation compilation,
+        Project project,
+        string query,
+        List<(Project Project, ISymbol Symbol)> matches,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var names = ResolvedSymbols.GetValue(compilation, static _ => new CompilationSymbols()).Names;
+        if (names.TryGetValue(query, out var cached))
+        {
+            matches.Add((project, cached));
+            return;
+        }
+
+        var previousCount = matches.Count;
         foreach (var symbol in FindSymbols(compilation, query, cancellationToken))
         {
             matches.Add((project, symbol));
+        }
+
+        if (matches.Count == previousCount + 1)
+        {
+            RememberSymbol(names, query, matches[previousCount].Symbol);
         }
     }
 
@@ -922,7 +942,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
     private static ISymbol? FindBySignature(Compilation compilation, string signatureQualifiedName)
     {
-        var signatures = ResolvedSignatures.GetOrCreateValue(compilation);
+        var signatures = ResolvedSymbols.GetValue(compilation, static _ => new CompilationSymbols()).Signatures;
         if (signatures.TryGetValue(signatureQualifiedName, out var cached))
         {
             return cached;
@@ -934,14 +954,25 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             return null;
         }
 
-        if (signatures.Count >= MaxCachedSignatures)
-        {
-            signatures.Clear();
-        }
-
         // A handle can survive an Epoch change. The resolved symbol belongs to
         // its immutable compilation and is eligible for collection with it.
-        return signatures.GetOrAdd(signatureQualifiedName, symbol);
+        return RememberSymbol(signatures, signatureQualifiedName, symbol);
+    }
+
+    private static ISymbol RememberSymbol(ConcurrentDictionary<string, ISymbol> symbols, string key, ISymbol symbol)
+    {
+        if (symbols.Count >= MaxCachedSymbols)
+        {
+            symbols.Clear();
+        }
+
+        return symbols.GetOrAdd(key, symbol);
+    }
+
+    private sealed class CompilationSymbols
+    {
+        public ConcurrentDictionary<string, ISymbol> Names { get; } = new(StringComparer.Ordinal);
+        public ConcurrentDictionary<string, ISymbol> Signatures { get; } = new(StringComparer.Ordinal);
     }
 
     private static ISymbol? ScanForSignature(Compilation compilation, string signatureQualifiedName)
