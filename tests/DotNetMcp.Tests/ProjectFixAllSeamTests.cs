@@ -29,6 +29,7 @@ public class ProjectFixAllSeamTests
                 d.FilePath.EndsWith("One.cs", StringComparison.OrdinalIgnoreCase));
 
             var preview = await DiagnosticFixSeamTests.PreviewWorkingFixAsync(fx, one, scope: "project");
+            Assert.NotNull(preview.Documents);
             Assert.Contains(preview.Documents, d => d.Path.EndsWith("One.cs", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(preview.Documents, d => d.Path.EndsWith("Two.cs", StringComparison.OrdinalIgnoreCase));
             Assert.DoesNotContain(preview.Documents, d => d.Path.EndsWith("Other.cs", StringComparison.OrdinalIgnoreCase));
@@ -61,6 +62,7 @@ public class ProjectFixAllSeamTests
                 d.FilePath.EndsWith("One.vb", StringComparison.OrdinalIgnoreCase));
 
             var preview = await DiagnosticFixSeamTests.PreviewWorkingFixAsync(fx, one, scope: "project");
+            Assert.NotNull(preview.Documents);
             Assert.Contains(preview.Documents, d => d.Path.EndsWith("One.vb", StringComparison.OrdinalIgnoreCase));
             Assert.Contains(preview.Documents, d => d.Path.EndsWith("Two.vb", StringComparison.OrdinalIgnoreCase));
         }

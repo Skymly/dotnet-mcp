@@ -49,6 +49,7 @@ public class CodeRefactoringSeamTests
             var handle = await ResolveAsync(fx, "RefactorApp.Widget.count");
             var preview = await PreviewWorkingAsync(fx, handle);
             Assert.False(string.IsNullOrWhiteSpace(preview.PreviewId));
+            Assert.NotNull(preview.Documents);
             Assert.NotEmpty(preview.Documents);
             Assert.Contains(preview.Documents, d => LooksLikeEncapsulate(d.NewText));
             Assert.Equal(before, await File.ReadAllTextAsync(Path.Combine(projectDir, "Widget.cs")));
@@ -75,7 +76,9 @@ public class CodeRefactoringSeamTests
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var handle = await ResolveAsync(fx, "RefactorApp.Widget.count");
-            var preview = await PreviewWorkingAsync(fx, handle);
+            var preview = await PreviewWorkingAsync(fx, handle, format: "compact");
+            Assert.Null(preview.Documents);
+            Assert.NotNull(preview.Review);
             var apply = await fx.Client.CallToolAsync(
                 "symbol_apply_refactoring",
                 new Dictionary<string, object?> { ["previewId"] = preview.PreviewId });
@@ -250,7 +253,8 @@ public class CodeRefactoringSeamTests
 
     internal static async Task<SymbolPreviewRefactoringResultDto> PreviewWorkingAsync(
         InProcessMcpFixture fx,
-        string handle)
+        string handle,
+        string format = "full")
     {
         var listed = await ListAsync(fx, handle);
         Assert.NotEmpty(listed.Items);
@@ -261,7 +265,8 @@ public class CodeRefactoringSeamTests
                 new Dictionary<string, object?>
                 {
                     ["handle"] = handle,
-                    ["refactoringIndex"] = item.RefactoringIndex
+                    ["refactoringIndex"] = item.RefactoringIndex,
+                    ["format"] = format
                 });
             if (preview.IsError is true)
             {
@@ -269,7 +274,8 @@ public class CodeRefactoringSeamTests
             }
 
             var body = InProcessMcpFixture.Deserialize<SymbolPreviewRefactoringResultDto>(preview);
-            if (body.Documents.Any(d => LooksLikeEncapsulate(d.NewText) || d.NewText != d.OldText))
+            if (body.Documents?.Any(d => LooksLikeEncapsulate(d.NewText) || d.NewText != d.OldText) == true ||
+                body.Review?.Files.Any(file => file.AddedLines + file.RemovedLines > 0) == true)
             {
                 return body;
             }

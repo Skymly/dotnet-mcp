@@ -486,6 +486,7 @@ public class XamlRenameSeamTests
             var end = axamlText.Lines.GetPosition(
                 new LinePosition(mention.EndLine - 1, mention.EndColumn - 1));
             Assert.Equal("Title", OnDiskAxaml[start..end]);
+            Assert.NotNull(body.Documents);
             Assert.DoesNotContain(body.Documents, d =>
                 d.Path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase));
 
@@ -505,6 +506,7 @@ public class XamlRenameSeamTests
             using var cleanDoc = JsonDocument.Parse(InProcessMcpFixture.TextOf(cleanPreview));
             Assert.False(cleanDoc.RootElement.TryGetProperty("unverifiedXamlMentions", out _));
             var cleanBody = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(cleanPreview);
+            Assert.NotNull(cleanBody.Documents);
             var cleanXaml = Assert.Single(cleanBody.Documents, d =>
                 d.Path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase));
             Assert.Contains("{Binding Nickname}", cleanXaml.NewText, StringComparison.Ordinal);
@@ -547,6 +549,7 @@ public class XamlRenameSeamTests
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
 
+            Assert.NotNull(body.Documents);
             var xamlSlice = Assert.Single(body.Documents, d =>
                 d.Path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase));
             Assert.Contains("x:Name=\"HeaderText\"", xamlSlice.NewText, StringComparison.Ordinal);
@@ -657,6 +660,7 @@ public class XamlRenameSeamTests
             var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
             Assert.Equal(epochBefore, body.Epoch);
             Assert.Equal(handle.Split(':', 3)[1], Assert.Single(body.AffectedProjectIds));
+            Assert.NotNull(body.Documents);
             Assert.Contains(body.Documents, d =>
                 d.Path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase));
 
@@ -725,6 +729,7 @@ public class XamlRenameSeamTests
                 new Dictionary<string, object?> { ["handle"] = handle, ["newName"] = "Client" });
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.NotNull(body.Documents);
             Assert.Contains(body.Documents, d =>
                 d.Path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase));
 
@@ -767,6 +772,7 @@ public class XamlRenameSeamTests
 
             var occurrence = await DiagnosticFixSeamTests.FirstCs0246Async(fx);
             var fixPreview = await DiagnosticFixSeamTests.PreviewWorkingFixAsync(fx, occurrence);
+            Assert.NotNull(fixPreview.Documents);
             Assert.All(fixPreview.Documents, d =>
                 Assert.False(
                     d.Path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase) ||
@@ -794,6 +800,7 @@ public class XamlRenameSeamTests
 
             var handle = await CodeRefactoringSeamTests.ResolveAsync(fx, "RefactorApp.Widget.count");
             var refactoringPreview = await CodeRefactoringSeamTests.PreviewWorkingAsync(fx, handle);
+            Assert.NotNull(refactoringPreview.Documents);
             Assert.All(refactoringPreview.Documents, d =>
                 Assert.False(
                     d.Path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase) ||

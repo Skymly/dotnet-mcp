@@ -103,6 +103,7 @@ public class FsharpReadNoDiskWriteSeamTests
                 new Dictionary<string, object?> { ["handle"] = ping, ["newName"] = "pong" });
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var previewBody = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.NotNull(previewBody.Documents);
             Assert.Contains(previewBody.Documents, d =>
                 d.Path.Contains($"{Path.DirectorySeparatorChar}A{Path.DirectorySeparatorChar}Widget.fs", StringComparison.OrdinalIgnoreCase));
             Assert.DoesNotContain(previewBody.Documents, d =>

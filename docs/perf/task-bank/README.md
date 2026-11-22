@@ -121,3 +121,7 @@ infrastructure failures or a category with fewer tool-arm completions
 cannot yield a passing gate. A category with zero correct answers in both
 arms is inconclusive, not evidence of parity. Pilot and self-test data do not belong in the
 acceptance ledger.
+
+## Directed preview acceptance
+
+Run `python preview_probe.py --repo /path/to/Avalonia.Samples --compare-profiles dotnet /absolute/path/to/DotNetMcp.Server.dll` from this directory. The probe exports A3 at the bank's pinned revision, restores the project, and starts fresh stdio sessions to measure the first tools/list response for each profile. It measures complete JSON-RPC response frames including the newline. In the full profile it requests both preview formats on the same symbol and Epoch, reads all compact pages, applies that preview ID, and runs the existing byte-for-byte grader and golden build. `--parent` retains the subject and allows a fixed path for repeat measurements.

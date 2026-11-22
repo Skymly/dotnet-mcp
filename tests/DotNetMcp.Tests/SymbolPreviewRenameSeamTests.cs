@@ -44,6 +44,7 @@ public class SymbolPreviewRenameSeamTests
             Assert.True(body.ExpiresAt > DateTimeOffset.UtcNow);
             Assert.Equal(handle, body.OldHandle);
             Assert.Equal("Pong", body.NewName);
+            Assert.NotNull(body.Documents);
             Assert.Equal(2, body.Documents.Count);
             Assert.Contains(body.Documents, d =>
                 d.Path.EndsWith("Widget.cs", StringComparison.OrdinalIgnoreCase) &&
@@ -144,6 +145,7 @@ public class SymbolPreviewRenameSeamTests
                 });
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.NotNull(body.Documents);
             Assert.NotEmpty(body.Documents);
             Assert.All(body.Documents, d =>
                 Assert.DoesNotContain(".g.cs", Path.GetFileName(d.Path), StringComparison.OrdinalIgnoreCase));

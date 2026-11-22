@@ -234,6 +234,31 @@ public class WorkspaceEditTests
         }
     }
 
+    [Fact]
+    public void read_preview_preserves_apply_and_checks_expiry_epoch_and_generation()
+    {
+        var root = Path.GetTempPath();
+        var path = Path.Combine(root, "Widget.cs");
+        var writer = ReadyWriter(path, "old");
+        var clock = new MutableTime { Now = DateTimeOffset.UnixEpoch };
+        var edits = new WorkspaceEdit(writer, TrustedRoots.Create([root]), clock, TimeSpan.FromMinutes(5));
+        var preview = edits.Preview(Draft(path)).Value!;
+        Assert.Equal("+new", edits.ReadReview(preview.PreviewId, 0, 0, 0).Value!.Files[0].Diff
+            .Split('\n').Single(line => line.StartsWith('+')));
+        Assert.False(edits.Apply(preview.PreviewId, WorkspaceEditKind.RenamePreview).Failed);
+        Assert.Equal(PolicyErrorCodes.PreviewNotFound, edits.ReadReview(preview.PreviewId, 0, 0, 0).Error!.Error);
+
+        preview = edits.Preview(Draft(path)).Value!;
+        writer.CurrentEpoch++;
+        Assert.Equal(PolicyErrorCodes.PreviewEpochMismatch, edits.ReadReview(preview.PreviewId, 0, 0, 0).Error!.Error);
+        preview = edits.Preview(Draft(path)).Value!;
+        clock.Now = clock.Now.AddMinutes(6);
+        Assert.Equal(PolicyErrorCodes.PreviewExpired, edits.ReadReview(preview.PreviewId, 0, 0, 0).Error!.Error);
+        preview = edits.Preview(Draft(path)).Value!;
+        writer.Generation++;
+        Assert.Equal(PolicyErrorCodes.PreviewNotFound, edits.ReadReview(preview.PreviewId, 0, 0, 0).Error!.Error);
+    }
+
     private static WorkspaceEditDraft Draft(string path) =>
         new(WorkspaceEditKind.RenamePreview, [new WorkspaceEditDocument(path, "old", "new")], []);
 

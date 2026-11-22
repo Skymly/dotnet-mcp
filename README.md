@@ -90,11 +90,13 @@ For agent setup, [`docs/agent-guidance.md`](docs/agent-guidance.md) holds a copy
 
 | Group | Tools |
 |------|--------|
-| Workspace | `workspace_open` · `workspace_status` · `workspace_list_projects` · `workspace_check_drift` |
+| Workspace | `workspace_open` · `workspace_status` · `workspace_list_projects` · `workspace_check_drift` · `workspace_read_preview` |
 | Diagnostic fix | `diagnostics_list_fixes` · `diagnostics_preview_fix` · `diagnostics_apply_fix` |
 | Symbol | `symbol_resolve` · `symbol_resolve_at` · `symbol_summary` · `symbol_goto_definition` · `symbol_source` · `symbol_members` · `symbol_find_references` · `symbol_find_implementations` · `symbol_find_callers` · `symbol_type_hierarchy` · `symbol_attribution` · `symbol_preview_rename` · `symbol_apply_rename` · `symbol_list_refactorings` · `symbol_preview_refactoring` · `symbol_apply_refactoring` |
 | Project | `project_diagnostics` · `project_list_generators` · `project_list_generated_sources` · `project_list_generator_diagnostics` · `project_list_dynamic_invocations` |
 | XAML | `xaml_resolve_class` · `xaml_list_xmlns` · `xaml_resolve_name` · `xaml_resolve_binding` · `xaml_diagnostics` |
+
+For rename, diagnostic fix, or refactoring previews, pass `format: "compact"` to review a unified diff with one line of context. The response includes `review.fileCount` and up to eight files with their paths, added/removed line counts and diff text. To read another group, call `workspace_read_preview` with the same `previewId` and `startFileIndex` set to `nextFileIndex`. For a file with `nextOffset`, pass its `fileIndex` and `offset` set to that value, and concatenate the returned diff fragments. Each fragment contains up to 4,096 UTF-16 code units. After reviewing all files, call the matching apply tool with the original ID. `format: "full"` returns the original `documents` array with complete `oldText` and `newText`. The full tool profile defaults to full previews, and the lite profile defaults to compact.
 
 `diagnostics_list_fixes` and `symbol_list_refactorings` return `epoch`. `fixIndex` and `refactoringIndex` are valid only for that epoch. After it advances, preview fails with `FixListEpochMismatch` or `RefactoringListEpochMismatch` instead of selecting another action.
 

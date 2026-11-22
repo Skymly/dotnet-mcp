@@ -32,6 +32,7 @@ public class FsharpRenameSeamTests
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var previewBody = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
             Assert.Equal(oldHandle.Split(':', 3)[1], Assert.Single(previewBody.AffectedProjectIds));
+            Assert.NotNull(previewBody.Documents);
             Assert.Contains(previewBody.Documents, d =>
                 d.Path.EndsWith("Widget.fs", StringComparison.OrdinalIgnoreCase) &&
                 d.NewText.Contains("pong", StringComparison.Ordinal));
@@ -139,6 +140,7 @@ public class FsharpRenameSeamTests
                 new Dictionary<string, object?> { ["handle"] = handle, ["newName"] = "ping'" });
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.NotNull(body.Documents);
             Assert.Contains(body.Documents, d => d.NewText.Contains("ping'", StringComparison.Ordinal));
         }
         finally

@@ -10,12 +10,14 @@ public sealed class WorkspaceTools
     private readonly TrustedRoots _trustedRoots;
     private readonly WorkspaceHost _workspaceHost;
     private readonly IAuditLogger _audit;
+    private readonly WorkspaceEdit _edits;
 
-    public WorkspaceTools(TrustedRoots trustedRoots, WorkspaceHost workspaceHost, IAuditLogger audit)
+    public WorkspaceTools(TrustedRoots trustedRoots, WorkspaceHost workspaceHost, IAuditLogger audit, WorkspaceEdit edits)
     {
         _trustedRoots = trustedRoots;
         _workspaceHost = workspaceHost;
         _audit = audit;
+        _edits = edits;
     }
 
     [McpServerTool(Name = "workspace_open", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false), Description(
@@ -83,6 +85,21 @@ public sealed class WorkspaceTools
         var status = _workspaceHost.BeginOpen(fullPath);
         var open = WorkspaceOpenResultDto.FromStatus(status);
         return McpToolEnvelope.OkResult(open);
+    }
+
+    [McpServerTool(Name = "workspace_read_preview", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false),
+     Description("Read a stored rename, diagnostic fix or refactoring preview as context diffs. Follow nextFileIndex for more files, and each file's nextOffset for the rest of its diff. Review every page before the matching apply.")]
+    public CallToolResult WorkspaceReadPreview(
+        [Description("Unexpired previewId on the current workspace Epoch.")] string previewId,
+        [Description("First file of the next group, from nextFileIndex.")] int startFileIndex = 0,
+        [Description("Read only this zero-based fileIndex.")] int? fileIndex = null,
+        [Description("For a single file, pass its nextOffset to continue.")] int offset = 0,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _audit.ToolInvoked("workspace_read_preview");
+        var page = _edits.ReadReview(previewId, startFileIndex, fileIndex, offset);
+        return page.Error is null ? McpToolEnvelope.OkResult(page.Value) : McpToolEnvelope.ErrorResult(page.Error);
     }
 
     [McpServerTool(Name = "workspace_status", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(

@@ -41,6 +41,7 @@ public class P0RenameExitGateSeamTests
                 });
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var previewBody = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.NotNull(previewBody.Documents);
             Assert.NotEmpty(previewBody.Documents);
             Assert.Contains(previewBody.Documents, d => d.NewText.Contains("Pong", StringComparison.Ordinal));
 

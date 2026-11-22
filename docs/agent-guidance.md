@@ -37,7 +37,8 @@ of restarting.
 Writes are always preview → apply: `symbol_preview_rename` → `symbol_apply_rename`,
 `diagnostics_preview_fix` → `diagnostics_apply_fix`,
 `symbol_preview_refactoring` → `symbol_apply_refactoring`. There is no generic
-edit/write/shell tool. Review every preview slice before applying — including
+edit/write/shell tool. Request `format: "compact"` and follow `workspace_read_preview`
+for every `nextFileIndex` and `nextOffset`. Review every preview slice before applying — including
 XAML slices and `unverifiedXamlMentions` on rename — then re-check
 `project_diagnostics` after an apply that touched compiled code.
 Rename writes compiler-visible references and Exact XAML usages only. It does

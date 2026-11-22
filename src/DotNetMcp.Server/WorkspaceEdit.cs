@@ -26,6 +26,7 @@ public sealed record WorkspaceEditPreview(
     IReadOnlyList<WorkspaceEditDocument> Documents,
     IReadOnlyList<string> InvalidatedHandles)
 {
+    internal PreviewReview Review { get; } = new(Documents);
     internal IReadOnlyList<string> AffectedProjectIds { get; init; } = [];
 }
 
@@ -137,49 +138,13 @@ public sealed class WorkspaceEdit
                 "Call " + tools.Preview + " first, then pass that previewId to " + tools.Apply + ".");
         }
 
-        Stored stored;
-        lock (_gate)
+        var acquired = Lookup(previewId, kind);
+        if (acquired.Error is not null)
         {
-            DropIfGenerationChangedUnlocked();
-            SweepExpiredUnlocked(_time.GetUtcNow(), keepId: previewId);
-            if (!_items.TryGetValue(previewId, out stored!))
-            {
-                return Fail<WorkspaceEditApplied>(
-                    PolicyErrorCodes.PreviewNotFound,
-                    "Unknown previewId.",
-                    "Call " + tools.Preview + " to obtain a fresh previewId; do not invent preview ids.");
-            }
-
-            var now = _time.GetUtcNow();
-            if (stored.Preview.ExpiresAt <= now)
-            {
-                _items.Remove(previewId);
-                return Fail<WorkspaceEditApplied>(
-                    PolicyErrorCodes.PreviewExpired,
-                    "The preview has expired.",
-                    "Call " + tools.Preview + " again, then apply the new previewId.");
-            }
-
-            if (stored.Preview.Epoch != _writer.CurrentEpoch)
-            {
-                return Fail<WorkspaceEditApplied>(
-                    PolicyErrorCodes.PreviewEpochMismatch,
-                    "The preview is bound to a previous workspace Epoch.",
-                    "Call " + tools.Preview + " on the current snapshot, then apply that previewId.");
-            }
-
-            if (stored.Preview.Kind != kind)
-            {
-                var storedTools = Tools(stored.Preview.Kind);
-                return Fail<WorkspaceEditApplied>(
-                    PolicyErrorCodes.PreviewKindMismatch,
-                    "This previewId was stored under a different Workspace Edit kind.",
-                    "Call " + storedTools.Apply + " with this previewId, or call " + tools.Preview + " for a " + KindNoun(kind) + ".");
-            }
-
-            _items.Remove(previewId);
+            return new(null, acquired.Error);
         }
 
+        var stored = acquired.Value!;
         foreach (var document in stored.Preview.Documents)
         {
             if (!_trustedRoots.Contains(document.Path))
@@ -225,6 +190,67 @@ public sealed class WorkspaceEdit
                 AffectedProjectIds = stored.Preview.AffectedProjectIds,
             },
             null);
+    }
+
+    internal WorkspaceEditOutcome<PreviewReviewPage> ReadReview(
+        string previewId, int startFileIndex, int? fileIndex, int offset)
+    {
+        var found = Lookup(previewId, applyKind: null);
+        return found.Error is null
+            ? found.Value!.Preview.Review.Read(startFileIndex, fileIndex, offset)
+            : new(null, found.Error);
+    }
+
+    private WorkspaceEditOutcome<Stored> Lookup(string previewId, WorkspaceEditKind? applyKind)
+    {
+        lock (_gate)
+        {
+            DropIfGenerationChangedUnlocked();
+            SweepExpiredUnlocked(_time.GetUtcNow(), keepId: previewId);
+            if (string.IsNullOrWhiteSpace(previewId) || !_items.TryGetValue(previewId, out var stored))
+            {
+                return Fail<Stored>(
+                    PolicyErrorCodes.PreviewNotFound,
+                    "Unknown previewId.",
+                    applyKind is { } requestedKind ? "Call " + Tools(requestedKind).Preview + " to obtain a fresh previewId; do not invent preview ids."
+                        : "Call the preview tool again to obtain a fresh previewId.");
+            }
+
+            var now = _time.GetUtcNow();
+            if (stored.Preview.ExpiresAt <= now)
+            {
+                _items.Remove(previewId);
+                return Fail<Stored>(
+                    PolicyErrorCodes.PreviewExpired,
+                    "The preview has expired.",
+                    "Call " + Tools(stored.Preview.Kind).Preview + " again to obtain a fresh previewId.");
+            }
+
+            if (stored.Preview.Epoch != _writer.CurrentEpoch)
+            {
+                return Fail<Stored>(
+                    PolicyErrorCodes.PreviewEpochMismatch,
+                    "The preview is bound to a previous workspace Epoch.",
+                    "Call " + Tools(stored.Preview.Kind).Preview + " on the current snapshot.");
+            }
+
+            if (applyKind is { } kind && stored.Preview.Kind != kind)
+            {
+                var tools = Tools(kind);
+                var storedTools = Tools(stored.Preview.Kind);
+                return Fail<Stored>(
+                    PolicyErrorCodes.PreviewKindMismatch,
+                    "This previewId was stored under a different Workspace Edit kind.",
+                    "Call " + storedTools.Apply + " with this previewId, or call " + tools.Preview + " for a " + KindNoun(kind) + ".");
+            }
+
+            if (applyKind.HasValue)
+            {
+                _items.Remove(previewId);
+            }
+
+            return new(stored, null);
+        }
     }
 
     private static PolicyErrorDto MapApplyError(PolicyErrorDto error, WorkspaceEditKind kind, (string Preview, string Apply) tools)

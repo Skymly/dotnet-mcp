@@ -39,6 +39,7 @@ public class ToolSurfaceGuardTests
         "workspace_check_drift",
         "workspace_list_projects",
         "workspace_open",
+        "workspace_read_preview",
         "workspace_status",
         "xaml_diagnostics",
         "xaml_list_xmlns",

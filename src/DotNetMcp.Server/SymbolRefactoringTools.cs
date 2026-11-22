@@ -79,6 +79,8 @@ public sealed class SymbolRefactoringTools
         string handle,
         [Description("refactoringIndex from symbol_list_refactorings on this Epoch. Stale indexes fail with RefactoringListEpochMismatch.")]
         int refactoringIndex,
+        [Description(PreviewReview.FormatDescription)]
+        string? format = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -87,6 +89,11 @@ public sealed class SymbolRefactoringTools
         if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
+        }
+
+        if (!PreviewReview.TryGetFormat(format, out var compact))
+        {
+            return McpToolEnvelope.ErrorResult(PreviewReview.InvalidFormat());
         }
 
         var (draft, error) = await _refactorings
@@ -100,7 +107,8 @@ public sealed class SymbolRefactoringTools
         var held = _workspaceEdit.Preview(new WorkspaceEditDraft(
             WorkspaceEditKind.RefactoringPreview,
             draft!.Documents.Select(d => new WorkspaceEditDocument(d.Path, d.OldText, d.NewText)).ToArray(),
-            draft.InvalidatedHandles));
+            draft.InvalidatedHandles)
+        { ExpectedEpoch = session.Epoch });
         if (held.Error is not null)
         {
             return McpToolEnvelope.ErrorResult(held.Error);
@@ -114,7 +122,8 @@ public sealed class SymbolRefactoringTools
             Title = draft.Title,
             EquivalenceKey = draft.EquivalenceKey,
             Handle = draft.Handle,
-            Documents = ToDocumentDtos(held.Value.Documents),
+            Documents = compact ? null : held.Value.Documents,
+            Review = compact ? held.Value.Review.Page(0) : null,
             InvalidatedHandles = held.Value.InvalidatedHandles
         });
     }
@@ -151,12 +160,4 @@ public sealed class SymbolRefactoringTools
         }));
     }
 
-    private static IReadOnlyList<RenameDocumentSliceDto> ToDocumentDtos(
-        IReadOnlyList<WorkspaceEditDocument> documents) =>
-        documents.Select(d => new RenameDocumentSliceDto
-        {
-            Path = d.Path,
-            OldText = d.OldText,
-            NewText = d.NewText
-        }).ToArray();
 }

@@ -57,6 +57,8 @@ public static class PolicyErrorCodes
     public const string RenameLanguageNotSupported = "RenameLanguageNotSupported";
     public const string InvalidRenameName = "InvalidRenameName";
     public const string FSharpCrossProjectRenameUnsupported = "FSharpCrossProjectRenameUnsupported";
+    public const string InvalidPreviewPage = "InvalidPreviewPage";
+    public const string InvalidPreviewFormat = "InvalidPreviewFormat";
     public const string PreviewNotFound = "PreviewNotFound";
     public const string PreviewExpired = "PreviewExpired";
     public const string PreviewEpochMismatch = "PreviewEpochMismatch";
@@ -537,13 +539,6 @@ public sealed record ProjectListDynamicInvocationsResultDto
 }
 
 
-public sealed record RenameDocumentSliceDto
-{
-    public required string Path { get; init; }
-    public required string OldText { get; init; }
-    public required string NewText { get; init; }
-}
-
 public sealed record UnverifiedXamlMentionDto
 {
     public required string Path { get; init; }
@@ -573,7 +568,8 @@ public sealed record SymbolPreviewRenameResultDto
     public required DateTimeOffset ExpiresAt { get; init; }
     public required string OldHandle { get; init; }
     public required string NewName { get; init; }
-    public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
+    public IReadOnlyList<WorkspaceEditDocument>? Documents { get; init; }
+    public PreviewReviewPage? Review { get; init; }
     public required IReadOnlyList<string> InvalidatedHandles { get; init; }
     public IReadOnlyList<string> AffectedProjectIds { get; init; } = [];
     public IReadOnlyList<UnverifiedXamlMentionDto>? UnverifiedXamlMentions { get; init; }
@@ -623,7 +619,8 @@ public sealed record DiagnosticsPreviewFixResultDto
     public required string Title { get; init; }
     public string? EquivalenceKey { get; init; }
     public required string Scope { get; init; }
-    public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
+    public IReadOnlyList<WorkspaceEditDocument>? Documents { get; init; }
+    public PreviewReviewPage? Review { get; init; }
     public required IReadOnlyList<string> InvalidatedHandles { get; init; }
 
     /// <summary>
@@ -667,7 +664,8 @@ public sealed record SymbolPreviewRefactoringResultDto
     public required string Title { get; init; }
     public string? EquivalenceKey { get; init; }
     public required string Handle { get; init; }
-    public required IReadOnlyList<RenameDocumentSliceDto> Documents { get; init; }
+    public IReadOnlyList<WorkspaceEditDocument>? Documents { get; init; }
+    public PreviewReviewPage? Review { get; init; }
     public required IReadOnlyList<string> InvalidatedHandles { get; init; }
 }
 

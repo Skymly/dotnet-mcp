@@ -273,6 +273,7 @@ public class FsharpCrossProjectSeamTests
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var body = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
 
+            Assert.NotNull(body.Documents);
             Assert.Contains(body.Documents, d =>
                 d.Path.EndsWith("Library.fs", StringComparison.OrdinalIgnoreCase) &&
                 d.NewText.Contains("bumpedTwice", StringComparison.Ordinal));

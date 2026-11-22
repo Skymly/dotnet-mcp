@@ -95,10 +95,10 @@ public static class AgentPrompts
            symbol_resolve with the name, or symbol_resolve_at with path + 1-based line + 1-based column
            (UTF-16 code units). Renames cover handwritten C# / VB / F# symbols; SourceGenerator origin is
            refused except a generated x:Name field, which renames its XAML value plus handwritten references.
-        2. Preview: call symbol_preview_rename with the handle and newName = "{newName}". It returns a
-           previewId, per-document old/new slices, invalidatedHandles, unverifiedXamlMentions, and
+        2. Preview: call symbol_preview_rename with the handle, newName = "{newName}", and format = "compact". It returns a
+           previewId, per-file context diffs, invalidatedHandles, unverifiedXamlMentions, and
            unverifiedMentions, plus affectedProjectIds for the compilations containing the changed files.
-        3. Review before applying — read every slice, including XAML (.axaml/.xaml) slices that keep
+        3. Follow workspace_read_preview for every nextFileIndex and nextOffset. Read every diff, including XAML slices that keep
            bindings, x:Class, element/attribute names, x:Name values, and event handlers in sync.
            unverifiedXamlMentions are name-matched XAML usages the edit does NOT write; unverifiedMentions
            are name-matched source hits the edit does NOT write — metadata-name strings, unbound short

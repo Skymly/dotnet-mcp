@@ -54,6 +54,7 @@ _Avoid_: treating the whole server as read-only after 2.0; apply_edit / patch_fi
 
 **Workspace Edit**:
 一次受限写操作的 preview / apply 合同：路径 + 旧/新文本 + 失效 SymbolHandle，外加 kind（Rename preview / Fix preview / Refactoring preview）。apply 必须匹配 kind；newName / Title / scope 不是入库合同。必须先 preview。
+服务端保存完整切片。客户端可用 `format=compact` 审阅逐文件增删行数和上下文 diff，再用同一 `previewId` 调用 `workspace_read_preview` 续读文件或长 diff。读取与 apply 均校验 Epoch 和有效期。
 _Avoid_: apply_edit, patch_file, generic write; applying a preview under a different kind; RenamePreviewStore as the contract
 
 **Rename preview**:

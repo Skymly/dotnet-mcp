@@ -128,6 +128,8 @@ public sealed class DiagnosticTools
         int? endColumn = null,
         [Description("occurrence (default), document (this file), or project (this project) for the same EquivalenceKey.")]
         string? scope = null,
+        [Description(PreviewReview.FormatDescription)]
+        string? format = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -136,6 +138,11 @@ public sealed class DiagnosticTools
         if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
+        }
+
+        if (!PreviewReview.TryGetFormat(format, out var compact))
+        {
+            return McpToolEnvelope.ErrorResult(PreviewReview.InvalidFormat());
         }
 
         var (draft, error) = await _fixes
@@ -160,7 +167,8 @@ public sealed class DiagnosticTools
         var held = _workspaceEdit.Preview(new WorkspaceEditDraft(
             WorkspaceEditKind.FixPreview,
             draft!.Documents.Select(d => new WorkspaceEditDocument(d.Path, d.OldText, d.NewText)).ToArray(),
-            draft.InvalidatedHandles));
+            draft.InvalidatedHandles)
+        { ExpectedEpoch = session.Epoch });
         if (held.Error is not null)
         {
             return McpToolEnvelope.ErrorResult(held.Error);
@@ -179,7 +187,8 @@ public sealed class DiagnosticTools
             Title = draft.Title,
             EquivalenceKey = draft.EquivalenceKey,
             Scope = draft.Scope,
-            Documents = ToDocumentDtos(held.Value.Documents),
+            Documents = compact ? null : held.Value.Documents,
+            Review = compact ? held.Value.Review.Page(0) : null,
             InvalidatedHandles = held.Value.InvalidatedHandles,
             Degraded = degraded is { Degraded: true } ? true : null,
             DegradedReason = degraded is { } state
@@ -223,12 +232,4 @@ public sealed class DiagnosticTools
         }));
     }
 
-    private static IReadOnlyList<RenameDocumentSliceDto> ToDocumentDtos(
-        IReadOnlyList<WorkspaceEditDocument> documents) =>
-        documents.Select(d => new RenameDocumentSliceDto
-        {
-            Path = d.Path,
-            OldText = d.OldText,
-            NewText = d.NewText
-        }).ToArray();
 }

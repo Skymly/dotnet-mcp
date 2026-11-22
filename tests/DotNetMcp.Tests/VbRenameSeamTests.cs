@@ -35,6 +35,7 @@ public class VbRenameSeamTests
                 });
             Assert.True(preview.IsError is not true, InProcessMcpFixture.TextOf(preview));
             var previewBody = InProcessMcpFixture.Deserialize<SymbolPreviewRenameResultDto>(preview);
+            Assert.NotNull(previewBody.Documents);
             Assert.Equal(2, previewBody.Documents.Count);
 
             var apply = await fx.Client.CallToolAsync(

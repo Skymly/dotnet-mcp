@@ -86,6 +86,7 @@ public class DiagnosticFixSeamTests
             var occurrence = await FirstCs0246Async(fx);
             var preview = await PreviewWorkingFixAsync(fx, occurrence);
             Assert.False(string.IsNullOrWhiteSpace(preview.PreviewId));
+            Assert.NotNull(preview.Documents);
             Assert.NotEmpty(preview.Documents);
             Assert.Contains(preview.Documents, d =>
                 d.NewText.Contains("System.Collections.Generic", StringComparison.Ordinal));
@@ -113,7 +114,9 @@ public class DiagnosticFixSeamTests
 
             await WorkspaceReady.OpenUntilReadyAsync(fx, solution);
             var occurrence = await FirstCs0246Async(fx);
-            var preview = await PreviewWorkingFixAsync(fx, occurrence);
+            var preview = await PreviewWorkingFixAsync(fx, occurrence, format: "compact");
+            Assert.Null(preview.Documents);
+            Assert.NotNull(preview.Review);
             var apply = await fx.Client.CallToolAsync(
                 "diagnostics_apply_fix",
                 new Dictionary<string, object?> { ["previewId"] = preview.PreviewId });
@@ -283,7 +286,8 @@ public class DiagnosticFixSeamTests
     internal static async Task<DiagnosticsPreviewFixResultDto> PreviewWorkingFixAsync(
         InProcessMcpFixture fx,
         DiagnosticItemDto occurrence,
-        string scope = "occurrence")
+        string scope = "occurrence",
+        string format = "full")
     {
         var listed = await ListFixesAsync(fx, occurrence);
         Assert.NotEmpty(listed.Items);
@@ -292,6 +296,7 @@ public class DiagnosticFixSeamTests
             var args = Locator(occurrence);
             args["fixIndex"] = item.FixIndex;
             args["scope"] = scope;
+            args["format"] = format;
             var preview = await fx.Client.CallToolAsync("diagnostics_preview_fix", args);
             if (preview.IsError is true)
             {
@@ -299,7 +304,8 @@ public class DiagnosticFixSeamTests
             }
 
             var body = InProcessMcpFixture.Deserialize<DiagnosticsPreviewFixResultDto>(preview);
-            if (body.Documents.Any(d => d.NewText.Contains("System.Collections.Generic", StringComparison.Ordinal)))
+            var texts = body.Documents?.Select(d => d.NewText) ?? body.Review!.Files.Select(f => f.Diff);
+            if (texts.Any(text => text.Contains("System.Collections.Generic", StringComparison.Ordinal)))
             {
                 return body;
             }

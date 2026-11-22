@@ -536,7 +536,7 @@ public sealed class SymbolTools
     }
 
     [McpServerTool(Name = "symbol_preview_rename", ReadOnly = true, Destructive = false, Idempotent = false, OpenWorld = false), Description(
-        "Preview renaming a handwritten C# / VB / F# SymbolHandle. Returns a Workspace Edit (per-file old/new text, " +
+        "Preview renaming a handwritten C# / VB / F# SymbolHandle. Returns a Workspace Edit (compact context diffs or full old/new text, " +
         "handles that will become invalid) and an opaque previewId bound to the current workspace Epoch + TTL. " +
         "Does not write disk. Registered XAML documents (Avalonia .axaml, MAUI .xaml) join the edit as ordinary " +
         "slices: Exact usage points — x:Class, element types, property/event attributes, x:DataType, markup type " +
@@ -558,6 +558,8 @@ public sealed class SymbolTools
         string newName,
         [Description("Also report low-confidence qualified-name hits in comments, doc comments, and additional documents under unverifiedMentions (report only).")]
         bool includeDocMentions = false,
+        [Description(PreviewReview.FormatDescription)]
+        string? format = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -566,6 +568,11 @@ public sealed class SymbolTools
         if (!McpToolEnvelope.TryGetReadySession(_workspaceHost, out var session, out var notReady))
         {
             return notReady!;
+        }
+
+        if (!PreviewReview.TryGetFormat(format, out var compact))
+        {
+            return McpToolEnvelope.ErrorResult(PreviewReview.InvalidFormat());
         }
 
         var (draft, error) = await _languages
@@ -596,7 +603,8 @@ public sealed class SymbolTools
             ExpiresAt = held.Value.ExpiresAt,
             OldHandle = draft.OldHandle,
             NewName = draft.NewName,
-            Documents = ToDocumentDtos(held.Value.Documents),
+            Documents = compact ? null : held.Value.Documents,
+            Review = compact ? held.Value.Review.Page(0) : null,
             InvalidatedHandles = held.Value.InvalidatedHandles,
             AffectedProjectIds = held.Value.AffectedProjectIds,
             UnverifiedXamlMentions = draft.UnverifiedXamlMentions is { Count: > 0 } mentions
@@ -685,14 +693,6 @@ public sealed class SymbolTools
                 "Retry the call; if it repeats, reload the workspace and check the server audit log for the matching tool_failed entry.")));
     }
 
-    private static IReadOnlyList<RenameDocumentSliceDto> ToDocumentDtos(
-        IReadOnlyList<WorkspaceEditDocument> documents) =>
-        documents.Select(d => new RenameDocumentSliceDto
-        {
-            Path = d.Path,
-            OldText = d.OldText,
-            NewText = d.NewText
-        }).ToArray();
 
     private static SymbolResolveResultDto ToDto(SymbolResolveSuccess success) => new()
     {
