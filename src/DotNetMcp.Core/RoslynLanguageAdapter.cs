@@ -373,19 +373,15 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         }
 
         var pageLimit = ClampLimit(limit);
-        var items = type.GetMembers()
+        var ordered = type.GetMembers()
             .Where(m => m.Kind is not SymbolKind.NamedType and not SymbolKind.Namespace)
             .Where(m => !m.IsImplicitlyDeclared)
-            .OrderBy(SymbolKey, StringComparer.Ordinal)
-            .Select(m =>
-            {
-                var success = ToSuccess(project!, m);
-                return new MemberListItem(success.Handle, success.Summary);
-            })
-            .ToList();
+            .Select(static m => (Symbol: m, Signature: SymbolKey(m)))
+            .OrderBy(static m => m.Signature, StringComparer.Ordinal)
+            .ToArray();
 
-        return SoftBudgetPage.Page(
-            items,
+        var (page, pageError) = SoftBudgetPage.Page(
+            ordered,
             epoch,
             budgetHit: false,
             cursor,
@@ -395,6 +391,20 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             "Type has no listable members.",
             "Member page complete.",
             "the member list");
+        if (page is null)
+        {
+            return (null, pageError);
+        }
+
+        var items = new MemberListItem[page.Items.Count];
+        for (var i = 0; i < items.Length; i++)
+        {
+            var (member, signature) = page.Items[i];
+            var success = ToSuccess(project!, member, signature);
+            items[i] = new MemberListItem(success.Handle, success.Summary);
+        }
+
+        return (new PagedResult<MemberListItem>(items, page.Truncated, page.NextCursor, page.Message), null);
     }
 
     private async Task<(SymbolLocation? Location, SymbolQueryError? Error)> ToSymbolLocationAsync(
@@ -569,11 +579,11 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
     private static string SymbolKey(ISymbol symbol) =>
         symbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified);
 
-    private static SymbolResolveSuccess ToSuccess(Project project, ISymbol symbol)
+    private static SymbolResolveSuccess ToSuccess(Project project, ISymbol symbol, string? signature = null)
     {
         var projectId = project.Id.Id.ToString("D");
         var language = LanguageToken(project.Language);
-        var signature = symbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified);
+        signature ??= SymbolKey(symbol);
         var handle = SymbolHandle.Create(language, projectId, signature);
         var summary = new SymbolSummary(
             Kind: symbol.Kind.ToString(),

@@ -20,8 +20,10 @@ public sealed partial class RoslynLanguageAdapter
             return (null, error);
         }
 
+        var origins = new Dictionary<SyntaxTree, (string? Origin, SymbolQueryError? Error)>(
+            ReferenceEqualityComparer.Instance);
         var (attribution, attrError) = await AttributeSymbolAsync(
-                session, project!, symbol!, cancellationToken)
+                session, project!, symbol!, cancellationToken, origins)
             .ConfigureAwait(false);
         if (attrError is not null)
         {
@@ -42,7 +44,7 @@ public sealed partial class RoslynLanguageAdapter
                          .OrderBy(static m => m.Key, StringComparer.Ordinal))
             {
                 var (memberAttr, memberError) = await AttributeSymbolAsync(
-                        session, project!, member, cancellationToken)
+                        session, project!, member, cancellationToken, origins)
                     .ConfigureAwait(false);
                 if (memberError is not null)
                 {
@@ -63,8 +65,10 @@ public sealed partial class RoslynLanguageAdapter
         IWorkspaceSession session,
         Project project,
         ISymbol symbol,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Dictionary<SyntaxTree, (string? Origin, SymbolQueryError? Error)>? origins = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (symbol.Locations.Length == 0)
         {
             return (SymbolAttribution.WithoutTriggers(
@@ -94,12 +98,13 @@ public sealed partial class RoslynLanguageAdapter
         SymbolAttribution? generated = null;
         foreach (var tree in trees)
         {
-            var (originLabel, originError) = await ResolveOriginAsync(
-                    session,
-                    project,
-                    tree,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            if (origins is null || !origins.TryGetValue(tree, out var origin))
+            {
+                origin = await ResolveOriginAsync(session, project, tree, cancellationToken).ConfigureAwait(false);
+                origins?.Add(tree, origin);
+            }
+
+            var (originLabel, originError) = origin;
             if (originError is not null)
             {
                 if (session.Solution.GetDocument(tree) is SourceGeneratedDocument)
