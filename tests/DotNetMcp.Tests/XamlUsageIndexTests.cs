@@ -311,6 +311,8 @@ public class XamlUsageIndexTests
         ServerHost.AddDotNetMcp(services, TrustedRoots.Create([Path.GetTempPath()]));
         services.AddSingleton<LanguageAdapters>(_ =>
             throw new InvalidOperationException("Workspace tools should resolve before XAML language services."));
+        services.AddSingleton<RoslynLanguageAdapter>(_ =>
+            throw new InvalidOperationException("Workspace tools should resolve before Roslyn queries are requested."));
         await using var provider = services.BuildServiceProvider();
 
         Assert.NotNull(provider.GetRequiredService<WorkspaceTools>());

@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Rename;
@@ -11,6 +13,10 @@ public sealed partial class RoslynLanguageAdapter
     // Find-references paging lanes: stage 0 walks scoped documents, stage 1
     // walks the Exact XAML usage list once source hits are exhausted.
     private const int XamlReferencesStage = 1;
+    private const int MaxCachedFinderScopes = 16;
+    private static readonly ConditionalWeakTable<
+        Solution, ConcurrentDictionary<(ProjectId? DefiningProject, bool EntireSolution), IReadOnlyList<Document>>>
+        OrderedFinderScopes = new();
 
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
         IWorkspaceSession session,
@@ -215,7 +221,7 @@ public sealed partial class RoslynLanguageAdapter
         var documents = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
             .ConfigureAwait(false);
         var unsearched = await FinderScopeCoverage
-            .UnsearchedProjectsAsync(solution, symbol!, documents, cancellationToken)
+            .UnsearchedProjectsAsync(solution, symbol!, documents, handle, cancellationToken)
             .ConfigureAwait(false);
 
         return await PageFinderHitsAsync<CallerLocationItem>(
@@ -307,7 +313,7 @@ public sealed partial class RoslynLanguageAdapter
             var scoped = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
                 .ConfigureAwait(false);
             var scopedUnsearched = await FinderScopeCoverage
-                .UnsearchedProjectsAsync(solution, symbol!, scoped, cancellationToken)
+                .UnsearchedProjectsAsync(solution, symbol!, scoped, handle, cancellationToken)
                 .ConfigureAwait(false);
             return await PageXamlReferenceHitsAsync(
                     session,
@@ -330,7 +336,7 @@ public sealed partial class RoslynLanguageAdapter
         var documents = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
             .ConfigureAwait(false);
         var unsearched = await FinderScopeCoverage
-            .UnsearchedProjectsAsync(solution, symbol!, documents, cancellationToken)
+            .UnsearchedProjectsAsync(solution, symbol!, documents, handle, cancellationToken)
             .ConfigureAwait(false);
 
         var (slice, scanError) = await ScanFinderHitsAsync<ReferenceLocationItem>(
@@ -558,23 +564,40 @@ public sealed partial class RoslynLanguageAdapter
             ReferenceLocationKind.Reference,
             usage.Kind);
 
-    private static async Task<List<Document>> OrderedScopedDocumentsAsync(
+    private static async Task<IReadOnlyList<Document>> OrderedScopedDocumentsAsync(
         Solution solution,
         Project project,
         bool entireSolution,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var scopes = OrderedFinderScopes.GetOrCreateValue(solution);
+        var key = (entireSolution ? null : project.Id, entireSolution);
+        if (scopes.TryGetValue(key, out var ordered))
+        {
+            return ordered;
+        }
+
         var scope = entireSolution
             ? FindRefsScopeKind.EntireSolution
             : FindRefsScopeKind.DependencyClosure;
         var documents = await FindRefsScopes
             .DocumentsForScopeAsync(solution, project, scope, cancellationToken)
             .ConfigureAwait(false);
-        return documents
+        ordered = documents
             .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Id.Id)
-            .ToList();
+            .ToArray();
+
+        // Keep the canonical cursor order for the immutable solution. Bound
+        // retained closure lists since many projects can share the same dependents.
+        if (scopes.Count >= MaxCachedFinderScopes)
+        {
+            scopes.Clear();
+        }
+
+        return scopes.GetOrAdd(key, ordered);
     }
 
     private async Task<(PagedResult<T>? Success, SymbolQueryError? Error)> PageFinderHitsAsync<T>(

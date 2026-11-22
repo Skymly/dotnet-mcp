@@ -299,13 +299,14 @@ public sealed partial class RoslynLanguageAdapter
         ISymbol symbol,
         CancellationToken cancellationToken)
     {
-        if (XamlUsageSource is null)
+        var xamlSource = (session as IXamlUsageSourceProvider)?.XamlUsageSource ?? XamlUsageSource;
+        if (xamlSource is null)
         {
             return [];
         }
 
         var projectId = project.Id.Id.ToString("D");
-        var usages = await XamlUsageSource
+        var usages = await xamlSource
             .GetUsagesAsync(session, projectId, cancellationToken)
             .ConfigureAwait(false);
         if (usages.Count == 0)

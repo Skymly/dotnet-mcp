@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
@@ -52,6 +53,11 @@ namespace DotNetMcp.Core;
 /// </remarks>
 public static class FinderScopeCoverage
 {
+    private const int MaxCachedCoverage = 32;
+    private static readonly ConditionalWeakTable<Solution, ConcurrentDictionary<string, ProjectFile>> ProjectFiles = new();
+    private static readonly ConditionalWeakTable<IReadOnlyList<Document>, ConcurrentDictionary<string, CoverageEntry>>
+        CoverageByScope = new();
+
     /// <summary>
     /// A declared-scope project the finder could not search — or searched
     /// without the references needed to produce hits (issue #572) — with
@@ -92,10 +98,53 @@ public static class FinderScopeCoverage
     /// be incomplete even though the engine searched it, so it is named with
     /// a searched-degraded reason rather than passing silently.
     /// </summary>
-    public static async Task<IReadOnlyList<UnsearchedProject>> UnsearchedProjectsAsync(
+    public static Task<IReadOnlyList<UnsearchedProject>> UnsearchedProjectsAsync(
         Solution solution,
         ISymbol symbol,
         IReadOnlyList<Document> scopeDocuments,
+        CancellationToken cancellationToken) =>
+        CollectCoverageAsync(solution, symbol, scopeDocuments, new CoverageInputs(), cancellationToken);
+
+    internal static async Task<IReadOnlyList<UnsearchedProject>> UnsearchedProjectsAsync(
+        Solution solution,
+        ISymbol symbol,
+        IReadOnlyList<Document> scopeDocuments,
+        string handle,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (scopeDocuments.Count == 0)
+        {
+            return [];
+        }
+
+        var coverage = CoverageByScope.GetOrCreateValue(scopeDocuments);
+        if (coverage.TryGetValue(handle, out var cached) && cached.Inputs.IsCurrent(cancellationToken))
+        {
+            return cached.Projects;
+        }
+
+        var inputs = new CoverageInputs();
+        var projects = await CollectCoverageAsync(solution, symbol, scopeDocuments, inputs, cancellationToken)
+            .ConfigureAwait(false);
+        if (inputs.Cacheable)
+        {
+            if (coverage.Count >= MaxCachedCoverage)
+            {
+                coverage.Clear();
+            }
+
+            coverage[handle] = new CoverageEntry(projects, inputs);
+        }
+
+        return projects;
+    }
+
+    private static async Task<IReadOnlyList<UnsearchedProject>> CollectCoverageAsync(
+        Solution solution,
+        ISymbol symbol,
+        IReadOnlyList<Document> scopeDocuments,
+        CoverageInputs inputs,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(solution);
@@ -170,7 +219,7 @@ public static class FinderScopeCoverage
                 // materialized binds OverloadResolutionFailure candidates the
                 // finders do not count, so name it searched-degraded.
                 var degraded = await SearchedDegradedReasonAsync(
-                        project, compilation, cancellationToken)
+                        project, compilation, inputs, cancellationToken)
                     .ConfigureAwait(false);
                 if (degraded is not null)
                 {
@@ -188,6 +237,7 @@ public static class FinderScopeCoverage
                     assemblyNames,
                     transitiveDependents,
                     searchedName,
+                    inputs,
                     cancellationToken)
                 .ConfigureAwait(false));
         }
@@ -317,6 +367,7 @@ public static class FinderScopeCoverage
         HashSet<string> assemblyNames,
         HashSet<ProjectId> transitiveDependents,
         string searchedName,
+        CoverageInputs inputs,
         CancellationToken cancellationToken)
     {
         var candidateIds = project.ProjectReferences
@@ -365,7 +416,7 @@ public static class FinderScopeCoverage
             .Select(static p => Path.GetFullPath(p!))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var declaredPath = await DeclaredOriginationPathAsync(
-                solution, project, originationPaths, cancellationToken)
+                solution, project, originationPaths, inputs, cancellationToken)
             .ConfigureAwait(false);
         if (declaredPath is not null)
         {
@@ -536,6 +587,7 @@ public static class FinderScopeCoverage
     private static async Task<string?> SearchedDegradedReasonAsync(
         Project project,
         Compilation? compilation,
+        CoverageInputs inputs,
         CancellationToken cancellationToken)
     {
         if (project.FilePath is null)
@@ -543,29 +595,8 @@ public static class FinderScopeCoverage
             return null;
         }
 
-        string contents;
-        try
-        {
-            if (!File.Exists(project.FilePath))
-            {
-                return null;
-            }
-
-            contents = await File.ReadAllTextAsync(project.FilePath, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return null;
-        }
-
-        // Commented-out items are not declarations; match the declared-items
-        // surface the same way MSBuild sees it.
-        contents = XmlComment.Replace(contents, string.Empty);
-
-        var declaresPackage = PackageReferenceInclude.IsMatch(contents);
-        var declaresReference = ReferenceInclude.IsMatch(contents);
-        if (!declaresPackage && !declaresReference)
+        var file = await ReadProjectFileAsync(project, project.FilePath, inputs, cancellationToken).ConfigureAwait(false);
+        if (file is null || !file.DeclaresPackage && !file.DeclaresReference)
         {
             return null;
         }
@@ -580,14 +611,14 @@ public static class FinderScopeCoverage
         // packages up — so "assets.json exists" alone proved nothing. An
         // undeterminable package-cache root set fails conservative instead
         // of degrading a project the check cannot honestly judge.
-        if (declaresPackage && compilation is not null)
+        if (file.DeclaresPackage && compilation is not null)
         {
             var packageRoots = NuGetPackageRoots();
             if (packageRoots.Count > 0 &&
                 !HoldsPackageCacheReference(compilation, packageRoots))
             {
                 var assetsMissing = projectDirectory is null ||
-                    !File.Exists(Path.Combine(
+                    !inputs.FileExists(Path.Combine(
                         projectDirectory, "obj", "project.assets.json"));
                 return assetsMissing
                     ? "was searched but its declared package references are absent from the loaded compilation " +
@@ -611,9 +642,9 @@ public static class FinderScopeCoverage
         // HintPath target or a missing declared dll — is the same gap one
         // level narrower: the rest of the compilation materialized, the one
         // declared input did not.
-        if (declaresReference &&
+        if (file.DeclaresReference &&
             projectDirectory is not null &&
-            MissingDeclaredReferencePath(contents, projectDirectory) is { } missing)
+            MissingDeclaredReferencePath(file.DeclaredItems, projectDirectory, inputs) is { } missing)
         {
             return $"was searched but a declared <Reference> did not materialize ('{missing}' not found); " +
                 "hits from it may be incomplete";
@@ -634,7 +665,7 @@ public static class FinderScopeCoverage
     /// <see langword="null"/> when every declared path exists or none can be
     /// resolved to a path at all.
     /// </summary>
-    private static string? MissingDeclaredReferencePath(string contents, string projectDirectory)
+    private static string? MissingDeclaredReferencePath(string contents, string projectDirectory, CoverageInputs inputs)
     {
         foreach (Match match in ReferenceItem.Matches(contents))
         {
@@ -664,7 +695,7 @@ public static class FinderScopeCoverage
                 continue;
             }
 
-            if (!File.Exists(full))
+            if (!inputs.FileExists(full))
             {
                 return declared;
             }
@@ -1179,6 +1210,7 @@ public static class FinderScopeCoverage
         Solution solution,
         Project project,
         HashSet<string> originationPaths,
+        CoverageInputs inputs,
         CancellationToken cancellationToken)
     {
         if (project.FilePath is null || originationPaths.Count == 0)
@@ -1196,18 +1228,8 @@ public static class FinderScopeCoverage
             }
         }
 
-        string contents;
-        try
-        {
-            if (!File.Exists(project.FilePath))
-            {
-                return null;
-            }
-
-            contents = await File.ReadAllTextAsync(project.FilePath, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        var file = await ReadProjectFileAsync(project, project.FilePath, inputs, cancellationToken).ConfigureAwait(false);
+        if (file is null)
         {
             return null;
         }
@@ -1218,7 +1240,7 @@ public static class FinderScopeCoverage
             return null;
         }
 
-        foreach (Match match in ProjectReferenceInclude.Matches(contents))
+        foreach (Match match in ProjectReferenceInclude.Matches(file.Contents))
         {
             if (match.Value.Contains("ReferenceOutputAssembly=\"false\"", StringComparison.OrdinalIgnoreCase) ||
                 match.Value.Contains("ReferenceOutputAssembly='false'", StringComparison.OrdinalIgnoreCase))
@@ -1246,6 +1268,132 @@ public static class FinderScopeCoverage
 
         return null;
     }
+
+    private static async Task<ProjectFile?> ReadProjectFileAsync(
+        Project project,
+        string path,
+        CoverageInputs inputs,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            var stamp = ReadProjectFileStamp(path);
+            inputs.ObserveProjectFile(path, stamp);
+            if (stamp is null)
+            {
+                return null;
+            }
+
+            var projectFiles = ProjectFiles.GetOrCreateValue(project.Solution);
+            if (projectFiles.TryGetValue(path, out var cached) && cached.Stamp == stamp)
+            {
+                return cached;
+            }
+
+            var contents = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            var declaredItems = XmlComment.Replace(contents, string.Empty);
+            var file = new ProjectFile(stamp.Value, contents, declaredItems,
+                PackageReferenceInclude.IsMatch(declaredItems), ReferenceInclude.IsMatch(declaredItems));
+
+            // Keep declaration reads shared across TFMs and warm queries. Assets and
+            // HintPath existence are checked separately against the live filesystem.
+            if (ReadProjectFileStamp(path) == stamp)
+            {
+                projectFiles[path] = file;
+            }
+            else
+            {
+                inputs.Cacheable = false;
+            }
+
+            return file;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            inputs.Cacheable = false;
+            return null;
+        }
+    }
+
+    private static (DateTime LastWriteUtc, long Length)? ReadProjectFileStamp(string path)
+    {
+        var info = new FileInfo(path);
+        return info.Exists ? (info.LastWriteTimeUtc, info.Length) : null;
+    }
+
+    // The document scope pins the immutable solution. Recheck only the disk
+    // observations used by the report so a mid-session restore or edit is visible.
+    private sealed class CoverageInputs
+    {
+        private readonly IReadOnlyList<string>? _extraNuGetRoots = ExtraNuGetPackageRoots.Value;
+        private readonly Dictionary<string, bool> _fileExistence = new();
+        private readonly Dictionary<string, (DateTime LastWriteUtc, long Length)?> _projectFileStamps = new();
+        public bool Cacheable { get; set; } = true;
+
+        public void ObserveProjectFile(string path, (DateTime LastWriteUtc, long Length)? stamp)
+        {
+            if (!_projectFileStamps.TryAdd(path, stamp) && _projectFileStamps[path] != stamp)
+            {
+                Cacheable = false;
+            }
+        }
+
+        public bool FileExists(string path)
+        {
+            var exists = File.Exists(path);
+            if (!_fileExistence.TryAdd(path, exists) && _fileExistence[path] != exists)
+            {
+                Cacheable = false;
+            }
+
+            return exists;
+        }
+
+        public bool IsCurrent(CancellationToken cancellationToken)
+        {
+            if (!ReferenceEquals(_extraNuGetRoots, ExtraNuGetPackageRoots.Value))
+            {
+                return false;
+            }
+
+            try
+            {
+                foreach (var (path, stamp) in _projectFileStamps)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (ReadProjectFileStamp(path) != stamp)
+                    {
+                        return false;
+                    }
+                }
+
+                foreach (var (path, exists) in _fileExistence)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (File.Exists(path) != exists)
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+    }
+
+    private sealed record CoverageEntry(IReadOnlyList<UnsearchedProject> Projects, CoverageInputs Inputs);
+
+    private sealed record ProjectFile(
+        (DateTime LastWriteUtc, long Length) Stamp,
+        string Contents,
+        string DeclaredItems,
+        bool DeclaresPackage,
+        bool DeclaresReference);
 
     private sealed record Origination(
         string AssemblyName,

@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Rename;
@@ -13,6 +15,9 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
     public const string FSharpLanguage = "fsharp";
     public const int DefaultMemberPageLimit = 50;
     public const int MaxMemberPageLimit = 100;
+    private const int MaxCachedSignatures = 256;
+    private static readonly ConditionalWeakTable<Compilation, ConcurrentDictionary<string, ISymbol>>
+        ResolvedSignatures = new();
     public static readonly TimeSpan DependencyClosureSoftBudget =
         SoftBudgetOptions.Default.FindRefsScoped;
     public static readonly TimeSpan EntireSolutionSoftBudget =
@@ -916,6 +921,30 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         path.EndsWith("." + query, StringComparison.Ordinal);
 
     private static ISymbol? FindBySignature(Compilation compilation, string signatureQualifiedName)
+    {
+        var signatures = ResolvedSignatures.GetOrCreateValue(compilation);
+        if (signatures.TryGetValue(signatureQualifiedName, out var cached))
+        {
+            return cached;
+        }
+
+        var symbol = ScanForSignature(compilation, signatureQualifiedName);
+        if (symbol is null)
+        {
+            return null;
+        }
+
+        if (signatures.Count >= MaxCachedSignatures)
+        {
+            signatures.Clear();
+        }
+
+        // A handle can survive an Epoch change. The resolved symbol belongs to
+        // its immutable compilation and is eligible for collection with it.
+        return signatures.GetOrAdd(signatureQualifiedName, symbol);
+    }
+
+    private static ISymbol? ScanForSignature(Compilation compilation, string signatureQualifiedName)
     {
         foreach (var type in EnumerateAllTypes(compilation.GlobalNamespace))
         {
