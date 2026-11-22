@@ -1,0 +1,2 @@
+subject,scenario,process_pairs,baseline_n,candidate_n,baseline_median_p95_ms,candidate_median_p95_ms,delta_pct,same_workspace_counts,pairs_over_20pct,baseline_process_p95_ms,candidate_process_p95_ms,baseline_errors,candidate_errors
+Spectre.Console,Scale.workspace.check_drift,3,45,45,1069.1506,340.0038,-68.19869904202459,True,0,969.8989;1147.3679;1069.1506,311.9252;478.9568;340.0038,;;,;;
