@@ -110,6 +110,13 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 "Confirm the name/FQN, or pass projectId from workspace_list_projects, then call symbol_resolve again." + memberHint));
         }
 
+        // A unique, complete match needs no signature-based deduplication.
+        if (matches.Count == 1 && incompleteProjectIds.Count == 0)
+        {
+            var (project, symbol) = matches[0];
+            return (ToSuccess(project, symbol), null);
+        }
+
         // Deduplicate identical symbols within the same project (walk may hit twice).
         matches = matches
             .DistinctBy(m => (m.Project.Id.Id, SymbolKey(m.Symbol)))

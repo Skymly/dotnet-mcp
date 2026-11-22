@@ -1410,13 +1410,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 xamlUsageSource: _xamlUsageSource);
             foreach (var project in SelectWarmProjects(loaded.Solution, openedPath, lru.Capacity ?? 50))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                // Warm the primary projects promptly and give interactive queries
-                // priority over speculative compilation of tests and benchmarks.
-                if (WarmPreference(project.Name) > 0)
-                {
-                    await WaitForWarmIdleAsync(cancellationToken).ConfigureAwait(false);
-                }
+                // Give the queries that follow workspace readiness priority over
+                // background compilation, including the first project.
+                await WaitForWarmIdleAsync(cancellationToken).ConfigureAwait(false);
 
                 try
                 {
