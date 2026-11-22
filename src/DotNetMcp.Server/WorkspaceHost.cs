@@ -65,6 +65,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private long _generation;
     private CompilationLru _compilationLru;
     private readonly TrustedRoots _trustedRoots;
+    private readonly WorkspaceEditJournal _editJournal;
+    private IReadOnlyList<WorkspaceEditRecoveryDto> _recovery = [];
     private readonly GeneratorQueryService? _generators;
     private readonly IAuditLogger? _audit;
     private readonly IXamlUsageSource? _xamlUsageSource;
@@ -84,6 +86,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         _loader = loader;
         _options = options;
         _trustedRoots = trustedRoots ?? throw new ArgumentNullException(nameof(trustedRoots));
+        _editJournal = new WorkspaceEditJournal(_trustedRoots, options.RecoveryDirectoryForTests);
         _generators = generators;
         _audit = auditLogger;
         _xamlUsageSource = xamlUsageSource;
@@ -104,6 +107,15 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         {
             _watcher = new FileSystemWorkspaceWatcher();
             _ownsWatcher = true;
+        }
+    }
+
+    internal void RecoverInterruptedEdits()
+    {
+        var recovery = _editJournal.Recover();
+        lock (_gate)
+        {
+            _recovery = recovery;
         }
     }
 
@@ -321,7 +333,13 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
         try
         {
+            using var lease = _editJournal.Enter();
             return WriteDeclaredPathsUnlocked(documents);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
+        {
+            return FailWrite(PolicyErrorCodes.WorkspaceEditApplyFailed, ex.Message,
+                "Check workspace_status for recovery evidence and retry after resolving the issue.");
         }
         finally
         {
@@ -333,6 +351,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     {
         LoadedSolution loaded;
         long epochAtStart;
+        string workspace;
         FSharpWorkspaceSnapshot? fsharp;
         lock (_gate)
         {
@@ -346,10 +365,11 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             loaded = _loaded;
             epochAtStart = _epoch;
+            workspace = _openedPath!;
             fsharp = _fsharpSnapshot;
         }
 
-        var prepared = new List<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)>(documents.Count);
+        var prepared = new List<PreparedDocument>(documents.Count);
         foreach (var document in documents)
         {
             if (!_trustedRoots.Contains(document.Path))
@@ -371,10 +391,11 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
 
             string diskText;
+            byte[] raw;
             Encoding encoding;
             try
             {
-                var raw = File.ReadAllBytes(document.Path);
+                raw = File.ReadAllBytes(document.Path);
                 if (!FileTextCodec.TryReadLossless(raw, out diskText, out encoding))
                 {
                     return FailWrite(
@@ -425,30 +446,37 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                     finalPath);
             }
 
-            prepared.Add((document, finalPath, encoding));
+            byte[] intended = [.. encoding.Preamble, .. encoding.GetBytes(document.NewText)];
+            prepared.Add(new(document, WorkspaceEditJournal.Entry.From(finalPath, raw, intended), intended));
         }
 
-        var paths = prepared.Select(static r => r.FinalPath).ToArray();
+        var journal = _editJournal.Begin(PathPolicy.Normalize(workspace), prepared.Select(p => p.Entry).ToArray());
+        var paths = prepared.Select(static r => r.Entry.Path).ToArray();
         using (_options.WriteSuppression.Suppress(paths))
         {
             var writtenCount = 0;
             try
             {
-                foreach (var (document, finalPath, encoding) in prepared)
+                foreach (var write in prepared)
                 {
-                    FileTextCodec.Write(finalPath, document.NewText, encoding);
+                    _editJournal.ReplaceVerified(write.Entry.Path, write.Entry.OriginalHash, write.Intended);
                     writtenCount++;
+                    _options.AfterApplyDocumentWriteForTests?.Invoke(writtenCount);
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                var rolledBack = RollbackDeclaredPaths(loaded, prepared, writtenCount, includeCurrent: true);
+                var rolledBack = RewriteDeclaredPaths(prepared, writtenCount);
+                RevertDeclaredPathsInMemory(loaded, prepared);
+                rolledBack &= journal is null || prepared.All(p => _editJournal.MatchesOriginal(p.Entry));
+                if (rolledBack)
+                    ForgetJournal(journal, workspace, "restored");
                 return FailWrite(
                     PolicyErrorCodes.WorkspaceEditApplyFailed,
                     "Apply failed while writing preview documents: " + ex.Message,
                     rolledBack
                         ? "Retry apply with the same previewId; disk was rolled back to OldText."
-                        : "Retry apply with the same previewId; disk rollback may be incomplete.");
+                        : "Disk rollback may be incomplete. Restart the service and check workspace_status.");
             }
 
             string? failureError = null;
@@ -487,7 +515,10 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             if (failureError is not null)
             {
-                var rolledBack = RewriteDeclaredPaths(prepared, writtenCount, includeCurrent: false);
+                var rolledBack = RewriteDeclaredPaths(prepared, writtenCount);
+                rolledBack &= journal is null || prepared.All(p => _editJournal.MatchesOriginal(p.Entry));
+                if (rolledBack)
+                    ForgetJournal(journal, workspace, "restored");
                 return FailWrite(
                     failureError,
                     rolledBack
@@ -498,9 +529,28 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
 
         CommitEpochWithFSharpSnapshot();
+        ForgetJournal(journal, workspace, "completed");
         lock (_gate)
         {
             return new WorkspaceEditOutcome<long>(_epoch, null);
+        }
+    }
+
+    private void ForgetJournal(string? journal, string workspace, string outcome)
+    {
+        try
+        {
+            WorkspaceEditJournal.Forget(journal);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Files and workspace have reached the outcome. Never report the edit as failed
+            // solely because its cleanup failed after commit. Startup can retry cleanup.
+            lock (_gate)
+            {
+                _recovery = [.. _recovery, new(outcome, workspace, [],
+                    "Disk reached the recorded outcome. Restart the service to retry recovery record cleanup.")];
+            }
         }
     }
 
@@ -586,9 +636,12 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         }
     }
 
+    private sealed record PreparedDocument(
+        WorkspaceEditDocument Document, WorkspaceEditJournal.Entry Entry, byte[] Intended);
+
     private static void RevertDeclaredPathsInMemory(
         LoadedSolution loaded,
-        IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)> writes)
+        IReadOnlyList<PreparedDocument> writes)
     {
         foreach (var (document, _, _) in writes)
         {
@@ -597,18 +650,17 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     }
 
     private bool RewriteDeclaredPaths(
-        IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)> writes,
-        int writtenCount,
-        bool includeCurrent)
+        IReadOnlyList<PreparedDocument> writes,
+        int writtenCount)
     {
-        var end = Math.Min(writes.Count, includeCurrent ? writtenCount + 1 : writtenCount);
         var rolledBack = true;
-        for (var i = 0; i < end; i++)
+        for (var i = 0; i < writtenCount; i++)
         {
             _options.BeforeRollbackWrite?.Invoke();
             try
             {
-                FileTextCodec.Write(writes[i].FinalPath, writes[i].Document.OldText, writes[i].Encoding);
+                var entry = writes[i].Entry;
+                _editJournal.ReplaceVerified(entry.Path, entry.IntendedHash, entry.Original);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -616,17 +668,6 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             }
         }
 
-        return rolledBack;
-    }
-
-    private bool RollbackDeclaredPaths(
-        LoadedSolution loaded,
-        IReadOnlyList<(WorkspaceEditDocument Document, string FinalPath, Encoding Encoding)> writes,
-        int writtenCount,
-        bool includeCurrent)
-    {
-        var rolledBack = RewriteDeclaredPaths(writes, writtenCount, includeCurrent);
-        RevertDeclaredPathsInMemory(loaded, writes);
         return rolledBack;
     }
 
@@ -1327,6 +1368,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             Error = _error,
             ErrorCode = _errorCode,
             SuggestedAction = suggested,
+            Recovery = _recovery.Count > 0 ? _recovery : null,
             Watcher = _watcherHealth
         };
     }

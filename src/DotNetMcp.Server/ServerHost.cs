@@ -93,7 +93,9 @@ public static class ServerHost
             target: null));
     }
 
-    public static async Task<int> RunAsync(string[] args)
+    public static Task<int> RunAsync(string[] args) => RunAsync(args, null);
+
+    internal static async Task<int> RunAsync(string[] args, WorkspaceHostOptions? options)
     {
         TrustedRoots trustedRoots;
         try
@@ -119,7 +121,7 @@ public static class ServerHost
             options.LogToStandardErrorThreshold = LogLevel.Trace;
         });
 
-        AddDotNetMcp(builder.Services, trustedRoots);
+        AddDotNetMcp(builder.Services, trustedRoots, workspaceHostOptions: options);
 
         var taskStore = new InMemoryMcpTaskStore { DefaultPollIntervalMs = 250 };
         var mcp = builder.Services
@@ -137,7 +139,9 @@ public static class ServerHost
             return 1;
         }
 
-        await builder.Build().RunAsync().ConfigureAwait(false);
+        var host = builder.Build();
+        host.Services.GetRequiredService<WorkspaceHost>().RecoverInterruptedEdits();
+        await host.RunAsync().ConfigureAwait(false);
         return 0;
     }
 

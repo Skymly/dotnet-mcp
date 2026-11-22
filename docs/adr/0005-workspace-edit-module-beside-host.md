@@ -51,3 +51,9 @@ Architecture review #125 第 1 项 grilling 后结晶。不重开 ADR-0004 的�
 证据：#525；ADR-0006 的 `IXamlUsageSource` 索引。
 
 Rename preview 产出的文档切片不再只含解决方案手写文档：`symbol_preview_rename` 把受信根内已注册 XAML 文档（Avalonia `.axaml`、根默认 xmlns 为 MAUI URI 的 `.xaml`）的旧/新文本并入同一份 Workspace Edit——索引里 `Exact` 使用点按符号键匹配改写，`Unverified` 同名提及只经 `unverifiedXamlMentions` 报告、不写入。改写规则与 Roslyn Renamer 同级：每个使用点只替换符号简单名在 span 内的一处出现，span 不落在简单名上的 `Exact` 使用点跳过而非猜测。`x:Name` 生成字段是唯一例外入口：定义项目内存在匹配 `XName` 使用点时允许改名——XAML 值 + 手写引用一起改，生成声明本身不写入（下次生成器运行重新产出）。Diagnostic fix 与 Code Refactoring 的 preview 不碰 XAML 文档；store、previewId、kind、Epoch/TTL 语义不变。
+
+## Amendment 2（2026-11-22）多文件 apply 的进程中断恢复
+
+三种 Workspace Edit 的共用 writer 在写第一个多文件切片前，将规范化工作区路径和每个目标的原始字节、原始与预期的 SHA-256 写入用户本地状态目录。先刷盘，再以原子重命名发布记录。写源文件时逐文件做最终路径与内容检查，用同目录暂存文件原子替换现有文件。记录发布、apply 与启动恢复共用跨进程互斥锁。发布过的记录也会阻止其他入口对同一文件或工作区发起覆盖写。
+
+启动时只处理工作区仍在当前受信根中的记录。恢复先检查记录里的全部路径与磁盘字节。若全部已写完则保留，若落在写入中途则恢复每个已写切片的原始字节。遇到手改、缺失或重定向则保留证据，`workspace_status.recovery` 返回冲突与允许披露的文件。恢复操作可重试。previewId、TTL 和 epoch 仍限产生 preview 的进程使用。

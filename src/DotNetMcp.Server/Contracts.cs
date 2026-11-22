@@ -129,11 +129,14 @@ public sealed record PolicyErrorDto
     public IReadOnlyList<string>? IncompleteProjectIds { get; init; }
 }
 
+public sealed record WorkspaceEditRecoveryDto(string State, string? Workspace, IReadOnlyList<string> ConflictingPaths, string Message);
+
 /// <summary>
 /// Shared open/status payload (ADR-0003 §1 / Spike S3). No jobId — single active workspace.
 /// </summary>
 public sealed record WorkspaceStatusDto
 {
+    public IReadOnlyList<WorkspaceEditRecoveryDto>? Recovery { get; init; }
     public required string Phase { get; init; }
     public int CompletedUnits { get; init; }
     public int TotalUnits { get; init; }

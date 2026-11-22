@@ -105,6 +105,7 @@ public sealed class WorkspaceTools
     [McpServerTool(Name = "workspace_status", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false), Description(
         "Poll the active workspace load. Returns phase, progress counters, warnings, SuggestedAction, and watcher (ok, lost, or off). " +
         "watcher=lost means file watching stopped and a restart was attempted; keep polling workspace_status or call workspace_check_drift. " +
+        "After a service restart, recovery reports completed or restored interrupted edits, or conflict with paths requiring review. " +
         "While loading, keep polling this tool — do not retry workspace_open.")]
     public CallToolResult WorkspaceStatus(CancellationToken cancellationToken = default)
     {

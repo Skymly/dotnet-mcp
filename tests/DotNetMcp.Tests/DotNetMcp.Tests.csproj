@@ -27,6 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\DotNetMcp.RecoveryProbe\DotNetMcp.RecoveryProbe.csproj" />
     <ProjectReference Include="..\..\src\DotNetMcp.Server\DotNetMcp.Server.csproj" />
     <ProjectReference Include="..\..\benches\DotNetMcp.Bench\DotNetMcp.Bench.csproj" />
     <ProjectReference Include="..\..\src\DotNetMcp.FSharp\DotNetMcp.FSharp.csproj" />

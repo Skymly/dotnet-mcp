@@ -25,6 +25,9 @@ public sealed class WorkspaceHostOptions
     /// <summary>TTL for stored Workspace Edit previews (ADR-0005). Default 5 minutes.</summary>
     public TimeSpan WorkspaceEditPreviewTtl { get; init; } = TimeSpan.FromMinutes(5);
 
+    internal string? RecoveryDirectoryForTests { get; init; }
+    internal Action<int>? AfterApplyDocumentWriteForTests { get; init; }
+
     public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 
     /// <summary>
