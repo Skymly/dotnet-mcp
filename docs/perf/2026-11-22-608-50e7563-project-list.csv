@@ -1,0 +1,4 @@
+subject,scenario,process_pairs,baseline_n,candidate_n,baseline_median_p95_ms,candidate_median_p95_ms,delta_pct,same_workspace_counts,pairs_over_20pct,baseline_process_p95_ms,candidate_process_p95_ms,baseline_errors,candidate_errors
+FluentValidation,Scale.workspace.list_projects,3,90,90,13.1927,0.6289,-95.23296974842148,True,0,0.7876;13.1927;15.0762,0.7331;0.5481;0.6289,;;,;;
+Serilog,Scale.workspace.list_projects,3,90,90,0.8825,0.6213,-29.597733711048157,True,0,17.9454;0.8825;0.724,0.768;0.6213;0.5727,;;,;;
+Spectre.Console,Scale.workspace.list_projects,3,90,90,0.9052,0.6394,-29.36367653557226,True,0,0.8874;0.9052;3.6503,0.6801;0.6237;0.6394,;;,;;
