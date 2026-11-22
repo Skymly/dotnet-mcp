@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Rename;
@@ -11,6 +13,14 @@ public sealed partial class RoslynLanguageAdapter
     // Find-references paging lanes: stage 0 walks scoped documents, stage 1
     // walks the Exact XAML usage list once source hits are exhausted.
     private const int XamlReferencesStage = 1;
+    private const int MaxCachedFinderScopes = 16;
+    private static readonly ConditionalWeakTable<
+        Solution, ConcurrentDictionary<(ProjectId? DefiningProject, bool EntireSolution), IReadOnlyList<Document>>>
+        OrderedFinderScopes = new();
+    private static readonly ConditionalWeakTable<IReadOnlyList<Document>, string[]> XamlFinderProjects = new();
+    private static readonly ConditionalWeakTable<
+        Solution, ConcurrentDictionary<(long Epoch, string Handle), IReadOnlyList<(ISymbol Symbol, Project Project)>>>
+        ImplementationTargets = new();
 
     public async Task<(PagedResult<ImplementationItem>? Success, SymbolQueryError? Error)> FindImplementationsAsync(
         IWorkspaceSession session,
@@ -40,46 +50,8 @@ public sealed partial class RoslynLanguageAdapter
             return (null, cursorError);
         }
 
-        var found = new List<ISymbol>();
-        var implementations = await SymbolFinder
-            .FindImplementationsAsync(symbol!, session.Solution, cancellationToken: cancellationToken)
+        var ordered = await FindImplementationTargetsAsync(session, project!, symbol!, handle, cancellationToken)
             .ConfigureAwait(false);
-        found.AddRange(implementations);
-
-        if (symbol is INamedTypeSymbol named)
-        {
-            if (named.TypeKind is TypeKind.Class or TypeKind.Struct)
-            {
-                var derived = await SymbolFinder
-                    .FindDerivedClassesAsync(
-                        named,
-                        session.Solution,
-                        transitive: true,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-                found.AddRange(derived);
-            }
-
-            if (named.TypeKind == TypeKind.Interface)
-            {
-                var derivedIfaces = await SymbolFinder
-                    .FindDerivedInterfacesAsync(
-                        named,
-                        session.Solution,
-                        transitive: true,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-                found.AddRange(derivedIfaces);
-            }
-        }
-
-        var ordered = found
-            .Where(s => !SymbolEqualityComparer.Default.Equals(s, symbol))
-            .Select(s => (Symbol: s, Project: ProjectForSymbol(session.Solution, s, project!)))
-            .DistinctBy(m => (m.Project.Id.Id, SymbolKey(m.Symbol)))
-            .OrderBy(m => SymbolKey(m.Symbol), StringComparer.Ordinal)
-            .ThenBy(m => m.Project.Id.Id.ToString("D"), StringComparer.Ordinal)
-            .ToList();
 
         if (offset > ordered.Count)
         {
@@ -110,6 +82,59 @@ public sealed partial class RoslynLanguageAdapter
             ordered.Count == 0
                 ? "No implementations or derived types found."
                 : "Implementation page complete."), null);
+    }
+
+    private static async Task<IReadOnlyList<(ISymbol Symbol, Project Project)>> FindImplementationTargetsAsync(
+        IWorkspaceSession session, Project project, ISymbol symbol, string handle, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var solution = session.Solution;
+        var targets = ImplementationTargets.GetOrCreateValue(solution);
+        var key = (session.Epoch, handle);
+        if (targets.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var found = new List<ISymbol>();
+        var implementations = await SymbolFinder
+            .FindImplementationsAsync(symbol, solution, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        found.AddRange(implementations);
+        if (symbol is INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } type)
+        {
+            var derived = await SymbolFinder.FindDerivedClassesAsync(type, solution, transitive: true,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            found.AddRange(derived);
+        }
+        else if (symbol is INamedTypeSymbol { TypeKind: TypeKind.Interface } iface)
+        {
+            var derived = await SymbolFinder.FindDerivedInterfacesAsync(iface, solution, transitive: true,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            found.AddRange(derived);
+        }
+
+        var ordered = found
+            .Where(s => !SymbolEqualityComparer.Default.Equals(s, symbol))
+            .Select(s => (Symbol: s, Project: ProjectForSymbol(solution, s, project), Signature: SymbolKey(s)))
+            .DistinctBy(m => (m.Project.Id.Id, m.Signature))
+            .OrderBy(m => m.Signature, StringComparer.Ordinal)
+            .ThenBy(m => m.Project.Id.Id.ToString("D"), StringComparer.Ordinal)
+            .Select(static m => (m.Symbol, m.Project))
+            .ToArray();
+
+        // Retain small finished searches for repeated queries and continuation pages.
+        if (ordered.Length <= MaxMemberPageLimit)
+        {
+            if (targets.Count >= MaxCachedFinderScopes)
+            {
+                targets.Clear();
+            }
+
+            targets.TryAdd(key, ordered);
+        }
+
+        return ordered;
     }
 
     public async Task<(PagedResult<HierarchyItem>? Success, SymbolQueryError? Error)> GetTypeHierarchyAsync(
@@ -214,8 +239,8 @@ public sealed partial class RoslynLanguageAdapter
 
         var documents = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
             .ConfigureAwait(false);
-        var unsearched = await FinderScopeCoverage
-            .UnsearchedProjectsAsync(solution, symbol!, documents, cancellationToken)
+        var coverageDescription = await FinderScopeCoverage
+            .DescribeScopeAsync(solution, symbol!, documents, handle, cancellationToken)
             .ConfigureAwait(false);
 
         return await PageFinderHitsAsync<CallerLocationItem>(
@@ -229,7 +254,7 @@ public sealed partial class RoslynLanguageAdapter
                 pageLimit,
                 docIndex,
                 locOffset,
-                unsearched,
+                coverageDescription,
                 noun: "Caller",
                 async (scan, ct) =>
                 {
@@ -306,8 +331,8 @@ public sealed partial class RoslynLanguageAdapter
 
             var scoped = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
                 .ConfigureAwait(false);
-            var scopedUnsearched = await FinderScopeCoverage
-                .UnsearchedProjectsAsync(solution, symbol!, scoped, cancellationToken)
+            var scopedCoverageDescription = await FinderScopeCoverage
+                .DescribeScopeAsync(solution, symbol!, scoped, handle, cancellationToken)
                 .ConfigureAwait(false);
             return await PageXamlReferenceHitsAsync(
                     session,
@@ -319,7 +344,7 @@ public sealed partial class RoslynLanguageAdapter
                     budget,
                     pageLimit,
                     locOffset,
-                    scopedUnsearched,
+                    scopedCoverageDescription,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -329,8 +354,8 @@ public sealed partial class RoslynLanguageAdapter
         var clock = Stopwatch.StartNew();
         var documents = await OrderedScopedDocumentsAsync(solution, project!, entireSolution, cancellationToken)
             .ConfigureAwait(false);
-        var unsearched = await FinderScopeCoverage
-            .UnsearchedProjectsAsync(solution, symbol!, documents, cancellationToken)
+        var coverageDescription = await FinderScopeCoverage
+            .DescribeScopeAsync(solution, symbol!, documents, handle, cancellationToken)
             .ConfigureAwait(false);
 
         var (slice, scanError) = await ScanFinderHitsAsync<ReferenceLocationItem>(
@@ -377,7 +402,7 @@ public sealed partial class RoslynLanguageAdapter
                     "symbol_find_references",
                     slice.Items.Count == 0 ? emptyMessage : completeMessage),
                 finished: false,
-                unsearched,
+                coverageDescription,
                 noun: "Reference"), null);
         }
 
@@ -392,7 +417,7 @@ public sealed partial class RoslynLanguageAdapter
                     "symbol_find_references",
                     slice.Items.Count == 0 ? emptyMessage : completeMessage),
                 finished: true,
-                unsearched,
+                coverageDescription,
                 noun: "Reference"), null);
         }
 
@@ -426,7 +451,7 @@ public sealed partial class RoslynLanguageAdapter
                 "symbol_find_references",
                 slice.Items.Count == 0 ? emptyMessage : completeMessage),
             finished: !moreXaml,
-            unsearched,
+            coverageDescription,
             noun: "Reference"), null);
     }
 
@@ -440,7 +465,7 @@ public sealed partial class RoslynLanguageAdapter
         TimeSpan budget,
         int pageLimit,
         int locOffset,
-        IReadOnlyList<FinderScopeCoverage.UnsearchedProject> unsearched,
+        string? coverageDescription,
         CancellationToken cancellationToken)
     {
         var clock = Stopwatch.StartNew();
@@ -475,7 +500,7 @@ public sealed partial class RoslynLanguageAdapter
                     ? "No references found in the selected scope."
                     : "Reference page complete."),
             finished: !moreItems,
-            unsearched,
+            coverageDescription,
             noun: "Reference"), null);
     }
 
@@ -500,15 +525,16 @@ public sealed partial class RoslynLanguageAdapter
         int deliverableFloor,
         CancellationToken cancellationToken)
     {
-        var targetKey = SymbolKey(NormalizePositionSymbol(symbol));
-        var projectIds = documents
+        var projectIds = XamlFinderProjects.GetValue(documents, static scope => scope
             .Select(static d => d.Project.Id.Id)
             .Distinct()
-            .OrderBy(static id => id.ToString("D"), StringComparer.Ordinal)
-            .ToArray();
+            .Select(static id => id.ToString("D"))
+            .Order(StringComparer.Ordinal)
+            .ToArray());
 
         var items = new List<ReferenceLocationItem>();
-        var seen = new HashSet<(string Path, int Start, int Length, XamlUsageKind Kind, string SymbolKey)>();
+        string? targetKey = null;
+        HashSet<(string Path, int Start, int Length, XamlUsageKind Kind, string SymbolKey)>? seen = null;
         var incomplete = false;
         for (var i = 0; i < projectIds.Length; i++)
         {
@@ -520,18 +546,19 @@ public sealed partial class RoslynLanguageAdapter
             }
 
             var usages = await xamlSource
-                .GetUsagesAsync(session, projectIds[i].ToString("D"), cancellationToken)
+                .GetUsagesAsync(session, projectIds[i], cancellationToken)
                 .ConfigureAwait(false);
             foreach (var usage in usages)
             {
                 if (usage.Confidence != XamlUsageConfidence.Exact ||
-                    !string.Equals(usage.SymbolKey, targetKey, StringComparison.Ordinal))
+                    !string.Equals(usage.SymbolKey, targetKey ??= SymbolKey(NormalizePositionSymbol(symbol)),
+                        StringComparison.Ordinal))
                 {
                     continue;
                 }
 
                 var key = (PositionPaths.Key(usage.FilePath), usage.Start, usage.Length, usage.Kind, usage.SymbolKey);
-                if (!seen.Add(key))
+                if (!(seen ??= []).Add(key))
                 {
                     continue;
                 }
@@ -558,23 +585,40 @@ public sealed partial class RoslynLanguageAdapter
             ReferenceLocationKind.Reference,
             usage.Kind);
 
-    private static async Task<List<Document>> OrderedScopedDocumentsAsync(
+    private static async Task<IReadOnlyList<Document>> OrderedScopedDocumentsAsync(
         Solution solution,
         Project project,
         bool entireSolution,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var scopes = OrderedFinderScopes.GetOrCreateValue(solution);
+        var key = (entireSolution ? null : project.Id, entireSolution);
+        if (scopes.TryGetValue(key, out var ordered))
+        {
+            return ordered;
+        }
+
         var scope = entireSolution
             ? FindRefsScopeKind.EntireSolution
             : FindRefsScopeKind.DependencyClosure;
         var documents = await FindRefsScopes
             .DocumentsForScopeAsync(solution, project, scope, cancellationToken)
             .ConfigureAwait(false);
-        return documents
+        ordered = documents
             .OrderBy(d => d.Project.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Name, StringComparer.Ordinal)
             .ThenBy(d => d.Id.Id)
-            .ToList();
+            .ToArray();
+
+        // Keep the canonical cursor order for the immutable solution. Bound
+        // retained closure lists since many projects can share the same dependents.
+        if (scopes.Count >= MaxCachedFinderScopes)
+        {
+            scopes.Clear();
+        }
+
+        return scopes.GetOrAdd(key, ordered);
     }
 
     private async Task<(PagedResult<T>? Success, SymbolQueryError? Error)> PageFinderHitsAsync<T>(
@@ -588,7 +632,7 @@ public sealed partial class RoslynLanguageAdapter
         int pageLimit,
         int docIndex,
         int locOffset,
-        IReadOnlyList<FinderScopeCoverage.UnsearchedProject> unsearched,
+        string? coverageDescription,
         string noun,
         Func<IReadOnlyList<Document>, CancellationToken, Task<IReadOnlyList<IReadOnlyList<T>>>> findAligned,
         string emptyMessage,
@@ -622,7 +666,7 @@ public sealed partial class RoslynLanguageAdapter
                 tool,
                 slice.Items.Count == 0 ? emptyMessage : completeMessage),
             finished: slice!.Exhausted,
-            unsearched,
+            coverageDescription,
             noun), null);
     }
 
@@ -635,20 +679,19 @@ public sealed partial class RoslynLanguageAdapter
     private static PagedResult<T> ApplyScopeCoverage<T>(
         PagedResult<T> page,
         bool finished,
-        IReadOnlyList<FinderScopeCoverage.UnsearchedProject> unsearched,
+        string? coverageDescription,
         string noun)
     {
-        if (unsearched.Count == 0)
+        if (coverageDescription is null)
         {
             return page;
         }
 
-        var details = FinderScopeCoverage.DescribeUnsearched(unsearched);
         return page with
         {
             Message = finished
-                ? $"{noun} page coverage is incomplete: {details}."
-                : $"{page.Message} Scope coverage is incomplete: {details}."
+                ? $"{noun} page coverage is incomplete: {coverageDescription}."
+                : $"{page.Message} Scope coverage is incomplete: {coverageDescription}."
         };
     }
 

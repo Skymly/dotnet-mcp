@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace DotNetMcp.Server;
 
@@ -9,9 +10,19 @@ public static class JsonOptions
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        TypeInfoResolver = JsonTypeInfoResolver.Combine(
+            WorkspaceJsonContext.Default, new DefaultJsonTypeInfoResolver())
     };
 }
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    PropertyNameCaseInsensitive = true)]
+[JsonSerializable(typeof(WorkspaceOpenResultDto))]
+[JsonSerializable(typeof(WorkspaceStatusDto))]
+internal sealed partial class WorkspaceJsonContext : JsonSerializerContext;
 
 public static class PolicyErrorCodes
 {

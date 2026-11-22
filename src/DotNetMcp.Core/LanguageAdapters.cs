@@ -36,10 +36,14 @@ public sealed class LanguageAdapters
 
     public ILanguageAdapter? ForProjectId(Solution solution, string projectId)
     {
-        var project = solution.Projects.FirstOrDefault(p =>
-            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        var project = FindProjectById(solution, projectId);
         return project is null ? null : ForProject(project);
     }
+
+    internal static Project? FindProjectById(Solution solution, string? projectId) =>
+        projectId?.Length == 36 && Guid.TryParseExact(projectId, "D", out var id) && id != Guid.Empty
+            ? solution.GetProject(ProjectId.CreateFromSerialized(id))
+            : null;
 
     public ILanguageAdapter? ForProjectId(IWorkspaceSession session, string projectId)
     {

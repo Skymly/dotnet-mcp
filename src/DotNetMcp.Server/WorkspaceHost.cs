@@ -59,7 +59,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private readonly GeneratorRunCache _generatorRunCache = new();
     private readonly FindHitCache _findHitCache = new();
     private readonly XamlUsageIndexCache _xamlUsageCache = new();
+    private static readonly TimeSpan BackgroundWarmIdleInterval = TimeSpan.FromMilliseconds(250);
     private CancellationTokenSource? _warmCts;
+    private long _lastWorkspaceQuery;
     private long _generation;
     private CompilationLru _compilationLru;
     private readonly TrustedRoots _trustedRoots;
@@ -204,6 +206,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 return false;
             }
 
+            Volatile.Write(ref _lastWorkspaceQuery, Stopwatch.GetTimestamp());
             session = new WorkspaceSession(
                 _loaded,
                 _epoch,
@@ -282,7 +285,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         return path => _trustedRoots.Contains(path) || toolchainRoots.Contains(path);
     }
 
-    private void CaptureFSharpOutsideGate()
+    private void CaptureFSharpOutsideGate(bool initialLoad = false)
     {
         LoadedSolution? loaded;
         long epoch;
@@ -294,7 +297,8 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
         var snap = loaded is null
             ? null
-            : WorkspaceSession.CaptureFSharpSnapshot(loaded.Solution, epoch, _trustedRoots);
+            : WorkspaceSession.CaptureFSharpSnapshot(
+                loaded.Solution, epoch, _trustedRoots, initialLoad ? loaded.InitialFSharpDefines : null);
 
         _options.BeforeFSharpSnapshotCommitForTests?.Invoke();
 
@@ -1106,7 +1110,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 }
             }
 
-            CaptureFSharpOutsideGate();
+            CaptureFSharpOutsideGate(initialLoad: true);
             StartWatcherForLoaded(loaded);
             lock (_gate)
             {
@@ -1357,6 +1361,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             cts = new CancellationTokenSource();
             _warmCts = cts;
+            Volatile.Write(ref _lastWorkspaceQuery, Stopwatch.GetTimestamp());
             lru = _compilationLru;
             epoch = _epoch;
             fsharpSnapshot = _fsharpSnapshot;
@@ -1405,7 +1410,10 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 xamlUsageSource: _xamlUsageSource);
             foreach (var project in SelectWarmProjects(loaded.Solution, openedPath, lru.Capacity ?? 50))
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                // Give the queries that follow workspace readiness priority over
+                // background compilation, including the first project.
+                await WaitForWarmIdleAsync(cancellationToken).ConfigureAwait(false);
+
                 try
                 {
                     await session.GetCompilationAsync(project.Id, cancellationToken).ConfigureAwait(false);
@@ -1421,6 +1429,22 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         catch
         {
             // Warm is best-effort; never flip phase to failed.
+        }
+    }
+
+    private async Task WaitForWarmIdleAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var elapsed = Stopwatch.GetElapsedTime(Volatile.Read(ref _lastWorkspaceQuery));
+            var remaining = BackgroundWarmIdleInterval - elapsed;
+            if (remaining <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            await Task.Delay(remaining, cancellationToken).ConfigureAwait(false);
         }
     }
 

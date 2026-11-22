@@ -20,8 +20,10 @@ public sealed partial class RoslynLanguageAdapter
             return (null, error);
         }
 
+        var origins = new Dictionary<SyntaxTree, (string? Origin, SymbolQueryError? Error)>(
+            ReferenceEqualityComparer.Instance);
         var (attribution, attrError) = await AttributeSymbolAsync(
-                session, project!, symbol!, cancellationToken)
+                session, project!, symbol!, cancellationToken, origins)
             .ConfigureAwait(false);
         if (attrError is not null)
         {
@@ -31,24 +33,25 @@ public sealed partial class RoslynLanguageAdapter
         var members = new Dictionary<string, SymbolAttribution>(StringComparer.Ordinal);
         if (symbol is INamedTypeSymbol type)
         {
-            foreach (var member in type.GetMembers()
+            foreach (var (member, key) in type.GetMembers()
                          .Where(m => !m.IsImplicitlyDeclared)
                          .Where(static m => m is not IMethodSymbol
                          {
                              MethodKind: MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.EventAdd
                              or MethodKind.EventRemove or MethodKind.EventRaise
                          })
-                         .OrderBy(SymbolKey, StringComparer.Ordinal))
+                         .Select(static m => (Member: m, Key: SymbolKey(m)))
+                         .OrderBy(static m => m.Key, StringComparer.Ordinal))
             {
                 var (memberAttr, memberError) = await AttributeSymbolAsync(
-                        session, project!, member, cancellationToken)
+                        session, project!, member, cancellationToken, origins)
                     .ConfigureAwait(false);
                 if (memberError is not null)
                 {
                     return (null, memberError);
                 }
 
-                members[SymbolKey(member)] = memberAttr!;
+                members[key] = memberAttr!;
             }
         }
 
@@ -62,8 +65,10 @@ public sealed partial class RoslynLanguageAdapter
         IWorkspaceSession session,
         Project project,
         ISymbol symbol,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Dictionary<SyntaxTree, (string? Origin, SymbolQueryError? Error)>? origins = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (symbol.Locations.Length == 0)
         {
             return (SymbolAttribution.WithoutTriggers(
@@ -93,12 +98,13 @@ public sealed partial class RoslynLanguageAdapter
         SymbolAttribution? generated = null;
         foreach (var tree in trees)
         {
-            var (originLabel, originError) = await ResolveOriginAsync(
-                    session,
-                    project,
-                    tree,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            if (origins is null || !origins.TryGetValue(tree, out var origin))
+            {
+                origin = await ResolveOriginAsync(session, project, tree, cancellationToken).ConfigureAwait(false);
+                origins?.Add(tree, origin);
+            }
+
+            var (originLabel, originError) = origin;
             if (originError is not null)
             {
                 if (session.Solution.GetDocument(tree) is SourceGeneratedDocument)

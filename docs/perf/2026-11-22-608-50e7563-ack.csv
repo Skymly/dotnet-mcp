@@ -1,0 +1,4 @@
+subject,scenario,process_pairs,baseline_n,candidate_n,baseline_median_p95_ms,candidate_median_p95_ms,delta_pct,same_workspace_counts,pairs_over_20pct,baseline_process_p95_ms,candidate_process_p95_ms,baseline_errors,candidate_errors
+fixtures,MixedWithFs.workspace.open.return,6,6,6,2.2083500000000003,1.5535999999999999,-29.648832838997453,True,0,2.0745;2.2587;2.2164;2.0043;2.2054;2.2113,1.5607;1.3194;1.3081;1.5465;1.5698;1.7596,;;;;;,;;;;;
+fixtures,SampleFilter.workspace.open.return,6,6,6,41.04345,44.56915,8.590164813143142,True,1,39.0228;44.7703;39.7578;40.2038;43.9754;41.8831,49.1783;48.043;45.5274;40.7626;40.1564;43.6109,;;;;;,;;;;;
+fixtures,XamlApp.workspace.open.return,6,6,6,1.8946,1.23125,-35.01266758154756,True,0,1.93;1.8428;1.6803;1.8592;2.1159;2.1987,1.2215;1.0573;1.2408;1.3376;1.2653;1.2217,;;;;;,;;;;;

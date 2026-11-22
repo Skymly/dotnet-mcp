@@ -19,13 +19,13 @@ public sealed class XamlUsageIndex : IXamlUsageSource
 
     private readonly Lazy<XamlDocumentService> _documents;
     private readonly Lazy<LanguageAdapters> _languages;
-    private readonly RoslynLanguageAdapter _roslyn;
+    private readonly Lazy<RoslynLanguageAdapter> _roslyn;
 
     public XamlUsageIndex(
         XamlDocumentService documents,
         LanguageAdapters languages,
         RoslynLanguageAdapter roslyn)
-        : this(() => documents, () => languages, roslyn)
+        : this(() => documents, () => languages, () => roslyn)
     {
     }
 
@@ -33,11 +33,19 @@ public sealed class XamlUsageIndex : IXamlUsageSource
         Func<XamlDocumentService> documents,
         Func<LanguageAdapters> languages,
         RoslynLanguageAdapter roslyn)
+        : this(documents, languages, () => roslyn)
+    {
+    }
+
+    public XamlUsageIndex(
+        Func<XamlDocumentService> documents,
+        Func<LanguageAdapters> languages,
+        Func<RoslynLanguageAdapter> roslyn)
     {
         // Workspace sessions carry the index even when they have no XAML.
         _documents = new Lazy<XamlDocumentService>(documents);
         _languages = new Lazy<LanguageAdapters>(languages);
-        _roslyn = roslyn;
+        _roslyn = new Lazy<RoslynLanguageAdapter>(roslyn);
     }
 
     public bool IsXamlDocumentPath(string path)
@@ -182,7 +190,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
                 .ConfigureAwait(false);
             if (resolved is not null)
             {
-                var (_, symbol, _) = await _roslyn
+                var (_, symbol, _) = await _roslyn.Value
                     .ResolveHandleSymbolAsync(session, resolved.Handle, ct)
                     .ConfigureAwait(false);
                 ctx.ClassType = symbol as INamedTypeSymbol;
@@ -368,7 +376,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
                     var nameValue = reader.Value.Trim();
                     if (nameValue.Length > 0 && TryFindToken(rawValue, nameValue, out var nameToken))
                     {
-                        var (lookup, _) = _roslyn.LookupTypeMember(
+                        var (lookup, _) = _roslyn.Value.LookupTypeMember(
                             ctx.Project, ctx.ClassType, nameValue, publicOnly: false);
                         if (lookup?.Member is IFieldSymbol field)
                         {
@@ -391,7 +399,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
         var attached = XamlDocumentService.IsAttachedPropertyName(local, name);
         if (!attached && elementType is not null)
         {
-            var (lookup, _) = _roslyn.LookupTypeMember(ctx.Project, elementType, local, publicOnly: true);
+            var (lookup, _) = _roslyn.Value.LookupTypeMember(ctx.Project, elementType, local, publicOnly: true);
             var member = lookup?.Member ?? (ISymbol?)FindElementEvent(elementType, local);
             if (member is not null)
             {
@@ -503,7 +511,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
             var spanStart = valueSpan.Start + binding.PathOffset + offset;
             if (walkType is not null)
             {
-                var (lookup, _) = _roslyn.LookupTypeMember(walkProject, walkType, segment, publicOnly: true);
+                var (lookup, _) = _roslyn.Value.LookupTypeMember(walkProject, walkType, segment, publicOnly: true);
                 if (lookup?.Member is not (IPropertySymbol or IFieldSymbol))
                 {
                     break;
@@ -524,7 +532,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
                 continue;
             }
 
-            var (_, symbol, _) = await _roslyn
+            var (_, symbol, _) = await _roslyn.Value
                 .ResolveHandleSymbolAsync(ctx.Session, resolved.Handle, ct)
                 .ConfigureAwait(false);
             if (symbol is not null && symbol is not INamedTypeSymbol &&
@@ -563,7 +571,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
             return (null, null);
         }
 
-        var (project, symbol, _) = await _roslyn
+        var (project, symbol, _) = await _roslyn.Value
             .ResolveHandleSymbolAsync(ctx.Session, resolved.Handle, ct)
             .ConfigureAwait(false);
         return (symbol as ITypeSymbol, project);
@@ -600,7 +608,7 @@ public sealed class XamlUsageIndex : IXamlUsageSource
             kind,
             confidence,
             normalized.ToDisplayString(SymbolDisplayFormats.SignatureQualified),
-            _roslyn.FormatHandle(owner, normalized),
+            _roslyn.Value.FormatHandle(owner, normalized),
             Snippet(ctx.Text, span)));
     }
 

@@ -113,6 +113,26 @@ public static class PathCanonical
     /// </summary>
     private static string? ReadLinkTarget(string path)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                // Windows marks the node itself. A plain node needs no link-target probe.
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) == 0)
+                {
+                    return null;
+                }
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                return null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                // Fall back to the regular link-target probes when attributes are unavailable.
+            }
+        }
+
         try
         {
             if (Directory.Exists(path))

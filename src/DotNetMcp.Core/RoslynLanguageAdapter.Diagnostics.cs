@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Rename;
@@ -8,6 +10,8 @@ namespace DotNetMcp.Core;
 
 public sealed partial class RoslynLanguageAdapter
 {
+    private static readonly ConditionalWeakTable<Compilation, DiagnosticProjection> SmallDiagnosticLists = new();
+
     public Task<(ProjectDiagnosticsResult? Success, SymbolQueryError? Error)> GetProjectDiagnosticsAsync(
         IWorkspaceSession session,
         string projectId,
@@ -32,12 +36,8 @@ public sealed partial class RoslynLanguageAdapter
         TimeSpan? softBudget,
         CancellationToken cancellationToken)
     {
-        var project = session.Solution.Projects
-            .Where(p => OwnsProject(p))
-            .FirstOrDefault(p =>
-                string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
-
-        if (project is null)
+        var project = LanguageAdapters.FindProjectById(session.Solution, projectId);
+        if (project is null || !OwnsProject(project))
         {
             return (null, new ProjectNotFoundError(
                 $"No project with projectId '{projectId}' is in the ready workspace.",
@@ -108,19 +108,9 @@ public sealed partial class RoslynLanguageAdapter
                 "Retry project_diagnostics; if it keeps failing, call workspace_list_projects and confirm the projectId."));
         }
 
-        var projectIdString = project.Id.Id.ToString("D");
-        var diagnostics = compilation.GetDiagnostics(cancellationToken)
-            .Where(d => d.Severity is DiagnosticSeverity.Error or DiagnosticSeverity.Warning)
-            .Select(d => ToDiagnosticItem(d, projectIdString))
-            .OrderBy(d => d.Id, StringComparer.Ordinal)
-            .ThenBy(d => d.FilePath ?? string.Empty, StringComparer.Ordinal)
-            .ThenBy(d => d.Line ?? -1)
-            .ThenBy(d => d.Column ?? -1)
-            .ThenBy(d => d.Message, StringComparer.Ordinal)
-            .ToList();
-
+        var diagnostics = ReadCompilerDiagnostics(compilation, project.Id, cancellationToken);
         var (page, pageError) = SoftBudgetPage.Page(
-            diagnostics,
+            diagnostics.Items,
             epoch,
             budgetHit: false,
             cursor,
@@ -134,10 +124,49 @@ public sealed partial class RoslynLanguageAdapter
             ? (null, pageError)
             : (new ProjectDiagnosticsResult(
                 page,
-                MissingMetadataDiagnostics.CountIn(diagnostics),
+                diagnostics.MissingMetadataCount,
                 unmaterializedReferences,
                 unresolvedAnalyzers), null);
     }
+
+    private static DiagnosticProjection ReadCompilerDiagnostics(
+        Compilation compilation, ProjectId projectId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var culture = (CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture);
+        if (SmallDiagnosticLists.TryGetValue(compilation, out var cached) &&
+            cached.ProjectId == projectId && cached.Culture.Equals(culture))
+        {
+            return cached;
+        }
+
+        var projectIdString = projectId.Id.ToString("D");
+        var items = compilation.GetDiagnostics(cancellationToken)
+            .Where(d => d.Severity is DiagnosticSeverity.Error or DiagnosticSeverity.Warning)
+            .Select(d => ToDiagnosticItem(d, projectIdString))
+            .OrderBy(d => d.Id, StringComparer.Ordinal)
+            .ThenBy(d => d.FilePath ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(d => d.Line ?? -1)
+            .ThenBy(d => d.Column ?? -1)
+            .ThenBy(d => d.Message, StringComparer.Ordinal)
+            .ToArray();
+        var projection = new DiagnosticProjection(projectId, culture, items, MissingMetadataDiagnostics.CountIn(items));
+
+        // A compilation can stay warm for a long time. Retain at most one
+        // small projection and continue reporting live reference evidence separately.
+        if (items.Length <= MaxMemberPageLimit)
+        {
+            SmallDiagnosticLists.AddOrUpdate(compilation, projection);
+        }
+
+        return projection;
+    }
+
+    private sealed record DiagnosticProjection(
+        ProjectId ProjectId,
+        (CultureInfo Culture, CultureInfo UICulture) Culture,
+        IReadOnlyList<DiagnosticItem> Items,
+        int MissingMetadataCount);
 
     private static DiagnosticItem ToDiagnosticItem(Diagnostic diagnostic, string projectId)
     {

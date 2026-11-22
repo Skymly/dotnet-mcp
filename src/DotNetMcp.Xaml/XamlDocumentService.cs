@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Xml;
 using DotNetMcp.Core;
 using Microsoft.CodeAnalysis;
@@ -12,6 +13,8 @@ public sealed class XamlDocumentService
 {
     public const string AvaloniaDocumentExtension = ".axaml";
     public const string MauiDocumentExtension = ".xaml";
+
+    private static readonly ConditionalWeakTable<Compilation, IReadOnlyList<XmlnsDefinition>> CompilationXmlns = new();
 
     private readonly LanguageAdapters _languages;
     private readonly RoslynLanguageAdapter _roslyn;
@@ -719,7 +722,7 @@ public sealed class XamlDocumentService
         }
 
         XmlnsDefinitionCollections++;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<XmlnsDefinition>();
         var definitions = new List<XmlnsDefinition>();
         var stopped = false;
 
@@ -741,12 +744,11 @@ public sealed class XamlDocumentService
                 continue;
             }
 
-            AddDefinitions(compilation.Assembly, definitions, seen);
-            foreach (var reference in compilation.References)
+            foreach (var definition in CompilationXmlns.GetValue(compilation, ReadXmlnsDefinitions))
             {
-                if (compilation.GetAssemblyOrModuleSymbol(reference) is IAssemblySymbol assembly)
+                if (seen.Add(definition))
                 {
-                    AddDefinitions(assembly, definitions, seen);
+                    definitions.Add(definition);
                 }
             }
         }
@@ -754,10 +756,22 @@ public sealed class XamlDocumentService
         return (definitions, stopped);
     }
 
-    private static void AddDefinitions(
-        IAssemblySymbol assembly,
-        List<XmlnsDefinition> definitions,
-        HashSet<string> seen)
+    private static IReadOnlyList<XmlnsDefinition> ReadXmlnsDefinitions(Compilation compilation)
+    {
+        var definitions = new List<XmlnsDefinition>();
+        AddDefinitions(compilation.Assembly, definitions);
+        foreach (var reference in compilation.References)
+        {
+            if (compilation.GetAssemblyOrModuleSymbol(reference) is IAssemblySymbol assembly)
+            {
+                AddDefinitions(assembly, definitions);
+            }
+        }
+
+        return definitions;
+    }
+
+    private static void AddDefinitions(IAssemblySymbol assembly, List<XmlnsDefinition> definitions)
     {
         foreach (var attribute in assembly.GetAttributes())
         {
@@ -770,12 +784,6 @@ public sealed class XamlDocumentService
             var xml = attribute.ConstructorArguments[0].Value as string;
             var clr = attribute.ConstructorArguments[1].Value as string;
             if (string.IsNullOrWhiteSpace(xml) || string.IsNullOrWhiteSpace(clr))
-            {
-                continue;
-            }
-
-            var key = $"{xml}\u001f{clr}\u001f{assembly.Name}";
-            if (!seen.Add(key))
             {
                 continue;
             }
@@ -1179,14 +1187,8 @@ public sealed class XamlDocumentService
 
     internal static Project? FindRoslynProject(IWorkspaceSession session, string? projectId)
     {
-        if (string.IsNullOrWhiteSpace(projectId))
-        {
-            return null;
-        }
-
-        return session.Solution.Projects.FirstOrDefault(p =>
-            IsRoslynProject(p) &&
-            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        var project = LanguageAdapters.FindProjectById(session.Solution, projectId);
+        return project is not null && IsRoslynProject(project) ? project : null;
     }
 
     internal static XmlReader CreateReader(string text, bool ignoreWhitespace = false) =>

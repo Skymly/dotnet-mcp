@@ -1,0 +1,12 @@
+subject,scenario,process_pairs,baseline_n,candidate_n,baseline_median_p95_ms,candidate_median_p95_ms,delta_pct,same_workspace_counts,pairs_over_20pct,baseline_process_p95_ms,candidate_process_p95_ms,baseline_errors,candidate_errors
+FluentValidation,Scale.symbol.attribution,3,180,180,1.3687,1.0867,-20.603492365017907,True,0,1.3687;1.7732;1.3424,1.0867;1.066;1.1654,;;,;;
+FluentValidation,Scale.symbol.find_callers,3,180,180,0.5523,0.7853,,True,0,0.5523;0.496;0.7644,0.7853;0.804;0.7663,SymbolNotFound;SymbolNotFound;SymbolNotFound,;;
+FluentValidation,Scale.symbol.find_implementations,3,180,180,2.3857,0.6636,-72.18426457643459,True,0,2.5984;2.2405;2.3857,0.5763;0.6951;0.6636,;;,;;
+FluentValidation,Scale.symbol.find_references.entire,3,180,180,1.0239,0.9821,-4.082429924797348,True,0,0.9431;1.0239;1.2531,0.949;0.9821;1.0932,;;,;;
+FluentValidation,Scale.symbol.find_references.scoped,3,180,180,1.1648,1.0252,-11.984890109890124,True,0,1.1293;1.1886;1.1648,1.0252;0.9462;1.2464,;;,;;
+FluentValidation,Scale.symbol.goto_definition,3,180,180,0.4843,0.5172,6.793309931860403,True,0,0.6535;0.4511;0.4843,0.4502;0.5284;0.5172,;;,;;
+FluentValidation,Scale.symbol.members,3,180,180,1.866,1.4138,-24.233654876741706,True,0,1.866;1.6467;2.0258,1.4138;1.8767;1.3588,;;,;;
+FluentValidation,Scale.symbol.resolve.warm,3,180,180,17.1131,0.5152,-96.9894408377208,True,0,15.757;17.387;17.1131,0.4663;0.5152;0.6686,;;,;;
+FluentValidation,Scale.symbol.summary,3,180,180,0.5819,0.5347,-8.111359340092806,True,0,0.5092;0.5819;0.5855,0.5911;0.4453;0.5347,;;,;;
+FluentValidation,Scale.symbol.summary.parallel4,3,180,180,0.5466,0.5187,-5.104281009879241,True,1,0.5466;0.5372;0.6506,0.6964;0.4472;0.5187,;;,;;
+FluentValidation,Scale.symbol.type_hierarchy,3,180,180,0.6922,0.6132,-11.41288644900319,True,0,0.8121;0.6474;0.6922,0.5692;0.6132;0.7944,;;,;;

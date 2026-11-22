@@ -36,7 +36,13 @@ public static class ServerHost
             services.AddSingleton<IAuditLogger, LoggerAuditLogger>();
         }
 
-        services.AddSingleton<WorkspaceHost>();
+        services.AddSingleton(sp => new WorkspaceHost(
+            sp.GetRequiredService<ISolutionLoader>(),
+            sp.GetRequiredService<WorkspaceHostOptions>(),
+            sp.GetRequiredService<TrustedRoots>(),
+            sp.GetRequiredService<GeneratorQueryService>(),
+            sp.GetRequiredService<IAuditLogger>(),
+            xamlUsageSource: sp.GetRequiredService<IXamlUsageSource>()));
         services.AddSingleton<IWorkspaceEditWriter>(sp => sp.GetRequiredService<WorkspaceHost>());
         services.AddSingleton(sp =>
         {
@@ -64,7 +70,7 @@ public static class ServerHost
         services.AddSingleton(sp => new XamlUsageIndex(
             () => sp.GetRequiredService<XamlDocumentService>(),
             () => sp.GetRequiredService<LanguageAdapters>(),
-            sp.GetRequiredService<RoslynLanguageAdapter>()));
+            () => sp.GetRequiredService<RoslynLanguageAdapter>()));
         services.AddSingleton<IXamlUsageSource>(sp => sp.GetRequiredService<XamlUsageIndex>());
         services.AddSingleton<WorkspaceTools>();
         services.AddSingleton<SymbolTools>();

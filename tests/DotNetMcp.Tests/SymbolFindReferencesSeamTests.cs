@@ -422,6 +422,22 @@ public class SymbolFindReferencesSeamTests
         Assert.DoesNotContain("DepBareRef", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("DepPlain", page.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("other scoped projects", page.Message, StringComparison.Ordinal);
+
+        var projectDirectory = Path.Combine(root, "DepUnrestored");
+        var objDirectory = Directory.CreateDirectory(Path.Combine(projectDirectory, "obj"));
+        await File.WriteAllTextAsync(Path.Combine(objDirectory.FullName, "project.assets.json"), "{}");
+
+        (page, error) = await service.FindReferencesAsync(session, resolved.Handle, entireSolution: true);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.Matches("'DepUnrestored' \\([^;]+stale snapshot", page.Message);
+
+        await File.WriteAllTextAsync(Path.Combine(projectDirectory, "DepUnrestored.csproj"), "<Project />");
+
+        (page, error) = await service.FindReferencesAsync(session, resolved.Handle, entireSolution: true);
+        Assert.Null(error);
+        Assert.NotNull(page);
+        Assert.DoesNotContain("DepUnrestored", page.Message, StringComparison.Ordinal);
     }
 
     private static async Task<string> ResolveMarkerHandleAsync(InProcessMcpFixture fx)

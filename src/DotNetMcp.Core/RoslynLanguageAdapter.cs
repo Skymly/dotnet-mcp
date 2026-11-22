@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Rename;
@@ -13,6 +15,10 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
     public const string FSharpLanguage = "fsharp";
     public const int DefaultMemberPageLimit = 50;
     public const int MaxMemberPageLimit = 100;
+    private const int MaxCachedSymbols = 256;
+    private static readonly ConditionalWeakTable<Compilation, CompilationSymbols> ResolvedSymbols = new();
+    private static readonly ConditionalWeakTable<Project, ConditionalWeakTable<ISymbol, SymbolResolveSuccess>>
+        SymbolProjections = new();
     public static readonly TimeSpan DependencyClosureSoftBudget =
         SoftBudgetOptions.Default.FindRefsScoped;
     public static readonly TimeSpan EntireSolutionSoftBudget =
@@ -104,6 +110,13 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             return (null, new SymbolNotFoundError(
                 $"No symbol named '{name}' was found in the ready workspace.",
                 "Confirm the name/FQN, or pass projectId from workspace_list_projects, then call symbol_resolve again." + memberHint));
+        }
+
+        // A unique, complete match needs no signature-based deduplication.
+        if (matches.Count == 1 && incompleteProjectIds.Count == 0)
+        {
+            var (project, symbol) = matches[0];
+            return (ToSuccess(project, symbol), null);
         }
 
         // Deduplicate identical symbols within the same project (walk may hit twice).
@@ -369,19 +382,15 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         }
 
         var pageLimit = ClampLimit(limit);
-        var items = type.GetMembers()
+        var ordered = type.GetMembers()
             .Where(m => m.Kind is not SymbolKind.NamedType and not SymbolKind.Namespace)
             .Where(m => !m.IsImplicitlyDeclared)
-            .OrderBy(SymbolKey, StringComparer.Ordinal)
-            .Select(m =>
-            {
-                var success = ToSuccess(project!, m);
-                return new MemberListItem(success.Handle, success.Summary);
-            })
-            .ToList();
+            .Select(static m => (Symbol: m, Signature: SymbolKey(m)))
+            .OrderBy(static m => m.Signature, StringComparer.Ordinal)
+            .ToArray();
 
-        return SoftBudgetPage.Page(
-            items,
+        var (page, pageError) = SoftBudgetPage.Page(
+            ordered,
             epoch,
             budgetHit: false,
             cursor,
@@ -391,6 +400,20 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             "Type has no listable members.",
             "Member page complete.",
             "the member list");
+        if (page is null)
+        {
+            return (null, pageError);
+        }
+
+        var items = new MemberListItem[page.Items.Count];
+        for (var i = 0; i < items.Length; i++)
+        {
+            var (member, signature) = page.Items[i];
+            var success = ToSuccess(project!, member, signature);
+            items[i] = new MemberListItem(success.Handle, success.Summary);
+        }
+
+        return (new PagedResult<MemberListItem>(items, page.Truncated, page.NextCursor, page.Message), null);
     }
 
     private async Task<(SymbolLocation? Location, SymbolQueryError? Error)> ToSymbolLocationAsync(
@@ -520,8 +543,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
         }
 
-        var project = session.Solution.Projects.FirstOrDefault(p =>
-            string.Equals(p.Id.Id.ToString("D"), parsed.ProjectId, StringComparison.OrdinalIgnoreCase));
+        var project = LanguageAdapters.FindProjectById(session.Solution, parsed.ProjectId);
         if (project is null)
         {
             return (null, null, new SymbolNotFoundError(
@@ -566,11 +588,17 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
     private static string SymbolKey(ISymbol symbol) =>
         symbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified);
 
-    private static SymbolResolveSuccess ToSuccess(Project project, ISymbol symbol)
+    private static SymbolResolveSuccess ToSuccess(Project project, ISymbol symbol, string? signature = null)
     {
+        var projections = SymbolProjections.GetOrCreateValue(project);
+        if (projections.TryGetValue(symbol, out var cached))
+        {
+            return cached;
+        }
+
         var projectId = project.Id.Id.ToString("D");
         var language = LanguageToken(project.Language);
-        var signature = symbol.ToDisplayString(SymbolDisplayFormats.SignatureQualified);
+        signature ??= SymbolKey(symbol);
         var handle = SymbolHandle.Create(language, projectId, signature);
         var summary = new SymbolSummary(
             Kind: symbol.Kind.ToString(),
@@ -584,7 +612,9 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             Language: language,
             InteropKind: DetectInteropKind(symbol));
 
-        return new SymbolResolveSuccess(handle.Format(), summary);
+        var projected = new SymbolResolveSuccess(handle.Format(), summary);
+        projections.TryAdd(symbol, projected);
+        return projected;
     }
 
     internal static string DetectInteropKind(ISymbol symbol)
@@ -745,10 +775,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 continue;
             }
 
-            foreach (var symbol in FindSymbols(warm, query, cancellationToken))
-            {
-                matches.Add((project, symbol));
-            }
+            AddCompilationMatches(warm, project, query, matches, cancellationToken);
         }
     }
 
@@ -769,9 +796,33 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             return;
         }
 
+        AddCompilationMatches(compilation, project, query, matches, cancellationToken);
+    }
+
+    private static void AddCompilationMatches(
+        Compilation compilation,
+        Project project,
+        string query,
+        List<(Project Project, ISymbol Symbol)> matches,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var names = ResolvedSymbols.GetValue(compilation, static _ => new CompilationSymbols()).Names;
+        if (names.TryGetValue(query, out var cached))
+        {
+            matches.Add((project, cached));
+            return;
+        }
+
+        var previousCount = matches.Count;
         foreach (var symbol in FindSymbols(compilation, query, cancellationToken))
         {
             matches.Add((project, symbol));
+        }
+
+        if (matches.Count == previousCount + 1)
+        {
+            RememberSymbol(names, query, matches[previousCount].Symbol);
         }
     }
 
@@ -811,27 +862,21 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         out SymbolQueryError? error)
     {
         error = null;
-        var supported = solution.Projects
-            .Where(p => IsSupportedRoslynLanguage(p.Language))
-            .ToArray();
-
         if (string.IsNullOrWhiteSpace(projectId))
         {
-            return supported;
+            return solution.Projects.Where(p => IsSupportedRoslynLanguage(p.Language)).ToArray();
         }
 
-        var match = supported
-            .Where(p => string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-
-        if (match.Length == 0)
+        var project = LanguageAdapters.FindProjectById(solution, projectId);
+        if (project is not null && IsSupportedRoslynLanguage(project.Language))
         {
-            error = new SymbolNotFoundError(
-                $"No project with projectId '{projectId}' is in the ready workspace.",
-                "Call workspace_list_projects for valid projectId values, then retry symbol_resolve.");
+            return [project];
         }
 
-        return match;
+        error = new SymbolNotFoundError(
+            $"No project with projectId '{projectId}' is in the ready workspace.",
+            "Call workspace_list_projects for valid projectId values, then retry symbol_resolve.");
+        return [];
     }
 
     private static IEnumerable<ISymbol> FindSymbols(
@@ -916,6 +961,41 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         path.EndsWith("." + query, StringComparison.Ordinal);
 
     private static ISymbol? FindBySignature(Compilation compilation, string signatureQualifiedName)
+    {
+        var signatures = ResolvedSymbols.GetValue(compilation, static _ => new CompilationSymbols()).Signatures;
+        if (signatures.TryGetValue(signatureQualifiedName, out var cached))
+        {
+            return cached;
+        }
+
+        var symbol = ScanForSignature(compilation, signatureQualifiedName);
+        if (symbol is null)
+        {
+            return null;
+        }
+
+        // A handle can survive an Epoch change. The resolved symbol belongs to
+        // its immutable compilation and is eligible for collection with it.
+        return RememberSymbol(signatures, signatureQualifiedName, symbol);
+    }
+
+    private static ISymbol RememberSymbol(ConcurrentDictionary<string, ISymbol> symbols, string key, ISymbol symbol)
+    {
+        if (symbols.Count >= MaxCachedSymbols)
+        {
+            symbols.Clear();
+        }
+
+        return symbols.GetOrAdd(key, symbol);
+    }
+
+    private sealed class CompilationSymbols
+    {
+        public ConcurrentDictionary<string, ISymbol> Names { get; } = new(StringComparer.Ordinal);
+        public ConcurrentDictionary<string, ISymbol> Signatures { get; } = new(StringComparer.Ordinal);
+    }
+
+    private static ISymbol? ScanForSignature(Compilation compilation, string signatureQualifiedName)
     {
         foreach (var type in EnumerateAllTypes(compilation.GlobalNamespace))
         {

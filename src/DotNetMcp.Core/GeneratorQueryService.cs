@@ -274,8 +274,7 @@ public sealed class GeneratorQueryService
             }
         }
 
-        project = session.Solution.Projects.FirstOrDefault(p =>
-            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        project = LanguageAdapters.FindProjectById(session.Solution, projectId);
         if (project is null)
         {
             if (session.FSharpSnapshot.FindProject(projectId) is not null)
