@@ -31,14 +31,15 @@ public sealed partial class RoslynLanguageAdapter
         var members = new Dictionary<string, SymbolAttribution>(StringComparer.Ordinal);
         if (symbol is INamedTypeSymbol type)
         {
-            foreach (var member in type.GetMembers()
+            foreach (var (member, key) in type.GetMembers()
                          .Where(m => !m.IsImplicitlyDeclared)
                          .Where(static m => m is not IMethodSymbol
                          {
                              MethodKind: MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.EventAdd
                              or MethodKind.EventRemove or MethodKind.EventRaise
                          })
-                         .OrderBy(SymbolKey, StringComparer.Ordinal))
+                         .Select(static m => (Member: m, Key: SymbolKey(m)))
+                         .OrderBy(static m => m.Key, StringComparer.Ordinal))
             {
                 var (memberAttr, memberError) = await AttributeSymbolAsync(
                         session, project!, member, cancellationToken)
@@ -48,7 +49,7 @@ public sealed partial class RoslynLanguageAdapter
                     return (null, memberError);
                 }
 
-                members[SymbolKey(member)] = memberAttr!;
+                members[key] = memberAttr!;
             }
         }
 

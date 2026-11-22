@@ -142,6 +142,11 @@ public static class GeneratorDriverRunner
 
     public static GeneratorTreeMatch MatchTree(DriverRunSnapshot snapshot, SyntaxTree tree)
     {
+        if (snapshot.FlatSources.Count == 0)
+        {
+            return new GeneratorTreeMatch(null, Ambiguous: false);
+        }
+
         foreach (var source in snapshot.FlatSources)
         {
             if (ReferenceEquals(tree, source.SyntaxTree))
@@ -153,11 +158,13 @@ public static class GeneratorDriverRunner
         // Content is the public contract (ADR-0001 §6). Do not trust FilePath/HintName alone —
         // colliding HintNames share the same short path segment across generators.
         // Identical content from distinct generators is ambiguous — never first-match.
-        var targetText = tree.GetText().ToString();
+        var text = tree.GetText();
+        string? targetText = null;
         GeneratorIdentity? unique = null;
         foreach (var source in snapshot.FlatSources)
         {
-            if (!string.Equals(source.Content, targetText, StringComparison.Ordinal))
+            if (source.Content.Length != text.Length ||
+                !string.Equals(source.Content, targetText ??= text.ToString(), StringComparison.Ordinal))
             {
                 continue;
             }

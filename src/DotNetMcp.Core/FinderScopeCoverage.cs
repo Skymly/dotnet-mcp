@@ -105,7 +105,7 @@ public static class FinderScopeCoverage
         CancellationToken cancellationToken) =>
         CollectCoverageAsync(solution, symbol, scopeDocuments, new CoverageInputs(), cancellationToken);
 
-    internal static async Task<IReadOnlyList<UnsearchedProject>> UnsearchedProjectsAsync(
+    internal static async Task<string?> DescribeScopeAsync(
         Solution solution,
         ISymbol symbol,
         IReadOnlyList<Document> scopeDocuments,
@@ -115,18 +115,19 @@ public static class FinderScopeCoverage
         cancellationToken.ThrowIfCancellationRequested();
         if (scopeDocuments.Count == 0)
         {
-            return [];
+            return null;
         }
 
         var coverage = CoverageByScope.GetOrCreateValue(scopeDocuments);
         if (coverage.TryGetValue(handle, out var cached) && cached.Inputs.IsCurrent(cancellationToken))
         {
-            return cached.Projects;
+            return cached.Description;
         }
 
         var inputs = new CoverageInputs();
         var projects = await CollectCoverageAsync(solution, symbol, scopeDocuments, inputs, cancellationToken)
             .ConfigureAwait(false);
+        var description = projects.Count == 0 ? null : DescribeUnsearched(projects);
         if (inputs.Cacheable)
         {
             if (coverage.Count >= MaxCachedCoverage)
@@ -134,10 +135,10 @@ public static class FinderScopeCoverage
                 coverage.Clear();
             }
 
-            coverage[handle] = new CoverageEntry(projects, inputs);
+            coverage[handle] = new CoverageEntry(description, inputs);
         }
 
-        return projects;
+        return description;
     }
 
     private static async Task<IReadOnlyList<UnsearchedProject>> CollectCoverageAsync(
@@ -1386,7 +1387,7 @@ public static class FinderScopeCoverage
         }
     }
 
-    private sealed record CoverageEntry(IReadOnlyList<UnsearchedProject> Projects, CoverageInputs Inputs);
+    private sealed record CoverageEntry(string? Description, CoverageInputs Inputs);
 
     private sealed record ProjectFile(
         (DateTime LastWriteUtc, long Length) Stamp,

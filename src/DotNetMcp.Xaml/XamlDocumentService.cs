@@ -1179,14 +1179,8 @@ public sealed class XamlDocumentService
 
     internal static Project? FindRoslynProject(IWorkspaceSession session, string? projectId)
     {
-        if (string.IsNullOrWhiteSpace(projectId))
-        {
-            return null;
-        }
-
-        return session.Solution.Projects.FirstOrDefault(p =>
-            IsRoslynProject(p) &&
-            string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase));
+        var project = LanguageAdapters.FindProjectById(session.Solution, projectId);
+        return project is not null && IsRoslynProject(project) ? project : null;
     }
 
     internal static XmlReader CreateReader(string text, bool ignoreWhitespace = false) =>

@@ -524,8 +524,7 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
                 "Call symbol_resolve for a C# or VB symbol to obtain a csharp or vb handle."));
         }
 
-        var project = session.Solution.Projects.FirstOrDefault(p =>
-            string.Equals(p.Id.Id.ToString("D"), parsed.ProjectId, StringComparison.OrdinalIgnoreCase));
+        var project = LanguageAdapters.FindProjectById(session.Solution, parsed.ProjectId);
         if (project is null)
         {
             return (null, null, new SymbolNotFoundError(
@@ -836,27 +835,21 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
         out SymbolQueryError? error)
     {
         error = null;
-        var supported = solution.Projects
-            .Where(p => IsSupportedRoslynLanguage(p.Language))
-            .ToArray();
-
         if (string.IsNullOrWhiteSpace(projectId))
         {
-            return supported;
+            return solution.Projects.Where(p => IsSupportedRoslynLanguage(p.Language)).ToArray();
         }
 
-        var match = supported
-            .Where(p => string.Equals(p.Id.Id.ToString("D"), projectId, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-
-        if (match.Length == 0)
+        var project = LanguageAdapters.FindProjectById(solution, projectId);
+        if (project is not null && IsSupportedRoslynLanguage(project.Language))
         {
-            error = new SymbolNotFoundError(
-                $"No project with projectId '{projectId}' is in the ready workspace.",
-                "Call workspace_list_projects for valid projectId values, then retry symbol_resolve.");
+            return [project];
         }
 
-        return match;
+        error = new SymbolNotFoundError(
+            $"No project with projectId '{projectId}' is in the ready workspace.",
+            "Call workspace_list_projects for valid projectId values, then retry symbol_resolve.");
+        return [];
     }
 
     private static IEnumerable<ISymbol> FindSymbols(
