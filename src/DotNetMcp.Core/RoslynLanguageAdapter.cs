@@ -17,6 +17,8 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
     public const int MaxMemberPageLimit = 100;
     private const int MaxCachedSymbols = 256;
     private static readonly ConditionalWeakTable<Compilation, CompilationSymbols> ResolvedSymbols = new();
+    private static readonly ConditionalWeakTable<Project, ConditionalWeakTable<ISymbol, SymbolResolveSuccess>>
+        SymbolProjections = new();
     public static readonly TimeSpan DependencyClosureSoftBudget =
         SoftBudgetOptions.Default.FindRefsScoped;
     public static readonly TimeSpan EntireSolutionSoftBudget =
@@ -588,6 +590,12 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
 
     private static SymbolResolveSuccess ToSuccess(Project project, ISymbol symbol, string? signature = null)
     {
+        var projections = SymbolProjections.GetOrCreateValue(project);
+        if (projections.TryGetValue(symbol, out var cached))
+        {
+            return cached;
+        }
+
         var projectId = project.Id.Id.ToString("D");
         var language = LanguageToken(project.Language);
         signature ??= SymbolKey(symbol);
@@ -604,7 +612,9 @@ public sealed partial class RoslynLanguageAdapter : ILanguageAdapter
             Language: language,
             InteropKind: DetectInteropKind(symbol));
 
-        return new SymbolResolveSuccess(handle.Format(), summary);
+        var projected = new SymbolResolveSuccess(handle.Format(), summary);
+        projections.TryAdd(symbol, projected);
+        return projected;
     }
 
     internal static string DetectInteropKind(ISymbol symbol)

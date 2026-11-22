@@ -17,6 +17,7 @@ public sealed partial class RoslynLanguageAdapter
     private static readonly ConditionalWeakTable<
         Solution, ConcurrentDictionary<(ProjectId? DefiningProject, bool EntireSolution), IReadOnlyList<Document>>>
         OrderedFinderScopes = new();
+    private static readonly ConditionalWeakTable<IReadOnlyList<Document>, string[]> XamlFinderProjects = new();
     private static readonly ConditionalWeakTable<
         Solution, ConcurrentDictionary<(long Epoch, string Handle), IReadOnlyList<(ISymbol Symbol, Project Project)>>>
         ImplementationTargets = new();
@@ -524,15 +525,16 @@ public sealed partial class RoslynLanguageAdapter
         int deliverableFloor,
         CancellationToken cancellationToken)
     {
-        var targetKey = SymbolKey(NormalizePositionSymbol(symbol));
-        var projectIds = documents
+        var projectIds = XamlFinderProjects.GetValue(documents, static scope => scope
             .Select(static d => d.Project.Id.Id)
             .Distinct()
-            .OrderBy(static id => id.ToString("D"), StringComparer.Ordinal)
-            .ToArray();
+            .Select(static id => id.ToString("D"))
+            .Order(StringComparer.Ordinal)
+            .ToArray());
 
         var items = new List<ReferenceLocationItem>();
-        var seen = new HashSet<(string Path, int Start, int Length, XamlUsageKind Kind, string SymbolKey)>();
+        string? targetKey = null;
+        HashSet<(string Path, int Start, int Length, XamlUsageKind Kind, string SymbolKey)>? seen = null;
         var incomplete = false;
         for (var i = 0; i < projectIds.Length; i++)
         {
@@ -544,18 +546,19 @@ public sealed partial class RoslynLanguageAdapter
             }
 
             var usages = await xamlSource
-                .GetUsagesAsync(session, projectIds[i].ToString("D"), cancellationToken)
+                .GetUsagesAsync(session, projectIds[i], cancellationToken)
                 .ConfigureAwait(false);
             foreach (var usage in usages)
             {
                 if (usage.Confidence != XamlUsageConfidence.Exact ||
-                    !string.Equals(usage.SymbolKey, targetKey, StringComparison.Ordinal))
+                    !string.Equals(usage.SymbolKey, targetKey ??= SymbolKey(NormalizePositionSymbol(symbol)),
+                        StringComparison.Ordinal))
                 {
                     continue;
                 }
 
                 var key = (PositionPaths.Key(usage.FilePath), usage.Start, usage.Length, usage.Kind, usage.SymbolKey);
-                if (!seen.Add(key))
+                if (!(seen ??= []).Add(key))
                 {
                     continue;
                 }
