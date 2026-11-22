@@ -59,7 +59,9 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
     private readonly GeneratorRunCache _generatorRunCache = new();
     private readonly FindHitCache _findHitCache = new();
     private readonly XamlUsageIndexCache _xamlUsageCache = new();
+    private static readonly TimeSpan BackgroundWarmIdleInterval = TimeSpan.FromMilliseconds(250);
     private CancellationTokenSource? _warmCts;
+    private long _lastWorkspaceQuery;
     private long _generation;
     private CompilationLru _compilationLru;
     private readonly TrustedRoots _trustedRoots;
@@ -204,6 +206,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
                 return false;
             }
 
+            Volatile.Write(ref _lastWorkspaceQuery, Stopwatch.GetTimestamp());
             session = new WorkspaceSession(
                 _loaded,
                 _epoch,
@@ -1358,6 +1361,7 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
 
             cts = new CancellationTokenSource();
             _warmCts = cts;
+            Volatile.Write(ref _lastWorkspaceQuery, Stopwatch.GetTimestamp());
             lru = _compilationLru;
             epoch = _epoch;
             fsharpSnapshot = _fsharpSnapshot;
@@ -1407,6 +1411,13 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
             foreach (var project in SelectWarmProjects(loaded.Solution, openedPath, lru.Capacity ?? 50))
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                // Warm the primary projects promptly and give interactive queries
+                // priority over speculative compilation of tests and benchmarks.
+                if (WarmPreference(project.Name) > 0)
+                {
+                    await WaitForWarmIdleAsync(cancellationToken).ConfigureAwait(false);
+                }
+
                 try
                 {
                     await session.GetCompilationAsync(project.Id, cancellationToken).ConfigureAwait(false);
@@ -1422,6 +1433,22 @@ public sealed class WorkspaceHost : IWorkspaceEditWriter, IAsyncDisposable
         catch
         {
             // Warm is best-effort; never flip phase to failed.
+        }
+    }
+
+    private async Task WaitForWarmIdleAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var elapsed = Stopwatch.GetElapsedTime(Volatile.Read(ref _lastWorkspaceQuery));
+            var remaining = BackgroundWarmIdleInterval - elapsed;
+            if (remaining <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            await Task.Delay(remaining, cancellationToken).ConfigureAwait(false);
         }
     }
 
