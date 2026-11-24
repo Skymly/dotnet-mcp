@@ -989,7 +989,30 @@ public class MsBuildWorkspaceIntegrationTests
             var onlyCsId = Assert.Single(projects.Projects, p => p.Name == "FsOnlyCs").ProjectId;
             var onlyCsHandle = await ResolveHandleAsync(fx, "FsOnlyCs.Scaling.scale", onlyCsId);
             var references = await ReadAllAsync(onlyCsHandle);
-            Assert.Equal(2, references.Coverage.Count(c => c.Status == "confirmed"));
+            Assert.Equal(2, references.Coverage.Length);
+            Assert.Equal("confirmed", Assert.Single(references.Coverage, c => c.Name == "CsConsumer").Status);
+            var vb = Assert.Single(references.Coverage, c => c.Name == "VbConsumer");
+            if (vb.Status == "unavailable")
+            {
+                // Some Linux design-time compiler hosts cannot resolve the VB My support types.
+                // The bound use below still has to be present, and incomplete coverage needs evidence.
+                Assert.Contains("compiler errors", vb.Reason, StringComparison.Ordinal);
+                var diagnostics = await fx.Client.CallToolAsync("project_diagnostics",
+                    new Dictionary<string, object?> { ["projectId"] = vb.ProjectId });
+                Assert.True(diagnostics.IsError is not true, InProcessMcpFixture.TextOf(diagnostics));
+                var errors = InProcessMcpFixture.Deserialize<ProjectDiagnosticsResultDto>(diagnostics)
+                    .Items.Where(d => d.Severity == "Error").ToArray();
+                Assert.NotEmpty(errors);
+                Assert.All(errors, d =>
+                {
+                    Assert.Equal("BC30002", d.Id);
+                    Assert.Contains("Global.Microsoft.VisualBasic.", d.Message, StringComparison.Ordinal);
+                });
+            }
+            else
+            {
+                Assert.Equal("confirmed", vb.Status);
+            }
             var consumerHits = references.Items.Where(i => i.Kind == ReferenceLocationKind.Reference).ToArray();
             Assert.Equal(2, consumerHits.Length);
             Assert.Contains(consumerHits, hit => hit.FilePath!.EndsWith("Use.cs") && hit.Line == 5);
@@ -997,7 +1020,11 @@ public class MsBuildWorkspaceIntegrationTests
 
             var unusedHandle = await ResolveHandleAsync(fx, "FsOnlyCs.Scaling.unused", onlyCsId);
             var unused = await ReadAllAsync(unusedHandle);
-            Assert.Equal(2, unused.Coverage.Count(c => c.Status == "noHits"));
+            Assert.Equal(2, unused.Coverage.Length);
+            Assert.Equal("noHits", Assert.Single(unused.Coverage, c => c.Name == "CsConsumer").Status);
+            Assert.Equal(vb.Status == "confirmed" ? "noHits" : "unavailable",
+                Assert.Single(unused.Coverage, c => c.Name == "VbConsumer").Status);
+            Assert.DoesNotContain(unused.Items, hit => hit.ProjectId != onlyCsId);
 
             var hiddenHandle = await ResolveHandleAsync(fx, "FsOnlyCs.Scaling.factor", onlyCsId);
             var hidden = await ReadAllAsync(hiddenHandle);

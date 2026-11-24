@@ -158,7 +158,16 @@ public class FsharpReadNoDiskWriteSeamTests
                 entireSolution: true);
             Assert.Null(entireError);
             Assert.NotNull(entire);
-            Assert.False(entire!.Truncated);
+            Assert.True(entire!.Truncated);
+            Assert.NotNull(entire.NextCursor);
+            var (consumerPage, consumerError) = await service.FindReferencesAsync(
+                session, resolved.Handle, entireSolution: true, cursor: entire.NextCursor);
+            Assert.Null(consumerError);
+            Assert.NotNull(consumerPage);
+            Assert.False(consumerPage.Truncated);
+            Assert.Null(consumerPage.NextCursor);
+            var consumer = Assert.Single(consumerPage.ProjectCoverage!);
+            Assert.Equal("csharp", consumer.Language);
 
             var (ping, pingError) = await service.ResolveByNameAsync(
                 session,
