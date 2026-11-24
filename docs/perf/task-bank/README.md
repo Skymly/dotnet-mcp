@@ -1,5 +1,7 @@
 # Task-level evaluation (#528)
 
+The [workspace tool profiles report](../2026-11-22-workspace-agent-eval.md) reuses these prompts and this grader to compare the baseline full configuration with the candidate lite configuration. It includes the isolated controller commands, the cell ledger and the directed stdio probes.
+
 This is a blinded, paired **agent** experiment, not the latency benchmark. The
 bank has ten tasks. The operator owns the bank, exported inputs and grader;
 give the agent **only** its exported subject and the output of `prompt`.

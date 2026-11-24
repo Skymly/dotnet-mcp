@@ -1,0 +1,225 @@
+{
+  "candidate": "55e3e1f49e985aa5d4f375acbfab737339b1098d",
+  "candidateServerSha256": "00e11497d82e1d8a8ceccd819810bc35a44807eab5d082bad79d472b588ae100",
+  "baselineToolsList": {
+    "profile": "full",
+    "toolCount": 33,
+    "listBytes": 35846
+  },
+  "a3": {
+    "tools": {
+      "full": {
+        "listBytes": 39362,
+        "toolCount": 36
+      },
+      "lite": {
+        "listBytes": 13877,
+        "toolCount": 21
+      }
+    },
+    "fullPreviewBytes": 19663,
+    "compactPreviewBytes": 2827,
+    "continuationBytes": [],
+    "editSites": {
+      "ViewModels/CommunityToolkitCommandsViewModel.cs": 5,
+      "Views/CommunityToolkitCommandsSampleView.axaml": 2
+    },
+    "passed": true,
+    "grader": "source matched; build exit 0"
+  },
+  "d1": {
+    "task": "D1",
+    "profile": "lite",
+    "path": "App/Program.cs",
+    "line": 8,
+    "column": 57,
+    "endColumn": 60,
+    "diagnostic": "CS0117",
+    "fixes": [
+      {
+        "fixIndex": 0,
+        "title": "Change 'Tga' to 'Tag'.",
+        "equivalenceKey": "Tag"
+      },
+      {
+        "fixIndex": 1,
+        "title": "Generate field 'Tga'",
+        "equivalenceKey": "Generate field 'Tga'"
+      },
+      {
+        "fixIndex": 2,
+        "title": "Generate property 'Tga'",
+        "equivalenceKey": "Generate property 'Tga'"
+      },
+      {
+        "fixIndex": 3,
+        "title": "Generate read-only field 'Tga'",
+        "equivalenceKey": "Generate read-only field 'Tga'"
+      }
+    ],
+    "appliedIndex": 0,
+    "compactPreviewBytes": 879,
+    "continuationBytes": [],
+    "trace": [
+      {
+        "call": "initialize",
+        "responseBytes": 569
+      },
+      {
+        "call": "tools/list",
+        "responseBytes": 13877
+      },
+      {
+        "call": "tool_help",
+        "responseBytes": 205
+      },
+      {
+        "call": "tool_help",
+        "responseBytes": 726
+      },
+      {
+        "call": "workspace_open",
+        "responseBytes": 340
+      },
+      {
+        "call": "workspace_status",
+        "responseBytes": 378
+      },
+      {
+        "call": "workspace_status",
+        "responseBytes": 378
+      },
+      {
+        "call": "workspace_status",
+        "responseBytes": 378
+      },
+      {
+        "call": "workspace_status",
+        "responseBytes": 379
+      },
+      {
+        "call": "workspace_status",
+        "responseBytes": 380
+      },
+      {
+        "call": "workspace_status",
+        "responseBytes": 380
+      },
+      {
+        "call": "workspace_status",
+        "responseBytes": 380
+      },
+      {
+        "call": "workspace_status",
+        "responseBytes": 361
+      },
+      {
+        "call": "workspace_list_projects",
+        "responseBytes": 945
+      },
+      {
+        "call": "project_diagnostics",
+        "responseBytes": 609
+      },
+      {
+        "call": "diagnostics_list_fixes",
+        "responseBytes": 810
+      },
+      {
+        "call": "diagnostics_preview_fix",
+        "responseBytes": 879
+      },
+      {
+        "call": "diagnostics_apply_fix",
+        "responseBytes": 274
+      },
+      {
+        "call": "project_diagnostics",
+        "responseBytes": 202
+      }
+    ],
+    "passed": true,
+    "grader": "source matched; build exit 0"
+  },
+  "fsharp-windows": [
+    {
+      "symbol": "scale",
+      "coverage": {
+        "CsConsumer": "confirmed",
+        "VbConsumer": "confirmed"
+      },
+      "sites": [
+        "CsConsumer/Use.cs:5",
+        "VbConsumer/Use.vb:3"
+      ],
+      "details": {}
+    },
+    {
+      "symbol": "unused",
+      "coverage": {
+        "CsConsumer": "noHits",
+        "VbConsumer": "noHits"
+      },
+      "sites": [],
+      "details": {}
+    },
+    {
+      "symbol": "factor",
+      "coverage": {
+        "CsConsumer": "unavailable",
+        "VbConsumer": "unavailable"
+      },
+      "sites": [],
+      "details": {
+        "CsConsumer": "The F# symbol has no verified public CLR declaration ID.",
+        "VbConsumer": "The F# symbol has no verified public CLR declaration ID."
+      }
+    }
+  ],
+  "fsharp-wsl": [
+    {
+      "symbol": "scale",
+      "coverage": {
+        "CsConsumer": "confirmed",
+        "VbConsumer": "unavailable"
+      },
+      "sites": [
+        "CsConsumer/Use.cs:5",
+        "VbConsumer/Use.vb:3"
+      ],
+      "details": {
+        "VbConsumer": "The consumer has compiler errors. Any returned hits are confirmed; additional uses may be unresolved. BC30002"
+      }
+    },
+    {
+      "symbol": "unused",
+      "coverage": {
+        "CsConsumer": "noHits",
+        "VbConsumer": "unavailable"
+      },
+      "sites": [],
+      "details": {
+        "VbConsumer": "The consumer has compiler errors. Any returned hits are confirmed; additional uses may be unresolved. BC30002"
+      }
+    },
+    {
+      "symbol": "factor",
+      "coverage": {
+        "CsConsumer": "unavailable",
+        "VbConsumer": "unavailable"
+      },
+      "sites": [],
+      "details": {
+        "CsConsumer": "The F# symbol has no verified public CLR declaration ID.",
+        "VbConsumer": "The F# symbol has no verified public CLR declaration ID."
+      }
+    }
+  ],
+  "windowsReleaseValidation": {
+    "total": 1015,
+    "passed": 1012,
+    "failed": 0,
+    "skipped": 3,
+    "packedStdioSmoke": "Passed"
+  }
+}
