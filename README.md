@@ -1,5 +1,7 @@
 # dotnet-mcp
 
+**English** | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
+
 <!-- mcp-name: io.github.Skymly/dotnet-mcp -->
 
 An MCP (Model Context Protocol) server for .NET workspaces. It gives coding agents **compiler-accurate** symbol navigation, source-generator attribution, Avalonia/MAUI XAML queries, and a **restricted** Workspace Edit surface (rename / diagnostic fix / code refactoring). It is not a generic file writer, shell, or LSP proxy.
@@ -185,32 +187,3 @@ dotnet run --project benches/DotNetMcp.Bench -c Release -- --suite smoke
 ```
 
 This repo uses [mattpocock/skills](https://github.com/mattpocock/skills); see `AGENTS.md` and `docs/agents/`.
-
----
-
-## 中文
-
-面向 Agent 的 .NET MCP 服务器：C# / VB / F# 符号导航、源生成器归因、Avalonia/MAUI XAML、以及受限 Workspace Edit（rename / Diagnostic fix / Code Refactoring）。**不是**通用写文件、shell 或 LSP 代理。
-
-NuGet 包 id 为 **`Skymly.DotNetMcp`**（命令名为 `dnmcp`）。必须通过 `--roots`、`--roots=path` 或 `DOTNET_MCP_TRUSTED_ROOTS` 配置受信根，**不再默认使用进程工作目录**。两者同时设置时取并集，而不是互相覆盖。配置缺失或空值时进程以退出码 1 结束，并在 stderr 写一行 JSON，而不是异常堆栈。`workspace_open` 会运行 MSBuild 与 analyzer/源生成器，不要对不受信任的仓库使用。
-
-安装（NuGet 已上架，`dnx` 为首选；也可源码运行或本地 pack）：
-
-```bash
-dnx Skymly.DotNetMcp --yes -- --roots /path/to/repo
-```
-
-源码运行：
-
-```bash
-dotnet run --project src/DotNetMcp.Server -- --roots /path/to/repo
-```
-
-本地 pack：
-
-```bash
-dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts
-dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo
-```
-
-Agent 接入：[docs/agent-guidance.md](docs/agent-guidance.md) 提供可直接粘贴到消费方 `AGENTS.md` / `CLAUDE.md` 的片段；服务器 initialize 结果携带相同的 `instructions`，并附带 `trace_symbol` / `safe_rename` 两个 prompt。
