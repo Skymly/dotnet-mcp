@@ -485,3 +485,7 @@ $RECYCLE.BIN/
 benches/**/data/*.json
 !benches/**/data/.gitignore
 
+# Local scratch directories
+.scratch/
+.Local/
+.Temp/
