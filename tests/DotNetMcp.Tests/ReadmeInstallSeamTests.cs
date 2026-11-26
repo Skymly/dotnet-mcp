@@ -144,7 +144,7 @@ public class ReadmeInstallSeamTests
         Assert.Contains("packages.lock.json", ci, StringComparison.Ordinal);
         Assert.Contains("Transitive dependency resolution is not locked", ci, StringComparison.Ordinal);
 
-        var zh = readme[(readme.IndexOf("## 中文", StringComparison.Ordinal))..];
+        var zh = File.ReadAllText(Path.Combine(FindRepoRoot(), "README.zh-CN.md"));
         Assert.Contains("dotnet pack src/DotNetMcp.Server -c Release -o ./artifacts", zh, StringComparison.Ordinal);
         Assert.Contains("dotnet tool exec --source ./artifacts --yes Skymly.DotNetMcp -- --roots /path/to/repo", zh, StringComparison.Ordinal);
     }
