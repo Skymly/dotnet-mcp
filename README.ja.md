@@ -2,6 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | **日本語**
 
+[![CI](https://github.com/Skymly/dotnet-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Skymly/dotnet-mcp/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Skymly.DotNetMcp?label=NuGet&logo=nuget)](https://www.nuget.org/packages/Skymly.DotNetMcp)
+[![GitHub Release](https://img.shields.io/github/v/release/Skymly/dotnet-mcp?label=Release)](https://github.com/Skymly/dotnet-mcp/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 .NET ワークスペース向けの MCP（Model Context Protocol）サーバーです。コーディングエージェントに対し、**コンパイラレベルの精度**を備えたシンボルナビゲーション、ソースジェネレーター帰属（attribution）、Avalonia/MAUI XAML クエリ、および**制限付き** Workspace Edit サーフェス（名前変更 / 診断修正 / コードリファクタリング）を提供します。汎用ファイルライター、シェル、あるいは LSP プロキシではありません。
 
 NuGet パッケージ ID：**`Skymly.DotNetMcp`**（CLI コマンド：`dnmcp`）。.NET 10 以降が必要です。

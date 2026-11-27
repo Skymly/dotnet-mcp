@@ -2,6 +2,11 @@
 
 [English](README.md) | **简体中文** | [繁體中文](README.zh-TW.md) | [日本語](README.ja.md)
 
+[![CI](https://github.com/Skymly/dotnet-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Skymly/dotnet-mcp/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Skymly.DotNetMcp?label=NuGet&logo=nuget)](https://www.nuget.org/packages/Skymly.DotNetMcp)
+[![GitHub Release](https://img.shields.io/github/v/release/Skymly/dotnet-mcp?label=Release)](https://github.com/Skymly/dotnet-mcp/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 面向 .NET 工作区的 MCP（Model Context Protocol）服务器。它为编码智能体提供**编译器级准确**的符号导航、源生成器归因、Avalonia/MAUI XAML 查询，以及**受限的** Workspace Edit 能力（重命名 / 诊断修复 / 代码重构）。它不是通用文件写入工具、Shell 或 LSP 代理。
 
 NuGet 包 ID：**`Skymly.DotNetMcp`**（CLI 命令：`dnmcp`）。需要 .NET 10+。
