@@ -4,6 +4,11 @@
 
 <!-- mcp-name: io.github.Skymly/dotnet-mcp -->
 
+[![CI](https://github.com/Skymly/dotnet-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Skymly/dotnet-mcp/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Skymly.DotNetMcp?label=NuGet&logo=nuget)](https://www.nuget.org/packages/Skymly.DotNetMcp)
+[![GitHub Release](https://img.shields.io/github/v/release/Skymly/dotnet-mcp?label=Release)](https://github.com/Skymly/dotnet-mcp/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An MCP (Model Context Protocol) server for .NET workspaces. It gives coding agents **compiler-accurate** symbol navigation, source-generator attribution, Avalonia/MAUI XAML queries, and a **restricted** Workspace Edit surface (rename / diagnostic fix / code refactoring). It is not a generic file writer, shell, or LSP proxy.
 
 Package id on NuGet: **`Skymly.DotNetMcp`** (CLI command: `dnmcp`). Requires .NET 10+.

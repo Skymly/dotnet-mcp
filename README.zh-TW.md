@@ -2,6 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md) | **繁體中文** | [日本語](README.ja.md)
 
+[![CI](https://github.com/Skymly/dotnet-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Skymly/dotnet-mcp/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Skymly.DotNetMcp?label=NuGet&logo=nuget)](https://www.nuget.org/packages/Skymly.DotNetMcp)
+[![GitHub Release](https://img.shields.io/github/v/release/Skymly/dotnet-mcp?label=Release)](https://github.com/Skymly/dotnet-mcp/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 面向 .NET 工作區的 MCP（Model Context Protocol）伺服器。為編碼代理提供**編譯器級精準**的符號導覽、原始碼產生器歸因、Avalonia/MAUI XAML 查詢，以及**受限的** Workspace Edit 表面（重新命名 / 診斷修正 / 程式碼重構）。它並非通用的檔案寫入工具、Shell 或 LSP 代理。
 
 NuGet 套件 ID：**`Skymly.DotNetMcp`**（CLI 命令：`dnmcp`）。需要 .NET 10+。
