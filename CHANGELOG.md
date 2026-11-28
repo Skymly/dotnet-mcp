@@ -4,6 +4,8 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 
 ## Unreleased
 
+## 5.1.0 - 2026-11-28
+
 ### Added
 
 - Rename preview and apply return `affectedProjectIds` for projects containing the changed documents. Pass each ID to `project_diagnostics` to check that compilation before and after apply (#567)
@@ -18,6 +20,8 @@ All notable product changes are recorded here. Version numbers match `src/DotNet
 - `symbol_resolve` now resolves `Type.Member` names the same way the F# catalog already did — the query matches a symbol's namespace + containing-type + name path on whole trailing segments, so `Calculator.Clear`, `Outer.Inner.P`, and `Widget.M()` resolve the member directly instead of reporting `SymbolNotFound` while the bare member name is `SymbolAmbiguous`. Single-project ambiguities (overloads, same-name members across types) now list candidate signatures instead of only a projectId, and `SymbolNotFound` / `SoftBudgetExceeded` on a dotted name plus the single-project `SymbolAmbiguous` point at the "resolve the type, then `symbol_members` on its handle" path (`#561`)
 - Prioritize projects with likely source files during an unscoped C#/VB `symbol_resolve`. If its budget expires, the response includes the verified candidates found so far and `incompleteProjectIds` for the projects whose scan did not finish (#550)
 - Recognize the standard MAUI 2009 XAML directive namespace in class and name resolution, typed bindings, diagnostics, and the XAML usage index (#598)
+- `workspace_open` no longer rewrites project files when a build target supplies an analyzer or source generator (#591)
+- Batch nested project recovery when opening `.slnx` solutions, and reuse symbol-search and diagnostic results for repeated queries against the same snapshot (#602, #605, #609)
 
 ## 5.0.1 - 2026-11-06
 
